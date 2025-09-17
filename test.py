@@ -17,10 +17,10 @@ import random
 from torch.nn import functional as F
 from typing import Tuple
 import sys
-sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
+# sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
 import timm
 #%%
-sys.path.append(r"D:\codes\working\pos\notebook2")
+sys.path.append(r".")
 from vision_transformer_rope import *
 from vision_transformer_rpe import *
 from vision_transformer_relpos import *
