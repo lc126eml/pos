@@ -23,7 +23,7 @@ import torchvision.transforms.functional as TF
 import sys
 import timm
 import logging
-
+from utils import wait_for_python_gpu_processes
 #%%
 sys.path.append(r".")
 from vision_transformer_rope import *
@@ -50,7 +50,7 @@ IMG_SIZE = 224  # ViT fixed size; adjust if needed
 LEARNING_RATE = 5e-4
 EPOCHS = 130  # Reduced for segmentation
 HAS_POS = True
-OVERLAP = 0
+OVERLAP = 2
 pretrained = None
 START_EPOCH = 0
 WANDB = False
@@ -60,6 +60,7 @@ VAL_STEPS = 500
 ALPHA = 3.0
 Use_Row_Col_Loss = False
 RC_ALPHA = 30.0
+DICE_WEIGHT = 0 # Weight for the Dice loss component
 WORKERS = 4
 output_dir = "/home/sshuser/Codes/pos/output"
 
@@ -75,7 +76,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
-
+wait_for_python_gpu_processes(poll_interval_minutes=5)
 # %%
 # Set seeds
 np.random.seed(SEED)
@@ -346,6 +347,121 @@ class ProgressiveSegDecoder(nn.Module):
         
         # Pass through the progressive decoder
         return self.decoder(x)
+
+#%%
+# Corrected memory-efficient version
+class CorrectedDiceLoss(nn.Module):
+    """
+    Memory-efficient Dice Loss that avoids one-hot encoding
+    while correctly computing per-class Dice coefficients.
+    """
+    def __init__(self, smooth=1.0, ignore_index=-1, weight=None):
+        super(CorrectedDiceLoss, self).__init__()
+        self.smooth = smooth
+        self.ignore_index = ignore_index
+        self.register_buffer('weight', weight)
+    
+    def forward(self, logits, targets):
+        """
+        Correctly computes multi-class Dice loss without one-hot encoding.
+        """
+        N, C, H, W = logits.shape
+        probas = F.softmax(logits, dim=1)
+        
+        # Create valid mask
+        if self.ignore_index >= 0:
+            valid_mask = (targets != self.ignore_index)
+        else:
+            valid_mask = torch.ones_like(targets, dtype=torch.bool)
+        
+        # Flatten for easier computation
+        probas_flat = probas.view(N, C, -1)  # (N, C, H*W)
+        targets_flat = targets.view(N, -1)   # (N, H*W)
+        valid_mask_flat = valid_mask.view(N, -1)  # (N, H*W)
+        
+        dice_scores = []
+        
+        # Compute Dice for each class separately
+        for class_idx in range(C):
+            # Get predicted probabilities for current class
+            pred_class = probas_flat[:, class_idx, :]  # (N, H*W)
+            
+            # Create binary target mask for current class
+            target_class = (targets_flat == class_idx).float()  # (N, H*W)
+            
+            # Apply valid pixel mask
+            pred_masked = pred_class * valid_mask_flat.float()
+            target_masked = target_class * valid_mask_flat.float()
+            
+            # Compute Dice components
+            intersection = torch.sum(pred_masked * target_masked, dim=1)  # (N,)
+            pred_sum = torch.sum(pred_masked, dim=1)  # (N,)
+            target_sum = torch.sum(target_masked, dim=1)  # (N,)
+            
+            # Dice coefficient per sample
+            dice = (2.0 * intersection + self.smooth) / (pred_sum + target_sum + self.smooth)
+            dice_scores.append(dice)
+        
+        # Stack and compute mean
+        dice_tensor = torch.stack(dice_scores, dim=1)  # (N, C)
+        
+        if self.weight is not None:
+            dice_tensor = dice_tensor * self.weight.view(1, -1)
+        
+        # Return 1 - dice (loss) averaged over classes and batch
+        return (1.0 - dice_tensor).mean()
+
+
+# Even more memory-efficient version using gather operations
+class GatherDiceLoss(nn.Module):
+    """
+    Ultra memory-efficient Dice loss using gather operations
+    to avoid explicit class loops while maintaining correctness.
+    """
+    def __init__(self, smooth=1.0, ignore_index=-1):
+        super(GatherDiceLoss, self).__init__()
+        self.smooth = smooth
+        self.ignore_index = ignore_index
+    
+    def forward(self, logits, targets):
+        N, C, H, W = logits.shape
+        probas = F.softmax(logits, dim=1)
+        
+        # Create valid mask and clamp targets
+        if self.ignore_index >= 0:
+            valid_mask = (targets != self.ignore_index)
+            targets_clamped = targets.clamp(min=0)
+        else:
+            valid_mask = torch.ones_like(targets, dtype=torch.bool)
+            targets_clamped = targets
+        
+        # Flatten everything
+        probas_flat = probas.view(N, C, -1)
+        targets_flat = targets_clamped.view(N, -1)
+        valid_flat = valid_mask.float().view(N, -1)
+        
+        total_loss = 0.0
+        
+        # Process each class
+        for c in range(C):
+            # Binary masks for current class
+            is_class_c = (targets_flat == c).float()
+            
+            # Get predictions for class c
+            pred_c = probas_flat[:, c, :]
+            
+            # Apply valid mask
+            pred_masked = pred_c * valid_flat
+            target_masked = is_class_c * valid_flat
+            
+            # Dice calculation
+            intersection = torch.sum(pred_masked * target_masked, dim=1)
+            union = torch.sum(pred_masked + target_masked, dim=1)
+            
+            dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
+            total_loss += (1.0 - dice).mean()
+        
+        return total_loss / C
 # %%
 # =================================================================================
 # Step 4: Initialize the Model, Loss Function, and Optimizer
@@ -406,19 +522,15 @@ if pretrained is not None:
     IncompatibleKeys = model.load_state_dict(state_dicts)
     logger.info(IncompatibleKeys)
 # --- Loss Function & Optimizer ---
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
-logger.info("✅ Model, Loss Function, and Optimizer are ready.")
-
-# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-# logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
 
 # Loss and Optimizer
-criterion = nn.CrossEntropyLoss(ignore_index=-1)  # Ignore background if index 0
+ce_criterion = nn.CrossEntropyLoss(ignore_index=-1)  # Standard Cross-Entropy
+dice_criterion = GatherDiceLoss(ignore_index=-1)          # Our new Dice Loss
+
 optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=LEARNING_RATE)
 total_steps = EPOCHS * steps_per_epoch
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
-logger.info("✅ Step-based LR Scheduler is ready.")
+logger.info("✅ Initialized Hybrid Loss (CE + Dice), Optimizer, and LR Scheduler.")
 
 # %%
 # dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
@@ -497,7 +609,7 @@ class PatchRowColCriterion(nn.Module):
 if Use_Row_Col_Loss:
     grid_h, grid_w = model.patch_embed.grid_size
     rowcol_loss = PatchRowColCriterion(
-        feat_dim=model.get_classifier().in_features,
+        feat_dim=model.embed_dim,
         grid_h=grid_h,
         grid_w=grid_w
     ).to(DEVICE)
@@ -574,7 +686,14 @@ for epoch in range(EPOCHS):
         with torch.amp.autocast('cuda', dtype=autocast_dtype):
             feats = model.forward_features(inputs)
             outputs = decoder(feats[:, 1:, :])            
-            loss = criterion(outputs, labels)
+
+            # --- Hybrid Loss Calculation ---
+            loss = ce_criterion(outputs, labels)
+            
+            if DICE_WEIGHT > 0:
+                loss_dice = dice_criterion(outputs, labels)
+                loss = loss + DICE_WEIGHT * loss_dice
+
             if Use_Row_Col_Loss:
                 aux_loss = rowcol_loss(feats[:, 1:, :])
                 # logger.info(loss, aux_loss)
@@ -670,6 +789,8 @@ for epoch in range(EPOCHS):
     training_history['valid_miou'].append(epoch_val_miou)
     training_history['epoch'].append(epoch+1)
     training_history['step'].append(step+1)
+    history_df = pd.DataFrame(training_history)
+    history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
 
     model.train()
     decoder.train()
@@ -687,7 +808,6 @@ logger.info("🏁 Training complete.")
 
 # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
 history_df = pd.DataFrame(training_history)
-
 history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
 save_checkpoint(model, decoder, output_dir, "final")
 
@@ -713,13 +833,13 @@ if not history_df.empty:
     best_miou_val = best_miou_row['valid_miou']
 
     # Find the epoch with the best validation abs_rel
-    best_acc_row = history_df.loc[history_df['valid_acc'].idxmin()]
+    best_acc_row = history_df.loc[history_df['valid_acc'].idxmax()]
     best_acc_epoch = int(best_acc_row['epoch'])
     best_acc_val = best_acc_row['valid_acc']
 
     logger.info("\n--- Best Validation Metrics from History ---")
     logger.info(f"  Best a1:      {best_miou_val:.4f} (Epoch {best_miou_epoch})")
-    logger.info(f"  Best AbsRel:  {best_acc_val:.4f} (Epoch {best_acc_epoch})")
+    logger.info(f"  Best acc:  {best_acc_val:.4f} (Epoch {best_acc_epoch})")
     logger.info("------------------------------------------")
 # %%
 # import matplotlib.pyplot as plt
@@ -756,5 +876,3 @@ if not history_df.empty:
 # %%
 if WANDB:
     wandb.finish()
-
-
