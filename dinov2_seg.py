@@ -773,10 +773,10 @@ for epoch in range(EPOCHS):
     
     epoch_val_acc = val_correct / val_total if val_total > 0 else 0.0
     epoch_train_acc = train_correct / train_total if train_total > 0 else 0.0
-    epoch_train_loss = running_loss / (step % steps_per_epoch + 1)
+    epoch_train_loss = running_loss / len(train_dataset)
 
     logger.info(f"\nEpoch {epoch+1+START_EPOCH}/{EPOCHS} Summary:")
-    logger.info(f"\nStep {step+1+START_EPOCH * steps_per_epoch} Summary:")
+    logger.info(f"Step {step} Summary:")
     logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
             f"Train mIoU: {epoch_train_miou:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
             f"Valid mIoU: {epoch_val_miou:.4f}\n")

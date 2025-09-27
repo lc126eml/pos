@@ -22,6 +22,8 @@ from torch.nn import functional as F
 import torchvision.transforms.functional as TF
 import sys
 import timm
+from types import SimpleNamespace
+import argparse
 import logging
 from utils import wait_for_python_gpu_processes
 #%%
@@ -40,33 +42,36 @@ from utils import wait_for_python_gpu_processes
 # Step 2: Configuration
 # =================================================================================
 
-# --- Model & Training Settings ---
-MODEL_TYPE = "base"
-MODEL_NAME = f'vit_{MODEL_TYPE}_patch14_dinov2'
-NUM_CLASSES = 100
-# Adjust based on your GPU memory
-BATCH_SIZE = 256
-# ViT models have a fixed input size
-IMG_SIZE = 224
-LEARNING_RATE = 5e-4
-# Number of training epochs
-EPOCHS = 130
-HAS_POS = True
-OVERLAP = 0
-pretrained = None
-SEED = 55
-VAL_STEPS = 500
-ALPHA = 3.0
-Use_Patch_Position_Loss = False
-Use_Row_Col_Loss = False
-RC_ALPHA = 30.0
+# --- Dynamically set root directory ---
+root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 
-WORKERS = 3
-# root_dir = "/linux"
-root_dir = "/home/sshuser"
-output_dir = f"{root_dir}/Codes/pos/output/imagenet/base"
-# --- Dataset Paths ---
-BASE_PATH = f'{root_dir}/Data/imagenet100/' 
+# --- Configuration via SimpleNamespace for easy interactive use ---
+args = SimpleNamespace(
+    # --- Model & Training Settings ---
+    model_type='large',
+    num_classes=10,
+    # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
+    batch_size=136,
+    # ViT models have a fixed input size
+    img_size=224,
+    lr=2e-4,
+    epochs=130,
+    has_pos=False, # Set to True or False directly
+    overlap=2,
+    pretrained=None,
+    seed=56,
+    use_patch_position_loss=True,
+    use_rc_loss=False,
+    rc_alpha=30.0,
+    workers=5,
+
+    # --- Dataset Paths ---
+    root_dir=root_dir,
+)
+
+MODEL_NAME = f'vit_{args.model_type}_patch14_dinov2'
+output_dir = f"{args.root_dir}/Codes/pos/output/imagenet/{args.model_type}b{args.batch_size}s{args.seed}"
+BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
 TRAIN_PATHS = [
@@ -87,14 +92,14 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 # %%
 # torch.backends.cudnn.deterministic=True
-np.random.seed(SEED)
-random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"pos_{HAS_POS}_overlap_{OVERLAP}_"
-    f"rc_{Use_Row_Col_Loss}_classes_{NUM_CLASSES}"
+    f"{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}{'patch_pos' if args.use_patch_position_loss else ''}_classes_{args.num_classes}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -112,8 +117,10 @@ logger = logging.getLogger()
 
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
+logger.info(args)
 logger.info(subdir_name)
 wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+logger.info(args)
 # %%
 import os
 import torch
@@ -158,11 +165,11 @@ all_class_dirs = [
     for d in os.listdir(train_path)
     if os.path.isdir(os.path.join(train_path, d))
 ]
-selected_class_dirs = all_class_dirs[offset:NUM_CLASSES+offset]
+selected_class_dirs = sorted(list(set(all_class_dirs)))[offset:args.num_classes+offset]
 class_to_idx = {cls_name: i for i, cls_name in enumerate(selected_class_dirs)}
 
 logger.info(f"✅ Efficiently loading the following {len(selected_class_dirs)} classes: {selected_class_dirs}")
-NUM_CLASSES = len(selected_class_dirs)
+args.num_classes = len(selected_class_dirs)
 # --- Manually build the list of training samples (images, labels) ---
 train_samples = []
 for train_path_part in TRAIN_PATHS:
@@ -196,7 +203,7 @@ for class_name in selected_class_dirs:
 img_mean=[0.485, 0.456, 0.406]
 img_std=[0.229, 0.224, 0.225]
 train_transforms = transforms.Compose([
-    transforms.RandomResizedCrop(IMG_SIZE),
+    transforms.RandomResizedCrop(args.img_size),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=img_mean, std=img_std),
@@ -204,7 +211,7 @@ train_transforms = transforms.Compose([
 
 valid_transforms = transforms.Compose([
     transforms.Resize(256),
-    transforms.CenterCrop(IMG_SIZE),
+    transforms.CenterCrop(args.img_size),
     transforms.ToTensor(),
     transforms.Normalize(mean=img_mean, std=img_std),
 ])
@@ -214,27 +221,27 @@ valid_transforms = transforms.Compose([
 train_dataset = CustomImageDataset(train_samples, transform=train_transforms)
 valid_dataset = CustomImageDataset(valid_samples, transform=valid_transforms)
 
-logger.info(f"Total training images ({NUM_CLASSES} classes): {len(train_dataset)}")
-logger.info(f"Total validation images ({NUM_CLASSES} classes): {len(valid_dataset)}")
+logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
+logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_dataset)}")
 
 # --- Create DataLoaders ---
 train_loader = DataLoader(
-    dataset=train_dataset, 
-    batch_size=BATCH_SIZE, 
+    dataset=train_dataset,
+    batch_size=args.batch_size,
     shuffle=True, 
-    num_workers=WORKERS,
+    num_workers=args.workers,
     pin_memory=True
 )
 
 valid_loader = DataLoader(
-    dataset=valid_dataset, 
-    batch_size=BATCH_SIZE, 
+    dataset=valid_dataset,
+    batch_size=args.batch_size,
     shuffle=False, 
     num_workers=2,
     pin_memory=True
 )
 steps_per_epoch = len(train_loader)
-logger.info(f"✅ DataLoaders for {NUM_CLASSES} classes created successfully.")
+logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
 logger.info(f"{steps_per_epoch=}, val_steps: {len(valid_loader)}")
 
 # %%
@@ -265,27 +272,27 @@ def imshow(inp, title=None):
     plt.axis('off')
 
 # Get one batch of training images
-try:
-    inputs, classes = next(iter(train_loader))
+# try:
+#     inputs, classes = next(iter(train_loader))
     
-    # Get the class names from the dataset object
-    # class_names = meta_dict['fine_label_names']
+#     # Get the class names from the dataset object
+#     # class_names = meta_dict['fine_label_names']
 
-    # Create a grid of images
-    fig = plt.figure(figsize=(16, 8))
-    plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
+#     # Create a grid of images
+#     fig = plt.figure(figsize=(16, 8))
+#     plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
     
-    # Display the first 16 images from the batch
-    for i in range(16):
-        ax = plt.subplot(4, 8, i + 1)
-        class_name = classes[i]
-        imshow(inputs[i], title=class_name)
+#     # Display the first 16 images from the batch
+#     for i in range(16):
+#         ax = plt.subplot(4, 8, i + 1)
+#         class_name = classes[i]
+#         imshow(inputs[i], title=class_name)
         
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+#     plt.tight_layout(rect=[0, 0, 1, 0.96])
+#     plt.show()
 
-except NameError:
-    logger.info("Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
+# except NameError:
+#     logger.info("Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
 
 
 
@@ -294,16 +301,16 @@ except NameError:
 # Step 4: Initialize the Model, Loss Function, and Optimizer
 # =================================================================================
 # --- Model ---
-logger.info(f"🤖 Initializing model: {MODEL_NAME} for {NUM_CLASSES} classes...")
+logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} classes...")
 model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
-    num_classes=NUM_CLASSES, # Set the classifier head to 100 classes
-    img_size=IMG_SIZE,
+    num_classes=args.num_classes, # Set the classifier head to 100 classes
+    img_size=args.img_size,
 ).to(DEVICE)
 
 # feature_layers = [2, 5, 8, 11]
-# dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+# dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
 # with torch.no_grad():
 #     feats = model.forward_features(dummy_input)
 # #     multi_feats = model.forward_intermediates(dummy_input, indices=feature_layers, intermediates_only=True)
@@ -318,13 +325,13 @@ model = timm.create_model(
 
 # %%
 logger.info(f'model.patch_embed.proj{model.patch_embed.proj}')
-if OVERLAP>0:
+if args.overlap > 0:
     # Customize patch embedding for overlap (e.g., patch_size=15, stride=14)
     original_patch_size = model.patch_embed.proj.kernel_size[0]
-    new_patch_size = original_patch_size + OVERLAP  # Or 15, 16, 17, etc., as desired
+    new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
     stride = original_patch_size
-    original_grid_size = IMG_SIZE // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - IMG_SIZE + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+    original_grid_size = args.img_size // stride  # 16 for 224//14
+    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
     # Override the PatchEmbed projection (Conv2d layer)
     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
@@ -337,35 +344,35 @@ if OVERLAP>0:
     ).to(DEVICE)
     
     # Recompute grid size and num_patches
-    # grid_size_h = ((IMG_SIZE + 2 * padding - new_patch_size) // stride) + 1
+    # grid_size_h = ((args.img_size + 2 * padding - new_patch_size) // stride) + 1
     # grid_size_w = grid_size_h  # Assuming square input
     # logger.info(new_patch_size, padding, grid_size_h, model.patch_embed.grid_size)
     # model.patch_embed.grid_size = (grid_size_h, grid_size_w)
     # model.patch_embed.num_patches = grid_size_h * grid_size_w
     # logger.info(f"Updated to patch_size={new_patch_size}, stride={stride}, padding={padding}, num_patches={model.patch_embed.num_patches}")
 
-if not HAS_POS and hasattr(model, 'pos_embed') and model.pos_embed is not None:
+if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
     model.pos_embed.data.zero_()
     model.pos_embed.requires_grad = False
     logger.info("✅ Positional embedding has been disabled.")
-if pretrained is not None:
-    state_dicts = torch.load(pretrained, map_location=DEVICE)
+if args.pretrained is not None:
+    state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)
     logger.info(IncompatibleKeys)
 # --- Loss Function & Optimizer ---
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 logger.info("✅ Model, Loss Function, and Optimizer are ready.")
 
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 # logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
 
-total_steps = EPOCHS * steps_per_epoch
+total_steps = args.epochs * steps_per_epoch
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
 logger.info("✅ Step-based LR Scheduler is ready.")
 
 # %%
-# dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+# dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
 # with torch.no_grad():
 #     feats = model.forward_features(dummy_input)
 # logger.info(f"Model created successfully!")
@@ -439,12 +446,18 @@ class PatchRowColCriterion(nn.Module):
 
 # %%
 
-if Use_Row_Col_Loss:
+if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
     rowcol_loss = PatchRowColCriterion(
         feat_dim=model.embed_dim,
         grid_h=grid_h,
         grid_w=grid_w
+    ).to(DEVICE)
+if args.use_patch_position_loss:
+    from patch_pos import PatchPositionCriterion
+    position_loss = PatchPositionCriterion(
+        feat_dim=model.embed_dim,
+        num_classes=model.patch_embed.num_patches
     ).to(DEVICE)
 
 # %%
@@ -467,13 +480,13 @@ training_history = {
 }
 step = 0
 
-for epoch in range(EPOCHS):
+for epoch in range(args.epochs):
     # --- Training Phase ---
     model.train()
     running_loss = 0.0
     train_correct = 0
     train_total = 0
-    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Training]")
+    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
     # train_pbar = train_loader
     
     # FP16: Use autocast for the forward pass
@@ -487,10 +500,15 @@ for epoch in range(EPOCHS):
             outputs = model.forward_head(feats)
             # outputs = model(inputs)
             loss = criterion(outputs, labels)
-            if Use_Row_Col_Loss:
+            if args.use_rc_loss:
                 aux_loss = rowcol_loss(feats[:, 1:, :])
                 # logger.info(loss, aux_loss)
-                loss = loss + RC_ALPHA * aux_loss
+                loss = loss + args.rc_alpha * aux_loss
+            
+            if args.use_patch_position_loss:
+                aux_loss = position_loss(feats[:, 1:, :])
+                # logger.info(f"{loss}, {aux_loss}")
+                loss = loss + args.rc_alpha * aux_loss
         
         # FP16: Scale, backward, and step
         scaler.scale(loss).backward()
@@ -531,10 +549,10 @@ for epoch in range(EPOCHS):
     epoch_val_acc = val_correct / val_total
 
     epoch_train_acc = train_correct / train_total
-    epoch_train_loss = running_loss / (step % steps_per_epoch + 1)
+    epoch_train_loss = running_loss / len(train_loader.dataset)
     
-    logger.info(f"\nEpoch {epoch+1}/{EPOCHS} Summary:")
-    logger.info(f"\nStep {step+1 * steps_per_epoch} Summary:")
+    logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
+    logger.info(f"\nStep {step} Summary:")
     logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
 
     # ✅ Append the results to the correct lists within the dictionary
@@ -545,10 +563,6 @@ for epoch in range(EPOCHS):
     training_history['step'].append(step+1)
     history_df = pd.DataFrame(training_history)
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-
-    epoch_train_loss = running_loss / steps_per_epoch
-    epoch_train_acc = train_correct / train_total
- 
 
     # Update the learning rate scheduler
     # if 'scheduler' in locals():
@@ -575,32 +589,32 @@ history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 # logger.info(f"✅ Model saved to '{MODEL_NAME}_final.pth'")
 
 # %%
-import matplotlib.pyplot as plt
-import pandas as pd
+# import matplotlib.pyplot as plt
+# import pandas as pd
 
-if history_df is None:
-    logger.info("Training history is empty. Please run the training loop first.")
-else:
-    # --- Create a single figure and axis for the plot ---
-    fig, ax = plt.subplots(figsize=(12, 7))
-    plt.title('Training and Validation Accuracy Over Epochs', fontsize=16)
+# if history_df is None:
+#     logger.info("Training history is empty. Please run the training loop first.")
+# else:
+#     # --- Create a single figure and axis for the plot ---
+#     fig, ax = plt.subplots(figsize=(12, 7))
+#     plt.title('Training and Validation Accuracy Over Epochs', fontsize=16)
     
-    # --- Plot Training & Validation Accuracy ---
-    ax.plot(history_df['step'], history_df['train_acc'], 's--', color='tab:green', label='Training Accuracy')
-    ax.plot(history_df['step'], history_df['valid_acc'], '^-', color='tab:blue', label='Validation Accuracy')
+#     # --- Plot Training & Validation Accuracy ---
+#     ax.plot(history_df['step'], history_df['train_acc'], 's--', color='tab:green', label='Training Accuracy')
+#     ax.plot(history_df['step'], history_df['valid_acc'], '^-', color='tab:blue', label='Validation Accuracy')
     
-    # --- Set labels and legend ---
-    ax.set_xlabel('Steps')
-    ax.set_ylabel('Accuracy')
-    ax.legend()
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+#     # --- Set labels and legend ---
+#     ax.set_xlabel('Steps')
+#     ax.set_ylabel('Accuracy')
+#     ax.legend()
+#     ax.grid(True, which='both', linestyle='--', linewidth=0.5)
     
-    # Set the y-axis to be formatted as percentages
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
-    ax.set_ylim(0, 1) # Set y-axis limits from 0 to 1 for accuracy
+#     # Set the y-axis to be formatted as percentages
+#     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
+#     ax.set_ylim(0, 1) # Set y-axis limits from 0 to 1 for accuracy
 
-    # Set the x-axis to show integer epoch numbers
-    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+#     # Set the x-axis to show integer epoch numbers
+#     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
-    plt.tight_layout()
-    plt.show()
+#     plt.tight_layout()
+#     plt.show()
