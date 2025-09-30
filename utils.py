@@ -3,6 +3,12 @@ import pynvml
 import logging
 import torch
 import psutil
+
+try:
+    from filelock import FileLock, Timeout
+except ImportError:
+    # filelock is not a default library, so we handle the import error gracefully.
+    FileLock = None
 import os
 
 def get_gpu_processes(pname='python'):
@@ -138,3 +144,36 @@ def wait_for_gpu_memory(target_usage_gb: int = 20, poll_interval_minutes: float 
             pynvml.nvmlShutdown()
         except pynvml.NVMLError:
             pass  # Can be ignored if already shut down or failed to init
+
+def wait_for_file_lock(lock_path: str = "/tmp/gpu.lock", poll_interval_minutes: float = 1, logger=None):
+    """
+    Waits to acquire a file-based lock, ensuring exclusive access to a resource.
+
+    This is a robust way to ensure only one script uses a shared resource (like a GPU)
+    at a time. The process will block until the lock is acquired.
+
+    Args:
+        lock_path (str): The path to the file that will be used as a lock.
+        poll_interval_minutes (float): How often to log a waiting message.
+        logger: A logger instance.
+    """
+    log = logger or logging
+
+    if FileLock is None:
+        log.warning("`filelock` library not found. Skipping file lock. "
+                    "Install with: pip install filelock")
+        return
+
+    lock = FileLock(lock_path)
+    log.info(f"Attempting to acquire lock on '{lock_path}'...")
+
+    # A blocking call is the most efficient way to wait.
+    # The OS will put the process to sleep until the lock is available,
+    # consuming virtually no CPU. The timeout is removed for simplicity.
+    # The 'poll_interval_minutes' argument is no longer used but is kept
+    # for API compatibility with the previous version.
+    lock.acquire()
+
+    log.info("Lock acquired. It is safe to proceed.")
+    # IMPORTANT: The lock is NOT released here.
+    # It will be automatically released when the script exits, even on error.

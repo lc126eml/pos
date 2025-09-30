@@ -23,6 +23,8 @@ from torch.nn import functional as F
 import torchvision.transforms.functional as TF
 import sys
 import timm
+from types import SimpleNamespace
+import argparse
 import logging
 from utils import wait_for_python_gpu_processes
 #%%
@@ -41,34 +43,65 @@ from utils import wait_for_python_gpu_processes
 # Step 2: Configuration
 # =================================================================================
 
+# --- Dynamically set root directory ---
+root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
+
+# --- Configuration via SimpleNamespace for easy interactive use ---
+args = SimpleNamespace(
+    # --- Model & Training Settings ---
+    model_type='base',
+    num_classes=100,
+    # Adjust based on your GPU memory. BATCH_SIZE = 528, etc.
+    batch_size=528,
+    # ViT models have a fixed input size
+    img_size=32,
+    lr=5e-3,
+    epochs=130,
+    has_pos=False, # Set to True or False directly
+    overlap=2,
+    pretrained=None,
+    seed=60,
+    wdecay=0.1,
+    use_patch_position_loss=True,
+    use_rc_loss=False,
+    rc_alpha=30.0,
+    workers=5,
+
+    # --- Dataset Paths ---
+    root_dir=root_dir,
+)
+
+MODEL_NAME = f'vit_{args.model_type}_patch14_dinov2'
+output_dir = f"{args.root_dir}/Codes/pos/output/cifar100/{args.model_type}b{args.batch_size}s{args.seed}"
+BASE_PATH = f'{args.root_dir}/Data/cifar100/'
 # --- Model & Training Settings ---
-MODEL_TYPE = "large"
-MODEL_NAME = f'vit_{MODEL_TYPE}_patch14_dinov2'
-# CIFAR-100 has 100 classes
-NUM_CLASSES = 100
-# Adjust based on your GPU memory
-BATCH_SIZE = 528
-# ViT models have a fixed input size
-IMG_SIZE = 32
-LEARNING_RATE = 5e-3
-# Number of training epochs
-EPOCHS = 135
-HAS_POS = False
-OVERLAP = 2
-pretrained = None
-SEED = 56
-WDECAY = 0.1
-hid = 3
-VAL_STEPS = 500
-ALPHA = 3.0
-Use_Patch_Position_Loss = False
-Use_Row_Col_Loss = True
-RC_ALPHA = 30.0
-WORKERS = 3
-output_dir = f"/home/sshuser/Codes/pos/output/cifar100/large"
+# MODEL_TYPE = "large"
+# MODEL_NAME = f'vit_{MODEL_TYPE}_patch14_dinov2'
+# # CIFAR-100 has 100 classes
+# NUM_CLASSES = 100
+# # Adjust based on your GPU memory
+# BATCH_SIZE = 528
+# # ViT models have a fixed input size
+# IMG_SIZE = 32
+# LEARNING_RATE = 5e-3
+# # Number of training epochs
+# EPOCHS = 135
+# HAS_POS = False
+# OVERLAP = 2
+# pretrained = None
+# SEED = 56
+# WDECAY = 0.1
+# hid = 3
+# VAL_STEPS = 500
+# ALPHA = 3.0
+# Use_Patch_Position_Loss = False
+# Use_Row_Col_Loss = True
+# RC_ALPHA = 30.0
+# WORKERS = 3
+# output_dir = f"/home/sshuser/Codes/pos/output/cifar100/large"
 
 # Path to the CIFAR-100 dataset on Kaggle
-BASE_PATH = '/home/sshuser/Data/cifar100'
+# BASE_PATH = '/home/sshuser/Data/cifar100'
 
 # --- Device Configuration ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -78,14 +111,14 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 # %%
 # torch.backends.cudnn.deterministic=True
-np.random.seed(SEED)
-random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"has_pos_{HAS_POS}_overlap_{OVERLAP}_"
-    f"use_rc_loss_{Use_Row_Col_Loss}_rc_alpha_{RC_ALPHA}"
+    f"{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.num_classes}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -103,8 +136,10 @@ logger = logging.getLogger()
 
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
+logger.info(args)
 logger.info(subdir_name)
-wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+# wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+logger.info(args)
 # %%
 def unpickle(file):
     """
@@ -159,7 +194,7 @@ class CustomCIFAR100(Dataset):
 # --- Step 3: Define Your Transformations ---
 # Now you can include data augmentation
 train_transforms = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
+    transforms.RandomCrop(args.img_size, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
@@ -174,11 +209,11 @@ test_transforms = transforms.Compose([
 train_dataset = CustomCIFAR100(data_dict=train_dict, transform=train_transforms)
 test_dataset = CustomCIFAR100(data_dict=test_dict, transform=test_transforms)
 
-logger.info(f"Total training images ({NUM_CLASSES} classes): {len(train_dataset)}")
-logger.info(f"Total validation images ({NUM_CLASSES} classes): {len(test_dataset)}")
+logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
+logger.info(f"Total validation images ({args.num_classes} classes): {len(test_dataset)}")
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE,num_workers=WORKERS, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size,num_workers=args.workers, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=args.batch_size,num_workers=2, shuffle=False)
 
 # Now it works as expected!
 logger.info("Successfully created DataLoaders with transforms.")
@@ -215,27 +250,27 @@ def imshow(inp, title=None):
     plt.axis('off')
 
 # Get one batch of training images
-try:
-    inputs, classes = next(iter(train_loader))
+# try:
+#     inputs, classes = next(iter(train_loader))
     
-    # Get the class names from the dataset object
-    class_names = meta_dict['fine_label_names']
+#     # Get the class names from the dataset object
+#     class_names = meta_dict['fine_label_names']
 
-    # Create a grid of images
-    fig = plt.figure(figsize=(16, 8))
-    plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
+#     # Create a grid of images
+#     fig = plt.figure(figsize=(16, 8))
+#     plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
     
-    # Display the first 16 images from the batch
-    for i in range(16):
-        ax = plt.subplot(4, 8, i + 1)
-        class_name = class_names[classes[i]]
-        imshow(inputs[i], title=class_name)
+#     # Display the first 16 images from the batch
+#     for i in range(16):
+#         ax = plt.subplot(4, 8, i + 1)
+#         class_name = class_names[classes[i]]
+#         imshow(inputs[i], title=class_name)
         
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+#     plt.tight_layout(rect=[0, 0, 1, 0.96])
+#     plt.show()
 
-except NameError as e:
-    logger.info(e, "Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
+# except NameError as e:
+#     logger.info(e, "Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
 
 # %%
 # MODEL_NAME = "vit_rope_small_patch14_dinov2"
@@ -243,13 +278,12 @@ except NameError as e:
 # Step 4: Initialize the Model, Loss Function, and Optimizer
 # =================================================================================
 # --- Model ---
-logger.info(f"🤖 Initializing model: {MODEL_NAME} for {NUM_CLASSES} classes...")
+logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} classes...")
 model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
-    patch_size=4,
-    num_classes=NUM_CLASSES, # Set the classifier head to 100 classes
-    img_size=IMG_SIZE,
+    num_classes=args.num_classes, # Set the classifier head to 100 classes
+    img_size=args.img_size,
 ).to(DEVICE)
 
 # feature_layers = [2, 5, 8, 11]
@@ -268,13 +302,13 @@ model = timm.create_model(
 
 # %%
 logger.info(f'model.patch_embed.proj{model.patch_embed.proj}')
-if OVERLAP>0:
+if args.overlap > 0:
     # Customize patch embedding for overlap (e.g., patch_size=15, stride=14)
     original_patch_size = model.patch_embed.proj.kernel_size[0]
-    new_patch_size = original_patch_size + OVERLAP  # Or 15, 16, 17, etc., as desired
+    new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
     stride = original_patch_size
-    original_grid_size = IMG_SIZE // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - IMG_SIZE + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+    original_grid_size = args.img_size // stride  # 16 for 224//14
+    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
     # Override the PatchEmbed projection (Conv2d layer)
     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
@@ -294,24 +328,36 @@ if OVERLAP>0:
     # model.patch_embed.num_patches = grid_size_h * grid_size_w
     # logger.info(f"Updated to patch_size={new_patch_size}, stride={stride}, padding={padding}, num_patches={model.patch_embed.num_patches}")
 
-
-if not HAS_POS and hasattr(model, 'pos_embed') and model.pos_embed is not None:
+if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
     model.pos_embed.data.zero_()
     model.pos_embed.requires_grad = False
     logger.info("✅ Positional embedding has been disabled.")
-if pretrained:
-    state_dicts = torch.load(pretrained, map_location=DEVICE)
+if args.pretrained is not None:
+    state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)
     logger.info(IncompatibleKeys)
 # --- Loss Function & Optimizer ---
 criterion = nn.CrossEntropyLoss()
 # optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
-optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WDECAY)
+optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay)
 logger.info("✅ Model, Loss Function, and Optimizer are ready.")
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+# logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
+steps_per_epoch = len(train_loader)
+total_steps = args.epochs * steps_per_epoch
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+logger.info("✅ Step-based LR Scheduler is ready.")
 
+# %%
+# dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
+# with torch.no_grad():
+#     feats = model.forward_features(dummy_input)
+# logger.info(f"Model created successfully!")
+# logger.info(f"Input shape: {dummy_input.shape}")
+# logger.info(f"Output shape: {feats.shape}") 
+    
+sys.stdout.flush()
 # %%
 class PatchRowColCriterion(nn.Module):
     def __init__(self, feat_dim, grid_h, grid_w):
@@ -377,12 +423,19 @@ class PatchRowColCriterion(nn.Module):
 
 
 # %%
-if Use_Row_Col_Loss:
+
+if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
     rowcol_loss = PatchRowColCriterion(
         feat_dim=model.embed_dim,
         grid_h=grid_h,
         grid_w=grid_w
+    ).to(DEVICE)
+if args.use_patch_position_loss:
+    from patch_pos import PatchPositionCriterion
+    position_loss = PatchPositionCriterion(
+        feat_dim=model.embed_dim,
+        num_classes=model.patch_embed.num_patches
     ).to(DEVICE)
 
 # %%
@@ -401,36 +454,46 @@ training_history = {
     'train_acc': [],
     'valid_acc': [],
     'epoch': [],
+    'step': [],
 }
+step = 0
 
-for epoch in range(EPOCHS):
+for epoch in range(args.epochs):
     # --- Training Phase ---
     model.train()
     running_loss = 0.0
     train_correct = 0
     train_total = 0
-    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Training]")
+    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
+    # train_pbar = train_loader
     
     # FP16: Use autocast for the forward pass
     for inputs, labels in train_pbar:
         inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
         
         optimizer.zero_grad()
+        aux_loss = None
         with torch.amp.autocast('cuda', dtype=autocast_dtype):
             feats = model.forward_features(inputs)
             outputs = model.forward_head(feats)
             # outputs = model(inputs)
             loss = criterion(outputs, labels)
-
-            if Use_Row_Col_Loss:
+            if args.use_rc_loss:
                 aux_loss = rowcol_loss(feats[:, 1:, :])
                 # logger.info(loss, aux_loss)
-                loss = loss + RC_ALPHA * aux_loss
+                loss = loss + args.rc_alpha * aux_loss
+            
+            if args.use_patch_position_loss:
+                aux_loss = position_loss(feats[:, 1:, :])
+                # logger.info(f"{loss}, {aux_loss}")
+                loss = loss + args.rc_alpha * aux_loss
         
         # FP16: Scale, backward, and step
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+
+        scheduler.step()
         
         running_loss += loss.item() * inputs.size(0)
         _, predicted = torch.max(outputs.data, 1)
@@ -438,20 +501,22 @@ for epoch in range(EPOCHS):
         train_correct += (predicted == labels).sum().item()
         
         batch_acc = (predicted == labels).sum().item() / labels.size(0)
-        train_pbar.set_postfix({'loss': loss.item(), 'acc': f'{batch_acc:.2f}'})
+        bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
+        if aux_loss is not None:
+            bar_msg['aux'] = aux_loss.item()
+        train_pbar.set_postfix(bar_msg)
 
-    epoch_train_loss = running_loss / len(train_loader.dataset)
-    epoch_train_acc = train_correct / train_total
+        step += 1
 
     # if (epoch + 1) % 2 == 0:
     # --- Validation Phase ---
     model.eval()
     val_correct = 0
     val_total = 0
-    val_pbar = tqdm(test_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
+    # val_pbar = tqdm(test_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
     
     with torch.no_grad():
-        for inputs, labels in val_pbar:
+        for inputs, labels in valid_loader:
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
             with torch.amp.autocast('cuda', dtype=autocast_dtype):
                 outputs = model(inputs)
@@ -460,8 +525,12 @@ for epoch in range(EPOCHS):
             val_correct += (predicted == labels).sum().item()
 
     epoch_val_acc = val_correct / val_total
+
+    epoch_train_acc = train_correct / train_total
+    epoch_train_loss = running_loss / len(train_loader.dataset)
     
-    logger.info(f"\nEpoch {epoch+1}/{EPOCHS} Summary:")
+    logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
+    logger.info(f"\nStep {step} Summary:")
     logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
 
     # ✅ Append the results to the correct lists within the dictionary
@@ -469,12 +538,13 @@ for epoch in range(EPOCHS):
     training_history['train_acc'].append(epoch_train_acc)
     training_history['valid_acc'].append(epoch_val_acc) 
     training_history['epoch'].append(epoch+1)
+    training_history['step'].append(step+1)
     history_df = pd.DataFrame(training_history)
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
     # Update the learning rate scheduler
-    if 'scheduler' in locals():
-        scheduler.step()
+    # if 'scheduler' in locals():
+    #     scheduler.step()
 
 logger.info("🏁 Training complete.")
 
@@ -497,32 +567,32 @@ history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 # logger.info(f"✅ Model saved to '{MODEL_NAME}_final.pth'")
 
 # %%
-import matplotlib.pyplot as plt
-import pandas as pd
+# import matplotlib.pyplot as plt
+# import pandas as pd
 
-if history_df is None:
-    logger.info("Training history is empty. Please run the training loop first.")
-else:
-    # --- Create a single figure and axis for the plot ---
-    fig, ax = plt.subplots(figsize=(12, 7))
-    plt.title('Training and Validation Accuracy Over Epochs', fontsize=16)
+# if history_df is None:
+#     logger.info("Training history is empty. Please run the training loop first.")
+# else:
+#     # --- Create a single figure and axis for the plot ---
+#     fig, ax = plt.subplots(figsize=(12, 7))
+#     plt.title('Training and Validation Accuracy Over Epochs', fontsize=16)
     
-    # --- Plot Training & Validation Accuracy ---
-    ax.plot(history_df['epoch'], history_df['train_acc'], 's--', color='tab:green', label='Training Accuracy')
-    ax.plot(history_df['epoch'], history_df['valid_acc'], '^-', color='tab:blue', label='Validation Accuracy')
+#     # --- Plot Training & Validation Accuracy ---
+#     ax.plot(history_df['epoch'], history_df['train_acc'], 's--', color='tab:green', label='Training Accuracy')
+#     ax.plot(history_df['epoch'], history_df['valid_acc'], '^-', color='tab:blue', label='Validation Accuracy')
     
-    # --- Set labels and legend ---
-    ax.set_xlabel('Epochs')
-    ax.set_ylabel('Accuracy')
-    ax.legend()
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+#     # --- Set labels and legend ---
+#     ax.set_xlabel('Epochs')
+#     ax.set_ylabel('Accuracy')
+#     ax.legend()
+#     ax.grid(True, which='both', linestyle='--', linewidth=0.5)
     
-    # Set the y-axis to be formatted as percentages
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
-    ax.set_ylim(0, 1) # Set y-axis limits from 0 to 1 for accuracy
+#     # Set the y-axis to be formatted as percentages
+#     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
+#     ax.set_ylim(0, 1) # Set y-axis limits from 0 to 1 for accuracy
 
-    # Set the x-axis to show integer epoch numbers
-    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+#     # Set the x-axis to show integer epoch numbers
+#     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
-    plt.tight_layout()
-    plt.show()
+#     plt.tight_layout()
+#     plt.show()

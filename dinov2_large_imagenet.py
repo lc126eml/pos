@@ -25,17 +25,10 @@ import timm
 from types import SimpleNamespace
 import argparse
 import logging
-from utils import wait_for_python_gpu_processes
-#%%
-# sys.path.append(r".")
-# from vision_transformer_rope import *
-# from vision_transformer_rpe import *
-# from vision_transformer_relpos import *
-# from vision_transformer_alibi import *
-# from vision_transformer_sin import *
-
-# %%
-# timm.list_models("vit_*_dinov2")
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None
 
 # %%
 # =================================================================================
@@ -48,19 +41,20 @@ root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    model_type='large',
+    pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', 
+    model_type='base',
     num_classes=10,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
-    batch_size=136,
+    batch_size=392,
     # ViT models have a fixed input size
     img_size=224,
-    lr=2e-4,
+    lr=5e-4,
     epochs=130,
     has_pos=False, # Set to True or False directly
-    overlap=2,
+    overlap=5,
     pretrained=None,
-    seed=56,
-    use_patch_position_loss=True,
+    seed=55,
+    use_patch_position_loss=False,
     use_rc_loss=False,
     rc_alpha=30.0,
     workers=5,
@@ -68,8 +62,14 @@ args = SimpleNamespace(
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
+if args.pos_type is not None:
+    args.has_pos = True
+    args.overlap = 0
+    args.use_rc_loss=False
+    args.use_patch_position_loss=False
 
-MODEL_NAME = f'vit_{args.model_type}_patch14_dinov2'
+
+MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch14_dinov2"
 output_dir = f"{args.root_dir}/Codes/pos/output/imagenet/{args.model_type}b{args.batch_size}s{args.seed}"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
@@ -90,6 +90,19 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
+#%%
+
+if args.pos_type is not None:
+    sys.path.append(r".")
+    from vision_transformer_rope import *
+    from vision_transformer_rpe import *
+    from vision_transformer_relpos import *
+    from vision_transformer_alibi import *
+    from vision_transformer_sin import *
+
+# %%
+# timm.list_models("vit_*_dinov2")
+
 # %%
 # torch.backends.cudnn.deterministic=True
 np.random.seed(args.seed)
@@ -98,8 +111,8 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'patch_pos' if args.use_patch_position_loss else ''}_classes_{args.num_classes}"
+    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.num_classes}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -119,7 +132,18 @@ logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
 logger.info(args)
 logger.info(subdir_name)
-wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+
+# --- Acquire a file lock to ensure exclusive GPU usage ---
+if FileLock:
+    lock_path = "/tmp/gpu.lock"
+    gpu_lock = FileLock(lock_path)
+    logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+    gpu_lock.acquire()
+    logger.info("Lock acquired. It is safe to proceed.")
+    # The lock will be automatically released when the script exits.
+else:
+    logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+
 logger.info(args)
 # %%
 import os
@@ -587,7 +611,9 @@ history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 # Save the model's state dictionary
 # torch.save(model.state_dict(), f'{MODEL_NAME}_final.pth')
 # logger.info(f"✅ Model saved to '{MODEL_NAME}_final.pth'")
-
+# if gpu_lock and gpu_lock.is_locked:
+#     logger.info("Manually releasing lock.")
+#     gpu_lock.release()
 # %%
 # import matplotlib.pyplot as plt
 # import pandas as pd

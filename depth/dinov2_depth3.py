@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+from types import SimpleNamespace
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -8,7 +9,6 @@ import pandas as pd
 import numpy as np
 import random
 import warnings
-import argparse
 import timm  # Imported for DINOv2
 from torch.nn import functional as F
 import torchvision.transforms.functional as TF
@@ -18,36 +18,39 @@ import h5py
 from scipy import ndimage
 import warnings
 from typing import List, Tuple, Union
-import argparse
 
+
+root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 # Add a3R project to path
 import sys
-sys.path.insert(0, '/lc/code/3D/a3R')
-sys.path.insert(0, '/lc/code/3D/a3R/src')
+sys.path.insert(0, f'{root_dir}/Codes/pos')
+# sys.path.insert(0, '/lc/code/3D/a3R/src')
+
+from utils import wait_for_python_gpu_processes
 
 from hypersim_simple_dataset import HyperSim_Simple
-from src.dust3r.datasets.utils.transforms import SeqColorJitter
+from transforms import SeqColorJitter
+import torchvision.transforms as tvf
 
 warnings.filterwarnings('ignore')
 
-def get_args():
-    parser = argparse.ArgumentParser(description="Simplified monocular depth estimation with DINOv2.")
-    parser.add_argument('--data_root', type=str, default="/lc/data/3D", help="Dataset root.")
-    parser.add_argument('--resolution', type=int, default=224, help="Image resolution.")
-    parser.add_argument('--batch_size', type=int, default=80, help="Batch size.")
-    parser.add_argument('--model_name', type=str, default='vit_base_patch14_dinov2', help="Name of the model to use.")
-    parser.add_argument('--learning_rate', type=float, default=1e-5, help="Learning rate.")  # Lowered for stability
-    parser.add_argument('--epochs', type=int, default=100, help="Epochs.")
-    parser.add_argument('--has_pos', action='store_true', help="Enable positional embedding.")
-    parser.add_argument('--overlap', type=int, default=0, help="Overlap parameter.")
-    parser.add_argument('--seed', type=int, default=55, help="Seed.")
-    parser.add_argument('--val_steps', type=int, default=500, help="Validation frequency in steps.")
-    parser.add_argument('--use_row_col_loss', action='store_true', help="Use row and column loss.")
-    parser.add_argument('--rc_alpha', type=float, default=30.0, help="Alpha for row and column loss.")
-    parser.add_argument('--output_dir', type=str, default="/lc/code/3D/pos/output", help="Output dir.")
-    return parser.parse_args()
+args = SimpleNamespace(
+    data_root="/lc/data/3D",
+    resolution=224,
+    batch_size=200,
+    model_name='vit_base_patch14_dinov2',
+    learning_rate=3e-5,
+    epochs=100,
+    has_pos=True,
+    overlap=0,
+    seed=55,
+    val_steps=500,
+    use_row_col_loss=False,
+    rc_alpha=30.0,
+    workers=5,
+    output_dir=f'{root_dir}/Codes/pos/output/depth',
+)
 
-args = get_args()
 print(args)
 
 MODEL_NAME = args.model_name
@@ -77,9 +80,9 @@ if torch.cuda.is_available():
 
 # --- Setup Logging ---
 output_dir = args.output_dir
+
 subdir_name = (
-    f"has_pos_{HAS_POS}_overlap_{OVERLAP}_"
-    f"use_rc_loss_{Use_Row_Col_Loss}_rc_alpha_{RC_ALPHA}"
+    f"{args.model_name}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_rc_{args.use_row_col_loss}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -98,7 +101,10 @@ logger = logging.getLogger()
 logger.info(f"Arguments: {args}")
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
-
+logger.info(args)
+logger.info(subdir_name)
+wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+logger.info(args)
 # %%
 # =================================================================================
 # Step 1: DPT Head Implementation (from reference file)
@@ -414,7 +420,7 @@ try:
         useImgnet=True,
     )
     train_loader = DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=2,
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=True, drop_last=True, persistent_workers=True, collate_fn=collate_fn
     )
     valid_loader = DataLoader(
@@ -490,22 +496,22 @@ def setup_model(img_size, device):
     
     # Sanity check
     feature_layers = [2, 5, 8, 11]
-    dummy_input = torch.randn(2, 3, img_size, img_size).to(device)
-    with torch.no_grad():
-        # features = model.forward_features(dummy_input)  # (B, N+1, 768)
-        # dummy_output = decoder(features)
-        features = model.get_intermediate_layers(dummy_input, n=feature_layers, norm=False)
-        dummy_output, _ = decoder(features, dummy_input.unsqueeze(1), patch_start_idx=0)
-        dummy_output = dummy_output.squeeze(1)
-    logger.info(f"Model created successfully!")
-    logger.info(f"Input shape: {dummy_input.shape}")
-    logger.info(f"Number of feature maps extracted: {len(features)}")
-    logger.info(f"Output shape: {dummy_output.shape}")
-    assert dummy_output.shape == (2, 1, img_size, img_size), f"Expected output shape (2, 1, {img_size}, {img_size})"
-    logger.info("✅ Output shape is correct.")
-    encoder_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    decoder_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
-    logger.info(f"Encoder params: {encoder_params/1e6:.2f}M, Decoder: {decoder_params/1e6:.2f}M")
+    # dummy_input = torch.randn(2, 3, img_size, img_size).to(device)
+    # with torch.no_grad():
+    #     # features = model.forward_features(dummy_input)  # (B, N+1, 768)
+    #     # dummy_output = decoder(features)
+    #     features = model.get_intermediate_layers(dummy_input, n=feature_layers, norm=False)
+    #     dummy_output, _ = decoder(features, dummy_input.unsqueeze(1), patch_start_idx=0)
+    #     dummy_output = dummy_output.squeeze(1)
+    # logger.info(f"Model created successfully!")
+    # logger.info(f"Input shape: {dummy_input.shape}")
+    # logger.info(f"Number of feature maps extracted: {len(features)}")
+    # logger.info(f"Output shape: {dummy_output.shape}")
+    # assert dummy_output.shape == (2, 1, img_size, img_size), f"Expected output shape (2, 1, {img_size}, {img_size})"
+    # logger.info("✅ Output shape is correct.")
+    # encoder_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # decoder_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
+    # logger.info(f"Encoder params: {encoder_params/1e6:.2f}M, Decoder: {decoder_params/1e6:.2f}M")
     
     return model, decoder, feature_layers
 
@@ -636,22 +642,45 @@ class MonocularDepthLossSimple(nn.Module):
         # L1 Loss
         l1_loss = (torch.abs(pred_depth - gt_depth) * valid_mask).sum(dim=[1,2,3]) / valid_pixels
         return l1_loss.mean()
+
 def compute_depth_metrics(pred, target, mask=None):
+    """
+    Computes depth estimation metrics.
+    This optimized version performs all calculations on the GPU and transfers
+    results to the CPU only once at the end.
+    """
     if mask is not None:
         pred, target = pred[mask], target[mask]
-    pred, target = pred.flatten(), target.flatten()
-    valid = (target > 0) & (pred > 0) & torch.isfinite(pred) & torch.isfinite(target)
-    if valid.sum() == 0: return {}
-    pred, target = pred[valid], target[valid]
-    abs_rel = torch.mean(torch.abs(pred - target) / target)
-    sq_rel = torch.mean(((pred - target) ** 2) / target)
-    rmse = torch.sqrt(torch.mean((pred - target) ** 2))
-    rmse_log = torch.sqrt(torch.mean((torch.log(pred) - torch.log(target)) ** 2))
+    
+    # Ensure tensors are flat
+    pred = pred.flatten()
+    target = target.flatten()
+
+    # Create a mask for valid pixels (finite, positive depth)
+    valid_mask = (target > 0) & (pred > 0) & torch.isfinite(pred) & torch.isfinite(target)
+    if valid_mask.sum() == 0:
+        return {}
+
+    pred = pred[valid_mask]
+    target = target[valid_mask]
+
+    # --- All calculations below are on GPU ---
+    diff = pred - target
+    log_diff = torch.log(pred) - torch.log(target)
     ratio = torch.maximum(pred / target, target / pred)
-    a1 = (ratio < 1.25).float().mean()
-    a2 = (ratio < 1.25 ** 2).float().mean()
-    a3 = (ratio < 1.25 ** 3).float().mean()
-    return {'abs_rel': abs_rel.item(), 'sq_rel': sq_rel.item(), 'rmse': rmse.item(), 'rmse_log': rmse_log.item(), 'a1': a1.item(), 'a2': a2.item(), 'a3': a3.item()}
+
+    metrics = {
+        'abs_rel': (torch.abs(diff) / target).mean(),
+        'sq_rel': (((diff) ** 2) / target).mean(),
+        'rmse': torch.sqrt((diff ** 2).mean()),
+        'rmse_log': torch.sqrt((log_diff ** 2).mean()),
+        'a1': (ratio < 1.25).float().mean(),
+        'a2': (ratio < 1.25 ** 2).float().mean(),
+        'a3': (ratio < 1.25 ** 3).float().mean(),
+    }
+
+    # Transfer all results to CPU at once
+    return {k: v.item() for k, v in metrics.items()}
 
 if not HAS_POS:
     model.pos_embed.data.zero_()
@@ -772,7 +801,7 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         # torch.nn.utils.clip_grad_norm_(decoder.parameters(), max_norm=1.0)
         
-        total_norm = sum(p.grad.norm(2).item() ** 2 for p in list(model.parameters()) + list(decoder.parameters()) if p.grad is not None) ** 0.5
+        # total_norm = sum(p.grad.norm(2).item() ** 2 for p in list(model.parameters()) + list(decoder.parameters()) if p.grad is not None) ** 0.5
         
         scaler.step(optimizer)
         scaler.update()
@@ -782,8 +811,8 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         batch_metrics = compute_depth_metrics(pred_depths.detach(), gt_depths.detach())
         for k in train_metrics:
             train_metrics[k] += batch_metrics.get(k, 0)
-        
-        pbar_dict = {'loss': f'{loss.item():.4f}', 'grad_norm': f'{total_norm:.2f}'}
+        # , 'grad_norm': f'{total_norm:.2f}'
+        pbar_dict = {'loss': f'{loss.item():.4f}'}
         pbar_dict.update(train_metrics)
         pbar_dict.update({k: f'{v / (i + 1):.4f}' for k, v in train_metrics.items()})
         pbar.set_postfix(pbar_dict)
@@ -808,13 +837,13 @@ def validate(model, decoder, loader, criterion, feature_layers):
                 features = model.get_intermediate_layers(val_inputs, n=feature_layers, norm=False)
                 val_pred_depths, _ = decoder(features, val_inputs.unsqueeze(1), patch_start_idx=0)
                 val_pred_depths = val_pred_depths.squeeze(1)
-                v_loss, _ = criterion(val_pred_depths, gt_depths)
-            val_loss += v_loss.item()
+                # v_loss, _ = criterion(val_pred_depths, gt_depths)
+            # val_loss += v_loss.item()
             batch_metrics = compute_depth_metrics(val_pred_depths, gt_depths)
             for k in val_metrics:
                 val_metrics[k] += batch_metrics.get(k, 0)
-    
-    return val_loss / len(loader), {k: v / len(loader) for k, v in val_metrics.items()}
+    # val_loss / len(loader)
+    return 0.0, {k: v / len(loader) for k, v in val_metrics.items()}
 
 def save_checkpoint(model, decoder, output_dir, suffix):
     encoder_path = os.path.join(output_dir, f'encoder_{suffix}.pth')
@@ -845,29 +874,29 @@ for epoch in range(EPOCHS):
 
     logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
     logger.info(f"  Train Loss: {avg_train_loss:.4f} | Train AbsRel: {avg_train_metrics['abs_rel']:.4f} | Train RMSE: {avg_train_metrics['rmse']:.4f} | Train a1: {avg_train_metrics['a1']:.4f}")
-    logger.info(f"  Valid Loss: {avg_val_loss:.4f} | Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | Valid RMSE: {avg_val_metrics['rmse']:.4f} | Valid a1: {avg_val_metrics['a1']:.4f}\n")
-    
+    logger.info(f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | Valid RMSE: {avg_val_metrics['rmse']:.4f} | Valid a1: {avg_val_metrics['a1']:.4f}\n")
+    #   Valid Loss: {avg_val_loss:.4f} |
     training_history['train_loss'].append(avg_train_loss)
     training_history['train_abs_rel'].append(avg_train_metrics['abs_rel'])
     training_history['train_rmse'].append(avg_train_metrics['rmse'])
     training_history['train_a1'].append(avg_train_metrics['a1'])
-    training_history['valid_loss'].append(avg_val_loss)
+    # training_history['valid_loss'].append(avg_val_loss)
     training_history['valid_abs_rel'].append(avg_val_metrics['abs_rel'])
     training_history['valid_rmse'].append(avg_val_metrics['rmse'])
     training_history['valid_a1'].append(avg_val_metrics['a1'])
     training_history['epoch'].append(epoch + 1)
     
-    if avg_val_metrics['abs_rel'] < best_val_abs_rel:
-        best_val_abs_rel = avg_val_metrics['abs_rel']
-        history_df = pd.DataFrame(training_history)
-        history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
-        save_checkpoint(model, decoder, output_dir, "best")
+    # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
+    #     best_val_abs_rel = avg_val_metrics['abs_rel']
+    history_df = pd.DataFrame(training_history)
+    history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        # save_checkpoint(model, decoder, output_dir, "best")
 
 logger.info("Training complete.")
 
 history_df = pd.DataFrame(training_history)
-history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
-save_checkpoint(model, decoder, output_dir, "final")
+history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+# save_checkpoint(model, decoder, output_dir, "final")
 
 if not history_df.empty:
     best_a1 = history_df['valid_a1'].max()

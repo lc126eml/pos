@@ -10,9 +10,26 @@ from torch.utils.data import Dataset
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
-from src.dust3r.utils.image import imread_cv2, ImgnetNorm
-from src.dust3r.datasets.utils import cropping
+import torchvision.transforms as tvf
+# from src.dust3r.utils.image import imread_cv2, ImgnetNorm
+# from src.dust3r.datasets.utils import cropping
 
+ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+# ImageNet normalization statistics
+imagenet_mean = [0.485, 0.456, 0.406]
+imagenet_std = [0.229, 0.224, 0.225]
+ImgnetNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize(mean=imagenet_mean, std=imagenet_std)])
+def imread_cv2(path, options=cv2.IMREAD_COLOR):
+    """Open an image or a depthmap with opencv-python."""
+    if path.endswith((".exr", "EXR")):
+        options = cv2.IMREAD_ANYDEPTH
+    img = cv2.imread(path, options)
+    if img is None:
+        raise IOError(f"Could not load image={path} with {options=}")
+    if img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
 
 class HyperSim_Simple(Dataset):
     """

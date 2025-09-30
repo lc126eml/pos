@@ -23,73 +23,73 @@ import torchvision.transforms.functional as TF
 import sys
 import timm
 import logging
-from utils import wait_for_python_gpu_processes
+from types import SimpleNamespace
+# from utils import wait_for_python_gpu_processes
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None
 #%%
-sys.path.append(r".")
-from vision_transformer_rope import *
-from vision_transformer_rpe import *
-from vision_transformer_relpos import *
-from vision_transformer_alibi import *
-from vision_transformer_sin import *
+# sys.path.append(r".")
+# from vision_transformer_rope import *
+# from vision_transformer_rpe import *
+# from vision_transformer_relpos import *
+# from vision_transformer_alibi import *
+# from vision_transformer_sin import *
 
 # %%
 # =================================================================================
 # Step 2: Configuration
 # =================================================================================
-# %%
-# =================================================================================
-# Step 2: Configuration
-# =================================================================================
+root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 
-# --- Model & Training Settings ---
-MODEL_TYPE = "small"
-MODEL_NAME = f'vit_{MODEL_TYPE}_patch14_dinov2'
-NUM_CLASSES = 150  # For ADE20K (150 classes)
-BATCH_SIZE = 200  # Adjusted for segmentation (memory-intensive)
-IMG_SIZE = 224  # ViT fixed size; adjust if needed
-LEARNING_RATE = 5e-4
-EPOCHS = 130  # Reduced for segmentation
-HAS_POS = True
-OVERLAP = 2
-pretrained = None
-START_EPOCH = 0
-WANDB = False
-SEED = 55
-hid = 'ubuntu'
-VAL_STEPS = 500
-ALPHA = 3.0
-Use_Row_Col_Loss = False
-RC_ALPHA = 30.0
-DICE_WEIGHT = 0 # Weight for the Dice loss component
-WORKERS = 4
-output_dir = "/home/sshuser/Codes/pos/output"
+args = SimpleNamespace(
+    # --- Model & Training Settings ---
+    model_type="base",
+    num_classes=150,  # For ADE20K
+    batch_size=168,
+    img_size=224,
+    lr=1e-3,
+    epochs=130,
+    has_pos=True,
+    overlap=0,
+    pretrained=None,
+    start_epoch=0,
+    seed=55,
+    use_rc_loss=False,
+    rc_alpha=30.0,
+    dice_weight=0.0,
+    workers=8,
+    output_dir=f"{root_dir}/Codes/pos/output/seg2",
 
-# --- Dataset Paths ---
-BASE_PATH = "/home/sshuser/Data/ADEChallengeData2016"
-TRAIN_IMAGE_PATH = os.path.join(BASE_PATH, 'images', 'training')
-TRAIN_ANNOTATION_PATH = os.path.join(BASE_PATH, 'annotations', 'training')
-VALID_IMAGE_PATH = os.path.join(BASE_PATH, 'images', 'validation')
-VALID_ANNOTATION_PATH = os.path.join(BASE_PATH, 'annotations', 'validation')
+    # --- Dataset Paths ---
+    base_path=f"{root_dir}/Data/ADEChallengeData2016",
+)
+
+MODEL_NAME = f'vit_{args.model_type}_patch14_dinov2'
+TRAIN_IMAGE_PATH = os.path.join(args.base_path, 'images', 'training')
+TRAIN_ANNOTATION_PATH = os.path.join(args.base_path, 'annotations', 'training')
+VALID_IMAGE_PATH = os.path.join(args.base_path, 'images', 'validation')
+VALID_ANNOTATION_PATH = os.path.join(args.base_path, 'annotations', 'validation')
 
 # --- Device Configuration ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
-wait_for_python_gpu_processes(poll_interval_minutes=5)
 # %%
 # Set seeds
-np.random.seed(SEED)
-random.seed(SEED)
-torch.manual_seed(SEED)
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.manual_seed(args.seed)
 if torch.cuda.is_available():
-    torch.cuda.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"has_pos_{HAS_POS}_overlap_{OVERLAP}_"
-    f"use_rc_loss_{Use_Row_Col_Loss}_rc_alpha_{RC_ALPHA}"
+    f"{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}"
 )
-output_dir = os.path.join(output_dir, subdir_name)
+output_dir = os.path.join(args.output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 
 log_file_path = os.path.join(output_dir, 'training.log')
@@ -105,12 +105,21 @@ logger = logging.getLogger()
 
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
-# %%
-if WANDB:
-    import wandb
-    # from wandb.keras import WandbCallback
-    wandb.login(key='bb050692d5a8ea8b20a38ddcd72a9eb06f497aff')
+logger.info(f"Arguments: {args}")
+logger.info(subdir_name)
+# wait_for_python_gpu_processes(poll_interval_minutes=5)
+# --- Acquire a file lock to ensure exclusive GPU usage ---
+if FileLock:
+    lock_path = "/tmp/gpu.lock"
+    gpu_lock = FileLock(lock_path)
+    logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+    gpu_lock.acquire()
+    logger.info("Lock acquired. It is safe to proceed.")
+    # The lock will be automatically released when the script exits.
+else:
+    logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
 
+logger.info(args)
 # %%
 # %%
 # =================================================================================
@@ -188,7 +197,7 @@ class SegmentationDataset(Dataset):
 
         # Mask: convert to numpy array, then to a long tensor
         # The values should be class indices (0, 1, 2, ...), not floats.
-        mask = torch.from_numpy(np.array(mask)).long() - 1
+        mask = torch.from_numpy(np.array(mask)).long() - 1 # ADE20K labels are 1-150, background 0. Map to 0-149, ignore -1.
         # mask = torch.clamp(mask, min=0, max=NUM_CLASSES-1)
 
         return image, mask
@@ -201,7 +210,7 @@ img_std = [0.229, 0.224, 0.225]
 train_dataset = SegmentationDataset(
     TRAIN_IMAGE_PATH,
     TRAIN_ANNOTATION_PATH,
-    img_size=IMG_SIZE,
+    img_size=args.img_size,
     is_train=True,
     mean=img_mean,
     std=img_std
@@ -209,14 +218,14 @@ train_dataset = SegmentationDataset(
 valid_dataset = SegmentationDataset(
     VALID_IMAGE_PATH,
     VALID_ANNOTATION_PATH,
-    img_size=IMG_SIZE,
+    img_size=args.img_size,
     is_train=False,
     mean=img_mean,
     std=img_std
 )
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
-valid_loader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=WORKERS, pin_memory=True, drop_last=True)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
+valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=True)
 
 steps_per_epoch = len(train_loader)
 logger.info(f"✅ DataLoaders created successfully.")
@@ -262,34 +271,6 @@ def imshow(img, mask, title=None):
 
 # except Exception as e:
 #     logger.info(f"Could not display images. Error: {str(e)}. Ensure previous cells have been run to create 'train_loader'.")
-# %%
-if WANDB:        
-    params = {}
-    params['NUM_CLASSES'] = NUM_CLASSES
-    params['BATCH_SIZE'] = BATCH_SIZE
-    params['IMG_SIZE'] = IMG_SIZE
-    params['EPOCHS'] = EPOCHS
-    # params['START_EPOCH'] = START_EPOCH
-    params['HAS_POS'] = HAS_POS
-    params['OVERLAP'] = OVERLAP
-    params["ALPHA"] = ALPHA
-    params["MODEL_NAME"] = MODEL_NAME
-    params["Row_Col_Loss"] = Use_Row_Col_Loss
-    params["RC_ALPHA"] = RC_ALPHA
-    params['lr'] = LEARNING_RATE
-    params['train_imgs'] = len(train_dataset)
-    params['hid'] = hid
-    params['seed'] = SEED
-    wandb.init(
-#             reinit=True,
-        # set the wandb project where this run will be logged
-        project=f"dinov2_{MODEL_TYPE}_seg",
-        # track hyperparameters and run metadata
-        config=params,
-        group='ade20k',
-        job_type='val'
-    )
-
 #%%
 # =================================================================================
 # An Improved, Progressive Decoder
@@ -329,7 +310,7 @@ class ProgressiveSegDecoder(nn.Module):
             
             # Upsample x4 to get to a higher resolution (e.g., 56x56 -> 224x224)
             # Another option is to continue with x2 upsampling for more refinement
-            nn.Upsample(size=(IMG_SIZE, IMG_SIZE), mode='bilinear', align_corners=True),
+            nn.Upsample(size=(args.img_size, args.img_size), mode='bilinear', align_corners=True),
             nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
@@ -467,33 +448,33 @@ class GatherDiceLoss(nn.Module):
 # Step 4: Initialize the Model, Loss Function, and Optimizer
 # =================================================================================
 # --- Model ---
-logger.info(f"🤖 Initializing model: {MODEL_NAME} ...")
-model = timm.create_model(MODEL_NAME, pretrained=False, num_classes=0, img_size=IMG_SIZE).to(DEVICE)
+logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} classes...")
+model = timm.create_model(MODEL_NAME, pretrained=False, num_classes=0, img_size=args.img_size).to(DEVICE)
 grid_h, grid_w = model.patch_embed.grid_size
-decoder = ProgressiveSegDecoder(model.embed_dim, NUM_CLASSES, grid_h).to(DEVICE)
+decoder = ProgressiveSegDecoder(model.embed_dim, args.num_classes, grid_h).to(DEVICE)
 
 # --- Test with a dummy input ---
-dummy_input = torch.randn(2, 3, IMG_SIZE, IMG_SIZE).to(DEVICE)
+dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
 with torch.no_grad():
     feats = model.forward_features(dummy_input)
     output = decoder(feats[:, 1:, :])
 
 logger.info(f"Model created successfully!")
 logger.info(f"Input shape: {dummy_input.shape}")
-logger.info(f"Output shape: {output.shape}") 
-assert output.shape == (2, NUM_CLASSES, IMG_SIZE, IMG_SIZE)
+logger.info(f"Output shape: {output.shape}")
+assert output.shape == (2, args.num_classes, args.img_size, args.img_size)
 logger.info("✅ Output shape is correct.")
 del feats, output, dummy_input
 
 # %%
 logger.info(f'model.patch_embed.proj {model.patch_embed.proj}')
-if OVERLAP>0:
+if args.overlap > 0:
     # Customize patch embedding for overlap (e.g., patch_size=15, stride=14)
     original_patch_size = model.patch_embed.proj.kernel_size[0]
-    new_patch_size = original_patch_size + OVERLAP  # Or 15, 16, 17, etc., as desired
+    new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
     stride = original_patch_size
-    original_grid_size = IMG_SIZE // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - IMG_SIZE + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+    original_grid_size = args.img_size // stride  # 16 for 224//14
+    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
     # Override the PatchEmbed projection (Conv2d layer)
     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
@@ -506,29 +487,29 @@ if OVERLAP>0:
     ).to(DEVICE)
     
     # Recompute grid size and num_patches
-    # grid_size_h = ((IMG_SIZE + 2 * padding - new_patch_size) // stride) + 1
+    # grid_size_h = ((args.img_size + 2 * padding - new_patch_size) // stride) + 1
     # grid_size_w = grid_size_h  # Assuming square input
     # logger.info(new_patch_size, padding, grid_size_h, model.patch_embed.grid_size)
     # model.patch_embed.grid_size = (grid_size_h, grid_size_w)
     # model.patch_embed.num_patches = grid_size_h * grid_size_w
     # logger.info(f"Updated to patch_size={new_patch_size}, stride={stride}, padding={padding}, num_patches={model.patch_embed.num_patches}")
 
-if not HAS_POS and hasattr(model, 'pos_embed') and model.pos_embed is not None:
+if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
     model.pos_embed.data.zero_()
     model.pos_embed.requires_grad = False
     logger.info("✅ Positional embedding has been disabled.")
-if pretrained is not None:
-    state_dicts = torch.load(pretrained, map_location=DEVICE)
+if args.pretrained is not None:
+    state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)
     logger.info(IncompatibleKeys)
 # --- Loss Function & Optimizer ---
 
 # Loss and Optimizer
 ce_criterion = nn.CrossEntropyLoss(ignore_index=-1)  # Standard Cross-Entropy
-dice_criterion = GatherDiceLoss(ignore_index=-1)          # Our new Dice Loss
+# dice_criterion = GatherDiceLoss(ignore_index=-1)  # Our new Dice Loss
 
-optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=LEARNING_RATE)
-total_steps = EPOCHS * steps_per_epoch
+optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=args.lr)
+total_steps = args.epochs * steps_per_epoch
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
 logger.info("✅ Initialized Hybrid Loss (CE + Dice), Optimizer, and LR Scheduler.")
 
@@ -606,7 +587,7 @@ class PatchRowColCriterion(nn.Module):
 
 # %%
 
-if Use_Row_Col_Loss:
+if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
     rowcol_loss = PatchRowColCriterion(
         feat_dim=model.embed_dim,
@@ -659,23 +640,20 @@ training_history = {
     'train_loss': [],
     'train_acc': [],
     'valid_acc': [],
-    'train_miou': [],
     'valid_miou': [],
     'epoch': [],
     'step': [],
 }
 step = 0
 
-for epoch in range(EPOCHS):
+for epoch in range(args.epochs):
     # --- Training Phase ---
     model.train()
     decoder.train()
     running_loss = 0.0
     train_correct = 0
     train_total = 0
-    train_intersection = torch.zeros(NUM_CLASSES).to(DEVICE)
-    train_union = torch.zeros(NUM_CLASSES).to(DEVICE)
-    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Training]")
+    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
     # train_pbar = train_loader
     
     # FP16: Use autocast for the forward pass
@@ -690,14 +668,14 @@ for epoch in range(EPOCHS):
             # --- Hybrid Loss Calculation ---
             loss = ce_criterion(outputs, labels)
             
-            if DICE_WEIGHT > 0:
-                loss_dice = dice_criterion(outputs, labels)
-                loss = loss + DICE_WEIGHT * loss_dice
+            # if args.dice_weight > 0:
+            #     loss_dice = dice_criterion(outputs, labels)
+            #     loss = loss + args.dice_weight * loss_dice
 
-            if Use_Row_Col_Loss:
+            if args.use_rc_loss:
                 aux_loss = rowcol_loss(feats[:, 1:, :])
                 # logger.info(loss, aux_loss)
-                loss = loss + RC_ALPHA * aux_loss
+                loss = loss + args.rc_alpha * aux_loss
         
         # FP16: Scale, backward, and step
         scaler.scale(loss).backward()
@@ -712,19 +690,10 @@ for epoch in range(EPOCHS):
         train_correct += ((predicted == labels) & mask).sum().item()
         train_total += mask.sum().item()
 
-        # Accumulate for epoch mIoU
-        for c in range(NUM_CLASSES):
-            pred_c = (predicted == c) & mask
-            label_c = (labels == c) & mask
-            train_intersection[c] += (pred_c & label_c).sum().item()
-            train_union[c] += (pred_c | label_c).sum().item()
-
         batch_pixel_acc = train_correct / train_total if train_total > 0 else 0.0
-        batch_miou = compute_miou(predicted.cpu(), labels.cpu(), NUM_CLASSES)
         bar_msg = {
                 'loss': f'{loss.item():.4f}', 
-                'acc': f'{batch_pixel_acc:.3f}', 
-                'miou': f'{batch_miou:.3f}'
+                'acc': f'{batch_pixel_acc:.3f}'
             }
         if 'aux_loss' in locals():
             bar_msg['aux'] = f'{aux_loss.item():.4f}'
@@ -733,19 +702,14 @@ for epoch in range(EPOCHS):
         step += 1
 
         # if (step) % VAL_STEPS == 0:
-    # --- Validation Phase ---
-    iou = torch.zeros(NUM_CLASSES).to(DEVICE)
-    valid = train_union > 0
-    iou[valid] = train_intersection[valid] / train_union[valid]
-    epoch_train_miou = iou.mean().item()
     
     model.eval()
     decoder.eval()
     val_correct = 0
     val_total = 0
-    val_intersection = torch.zeros(NUM_CLASSES).to(DEVICE)
-    val_union = torch.zeros(NUM_CLASSES).to(DEVICE)
-    val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
+    val_intersection = torch.zeros(args.num_classes).to(DEVICE)
+    val_union = torch.zeros(args.num_classes).to(DEVICE)
+    val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]")
     
     with torch.no_grad():
         for inputs, labels in val_pbar:
@@ -759,14 +723,14 @@ for epoch in range(EPOCHS):
             val_total += mask.sum().item()
 
             # Compute IoU for the batch
-            for c in range(NUM_CLASSES):
+            for c in range(args.num_classes):
                 pred_c = (predicted == c) & mask
                 label_c = (labels == c) & mask
                 val_intersection[c] += (pred_c & label_c).sum().item()
                 val_union[c] += (pred_c | label_c).sum().item()
 
     # Compute validation mIoU
-    iou = torch.zeros(NUM_CLASSES).to(DEVICE)
+    iou = torch.zeros(args.num_classes).to(DEVICE)
     valid = val_union > 0
     iou[valid] = val_intersection[valid] / val_union[valid]
     epoch_val_miou = iou.mean().item()
@@ -775,22 +739,20 @@ for epoch in range(EPOCHS):
     epoch_train_acc = train_correct / train_total if train_total > 0 else 0.0
     epoch_train_loss = running_loss / len(train_dataset)
 
-    logger.info(f"\nEpoch {epoch+1+START_EPOCH}/{EPOCHS} Summary:")
+    logger.info(f"\nEpoch {epoch+1+args.start_epoch}/{args.epochs} Summary:")
     logger.info(f"Step {step} Summary:")
-    logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
-            f"Train mIoU: {epoch_train_miou:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
+    logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
             f"Valid mIoU: {epoch_val_miou:.4f}\n")
     
     # ✅ Append the results to the correct lists within the dictionary
     training_history['train_loss'].append(epoch_train_loss)
     training_history['train_acc'].append(epoch_train_acc)
-    training_history['train_miou'].append(epoch_train_miou)
     training_history['valid_acc'].append(epoch_val_acc)  
     training_history['valid_miou'].append(epoch_val_miou)
     training_history['epoch'].append(epoch+1)
     training_history['step'].append(step+1)
     history_df = pd.DataFrame(training_history)
-    history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
+    history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
     model.train()
     decoder.train()
@@ -808,18 +770,8 @@ logger.info("🏁 Training complete.")
 
 # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
 history_df = pd.DataFrame(training_history)
-history_df.to_csv(os.path.join(output_dir, 'training_history.csv'), index=False)
-save_checkpoint(model, decoder, output_dir, "final")
-
-# %%
-if WANDB:
-    best_index = max(range(len(training_history['valid_acc'])), key=lambda i: training_history['valid_acc'][i])
-    best_accuracy = training_history['valid_acc'][best_index]
-    best_miou = training_history['valid_miou'][best_index]
-    best_epoch = training_history['epoch'][best_index]
-    best_step = training_history['step'][best_index]
-    train_accuracy = max(training_history['train_acc'])
-    wandb.log({"best_acc": best_accuracy, "best_miou": best_miou, "best_epoch": best_epoch, "best_step": best_step, "train_acc": train_accuracy})
+history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+# save_checkpoint(model, decoder, output_dir, "final")
 
 if not history_df.empty:
     best_miou = history_df['valid_miou'].max()
@@ -838,7 +790,7 @@ if not history_df.empty:
     best_acc_val = best_acc_row['valid_acc']
 
     logger.info("\n--- Best Validation Metrics from History ---")
-    logger.info(f"  Best a1:      {best_miou_val:.4f} (Epoch {best_miou_epoch})")
+    logger.info(f"  Best miou:      {best_miou_val:.4f} (Epoch {best_miou_epoch})")
     logger.info(f"  Best acc:  {best_acc_val:.4f} (Epoch {best_acc_epoch})")
     logger.info("------------------------------------------")
 # %%
@@ -872,7 +824,3 @@ if not history_df.empty:
 
 #     plt.tight_layout()
 #     plt.show()
-
-# %%
-if WANDB:
-    wandb.finish()
