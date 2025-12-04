@@ -41,7 +41,7 @@ class HyperSim_Simple(Dataset):
     pair is an independent sample.
     """
 
-    def __init__(self, ROOT, resolution, split=None, useImgnet=True, transform=None, **kwargs):
+    def __init__(self, ROOT, resolution, split=None, useImgnet=True, transform=None, sample_rate=1.0, **kwargs):
         super().__init__()
         self.ROOT = ROOT
         self.resolution = resolution
@@ -68,7 +68,11 @@ class HyperSim_Simple(Dataset):
         
         if not self.image_paths:
             raise FileNotFoundError(f"No '_rgb.png' files found in {self.ROOT}")
-        
+        if sample_rate < 1.0:
+            num_samples = int(len(self.image_paths) * sample_rate)
+            # Take a random subset of the images
+            self.image_paths = random.sample(self.image_paths, num_samples)
+
         print(f"Found {len(self.image_paths)} images.")
 
     def _setup_resolution(self):

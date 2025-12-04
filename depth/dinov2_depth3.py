@@ -18,7 +18,10 @@ import h5py
 from scipy import ndimage
 import warnings
 from typing import List, Tuple, Union
-
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None
 
 root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 # Add a3R project to path
@@ -26,7 +29,7 @@ import sys
 sys.path.insert(0, f'{root_dir}/Codes/pos')
 # sys.path.insert(0, '/lc/code/3D/a3R/src')
 
-from utils import wait_for_python_gpu_processes
+# from utils import wait_for_python_gpu_processes
 
 from hypersim_simple_dataset import HyperSim_Simple
 from transforms import SeqColorJitter
@@ -37,18 +40,18 @@ warnings.filterwarnings('ignore')
 args = SimpleNamespace(
     data_root="/lc/data/3D",
     resolution=224,
-    batch_size=200,
+    batch_size=196,
     model_name='vit_base_patch14_dinov2',
-    learning_rate=3e-5,
+    learning_rate=5e-5,
     epochs=100,
-    has_pos=True,
+    has_pos=False,
     overlap=0,
     seed=55,
     val_steps=500,
-    use_row_col_loss=False,
+    use_row_col_loss=True,
     rc_alpha=30.0,
     workers=5,
-    output_dir=f'{root_dir}/Codes/pos/output/depth',
+    output_dir=f'{root_dir}/Codes/pos/output/depth3',
 )
 
 print(args)
@@ -103,7 +106,18 @@ logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
 logger.info(args)
 logger.info(subdir_name)
-wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+# wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
+# --- Acquire a file lock to ensure exclusive GPU usage ---
+if FileLock:
+    lock_path = "/tmp/gpu.lock"
+    gpu_lock = FileLock(lock_path)
+    logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+    gpu_lock.acquire()
+    logger.info("Lock acquired. It is safe to proceed.")
+    # The lock will be automatically released when the script exits.
+else:
+    logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+
 logger.info(args)
 # %%
 # =================================================================================
@@ -854,10 +868,10 @@ def save_checkpoint(model, decoder, output_dir, suffix):
 
 scaler = torch.amp.GradScaler('cuda')
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
-
+# 'valid_loss': [], 
 training_history = {
     'train_loss': [], 'train_abs_rel': [], 'train_rmse': [], 'train_a1': [],
-    'valid_loss': [], 'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
+    'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
     'epoch': []
 }
 best_val_abs_rel = float('inf')
@@ -905,9 +919,9 @@ if not history_df.empty:
 
 if not history_df.empty:
     # Find the epoch with the best validation loss
-    best_loss_row = history_df.loc[history_df['valid_loss'].idxmin()]
-    best_loss_epoch = int(best_loss_row['epoch'])
-    best_loss_val = best_loss_row['valid_loss']
+    # best_loss_row = history_df.loc[history_df['valid_loss'].idxmin()]
+    # best_loss_epoch = int(best_loss_row['epoch'])
+    # best_loss_val = best_loss_row['valid_loss']
 
     # Find the epoch with the best validation a1 score
     best_a1_row = history_df.loc[history_df['valid_a1'].idxmax()]
@@ -925,7 +939,7 @@ if not history_df.empty:
     best_rmse_val = best_rmse_row['valid_rmse']
 
     logger.info("\n--- Best Validation Metrics from History ---")
-    logger.info(f"  Best Loss:    {best_loss_val:.4f} (Epoch {best_loss_epoch})")
+    # logger.info(f"  Best Loss:    {best_loss_val:.4f} (Epoch {best_loss_epoch})")
     logger.info(f"  Best a1:      {best_a1_val:.4f} (Epoch {best_a1_epoch})")
     logger.info(f"  Best AbsRel:  {best_abs_rel_val:.4f} (Epoch {best_abs_rel_epoch})")
     logger.info(f"  Best RMSE:    {best_rmse_val:.4f} (Epoch {best_rmse_epoch})")

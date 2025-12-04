@@ -23,6 +23,7 @@ import torchvision.transforms.functional as TF
 import sys
 import timm
 from types import SimpleNamespace
+import gc
 import argparse
 import logging
 try:
@@ -41,21 +42,23 @@ root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', 
+    pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type='base',
-    num_classes=10,
+    num_classes=100,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
-    batch_size=392,
+    # batch_size=256, #rpe
+    # batch_size=320, #rope
+    batch_size=392, 
     # ViT models have a fixed input size
     img_size=224,
     lr=5e-4,
     epochs=130,
     has_pos=False, # Set to True or False directly
-    overlap=5,
+    overlap=1,
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     rc_alpha=30.0,
     workers=5,
 
@@ -68,9 +71,9 @@ if args.pos_type is not None:
     args.use_rc_loss=False
     args.use_patch_position_loss=False
 
-
+offset = 20
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch14_dinov2"
-output_dir = f"{args.root_dir}/Codes/pos/output/imagenet/{args.model_type}b{args.batch_size}s{args.seed}"
+output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -80,7 +83,7 @@ TRAIN_PATHS = [
     os.path.join(BASE_PATH, 'train.X3'),
     os.path.join(BASE_PATH, 'train.X4'),
 ]
-offset = 0
+
 VALID_PATH = os.path.join(BASE_PATH, 'val.X')
 LABEL_PATH = os.path.join(BASE_PATH, 'Labels.json')
 
@@ -112,7 +115,7 @@ torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.num_classes}"
+    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.rc_alpha}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -131,6 +134,7 @@ logger = logging.getLogger()
 logger.info(f"Using device: {DEVICE}")
 logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
 logger.info(args)
+logger.info(output_dir)
 logger.info(subdir_name)
 
 # --- Acquire a file lock to ensure exclusive GPU usage ---
@@ -143,6 +147,12 @@ if FileLock:
     # The lock will be automatically released when the script exits.
 else:
     logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+
+logger.info("Cleaning up memory...")
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+logger.info("Memory cleanup complete.")
 
 logger.info(args)
 # %%
@@ -593,7 +603,7 @@ for epoch in range(args.epochs):
     #     scheduler.step()
 
 logger.info("🏁 Training complete.")
-
+logger.info(output_dir)
 # =================================================================================
 # Step 6: Save the Results and Model
 # =================================================================================
