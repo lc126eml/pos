@@ -20,6 +20,19 @@ import sys
 # sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
 import timm
 #%%
+timm.list_models("*dinov2*")
+
+#%%
+MODEL_NAME = "vit_base_patch14_dinov2"
+model = timm.create_model(
+    MODEL_NAME,
+    pretrained=False, # As requested: trains the model from scratch
+    num_classes=80, # Set the classifier head to 100 classes
+    img_size=224,
+)
+#%%
+print(model.num_prefix_tokens)
+#%%
 sys.path.append(r".")
 from vision_transformer_rope import *
 from vision_transformer_rpe import *

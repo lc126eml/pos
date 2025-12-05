@@ -37,13 +37,18 @@ except ImportError:
 # =================================================================================
 
 # --- Dynamically set root directory ---
-root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
-
+if os.path.exists('/ubuntu'):
+    root_dir = '/ubuntu'
+elif os.path.exists('/home/sshuser'):
+    root_dir = '/home/sshuser'
+else:
+    root_dir = '/linux'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
-    model_type='base',
+    model_type= "dinov3",
+    model_size='base',
     num_classes=100,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
@@ -71,9 +76,9 @@ if args.pos_type is not None:
     args.use_rc_loss=False
     args.use_patch_position_loss=False
 
-offset = 20
-MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch14_dinov2"
-output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}"
+offset = 0
+MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
+output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}/{args.model_size}b{args.batch_size}s{args.seed}2"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -95,13 +100,13 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 #%%
 
-if args.pos_type is not None:
-    sys.path.append(r".")
-    from vision_transformer_rope import *
-    from vision_transformer_rpe import *
-    from vision_transformer_relpos import *
-    from vision_transformer_alibi import *
-    from vision_transformer_sin import *
+# if args.pos_type is not None:
+#     sys.path.append(r".")
+#     from vision_transformer_rope import *
+#     from vision_transformer_rpe import *
+#     from vision_transformer_relpos import *
+#     from vision_transformer_alibi import *
+#     from vision_transformer_sin import *
 
 # %%
 # timm.list_models("vit_*_dinov2")
@@ -114,7 +119,7 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.rc_alpha}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
@@ -342,12 +347,11 @@ model = timm.create_model(
     num_classes=args.num_classes, # Set the classifier head to 100 classes
     img_size=args.img_size,
 ).to(DEVICE)
-
 # feature_layers = [2, 5, 8, 11]
 # dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
 # with torch.no_grad():
 #     feats = model.forward_features(dummy_input)
-# #     multi_feats = model.forward_intermediates(dummy_input, indices=feature_layers, intermediates_only=True)
+#     multi_feats = model.forward_intermediates(dummy_input, indices=feature_layers, intermediates_only=True)
 
 
 # logger.info(f"Model created successfully!")
@@ -385,10 +389,17 @@ if args.overlap > 0:
     # model.patch_embed.num_patches = grid_size_h * grid_size_w
     # logger.info(f"Updated to patch_size={new_patch_size}, stride={stride}, padding={padding}, num_patches={model.patch_embed.num_patches}")
 
-if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
-    model.pos_embed.data.zero_()
-    model.pos_embed.requires_grad = False
-    logger.info("✅ Positional embedding has been disabled.")
+# if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
+#     model.pos_embed.data.zero_()
+#     model.pos_embed.requires_grad = False
+#     logger.info("✅ Positional embedding has been disabled.")
+
+if not args.has_pos:
+    if hasattr(model, 'pos_embed'):
+        model.pos_embed = None
+    if hasattr(model, 'rope'):
+        model.rope = None
+
 if args.pretrained is not None:
     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)
@@ -477,9 +488,7 @@ class PatchRowColCriterion(nn.Module):
 
         return (loss_row + loss_col) / 2  # average
 
-
-# %%
-
+#%%
 if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
     rowcol_loss = PatchRowColCriterion(
