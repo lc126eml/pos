@@ -1,3 +1,4 @@
+#%%
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,7 +22,7 @@ accuracy = [
     54.54,
     60.45,
     59.55,
-    59.50,
+    60.44,
     58.95,
     55.65,
     52.63,
@@ -79,3 +80,4 @@ output_path = os.path.join(output_dir, 'table_5_comparison_graph.png')
 plt.savefig(output_path, dpi=300)
 
 print("Graph has been generated and saved as 'table_5_comparison_graph.png'")
+# %%

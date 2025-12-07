@@ -12,6 +12,35 @@ from csv_utils import read_csv_data, plot_data
 show_train_acc = False
 max_epoch_to_show = 130 # Set to None to show all epochs
 # Define the root directory for your CSV files
+CSV_ROOT_DIR = r'D:\codes\working\pos\Draft\csv\dinov3imagenet100'
+DATASET = "imagenet100"
+
+metric_name = 'acc'
+legend_labels = ['DINOv3 Baseline (with Rope)', 'Position-Agnostic (No PE)', 'Ours (Guidance Only)', 'Ours (Full Method)'] #, 
+MODEL_TYPE = 'base'
+y_label = "Accuracy"
+# MODEL_TYPE = 'small'
+# MODEL_TYPE = 'large'
+CSV_FILE_NAMES = [
+    f'base_pos_overlap_0_rc_False_classes_30.0.csv',
+    f'base_overlap_0_rc_False_classes_30.0.csv',
+    f'base_overlap_0_rc_True_classes_30.0.csv',
+    f'base_overlap_1_rc_True_classes_30.0.csv',
+]
+
+output_dir = rf"D:\codes\working\pos\Draft\plots\{'show_train' if show_train_acc else 'no_train'}"
+# print("Reading data...")
+all_data = read_csv_data(CSV_ROOT_DIR, CSV_FILE_NAMES)
+# print("Plotting data...")
+plot_title = f'Accuracy Comparison for DINOv3 {MODEL_TYPE.capitalize()} Model on {DATASET.capitalize()}'
+# plot_data(all_data, show_train_acc=show_train_acc, max_epoch=max_epoch_to_show, title=plot_title)
+
+plot_data(all_data, show_train_acc=show_train_acc, max_epoch=max_epoch_to_show, title=None, filname=plot_title, legend_labels=legend_labels, output_dir=output_dir, metric_name=metric_name, y_label=y_label)
+
+#%%
+show_train_acc = False
+max_epoch_to_show = 130 # Set to None to show all epochs
+# Define the root directory for your CSV files
 CSV_ROOT_DIR = r'D:\codes\working\pos\Draft\csv\seg2'
 DATASET = "ADE20K"
 
@@ -27,6 +56,7 @@ CSV_FILE_NAMES = [
     f'{MODEL_TYPE}_colrow.csv',
     f'{MODEL_TYPE}_colrow_o2.csv',
 ]
+
 # =============================================================================
 # Step 5: Execute the analysis
 # =============================================================================
