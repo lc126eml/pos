@@ -52,18 +52,18 @@ args = SimpleNamespace(
     num_classes=100,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
-    # batch_size=320, #rope
-    batch_size=392, 
+    batch_size=320, #rope
+    # batch_size=392, 
     # ViT models have a fixed input size
     img_size=224,
     lr=5e-4,
     epochs=130,
-    has_pos=False, # Set to True or False directly
-    overlap=1,
+    has_pos=True, # Set to True or False directly
+    overlap=0,
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     rc_alpha=30.0,
     workers=5,
 
@@ -78,7 +78,7 @@ if args.pos_type is not None:
 
 offset = 0
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
-output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}/{args.model_size}b{args.batch_size}s{args.seed}2"
+output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}/{args.model_size}b{args.batch_size}s{args.seed}3"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -100,13 +100,14 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 #%%
 
-# if args.pos_type is not None:
-#     sys.path.append(r".")
-#     from vision_transformer_rope import *
-#     from vision_transformer_rpe import *
-#     from vision_transformer_relpos import *
-#     from vision_transformer_alibi import *
-#     from vision_transformer_sin import *
+if args.pos_type is not None:
+    sys.path.append(r".")
+    # from vision_transformer_rope import *
+    from vision_transformer_rope2d import *
+    from vision_transformer_rpe import *
+    from vision_transformer_relpos import *
+    from vision_transformer_alibi import *
+    from vision_transformer_sin import *
 
 # %%
 # timm.list_models("vit_*_dinov2")
@@ -394,7 +395,7 @@ if args.overlap > 0:
 #     model.pos_embed.requires_grad = False
 #     logger.info("✅ Positional embedding has been disabled.")
 
-if not args.has_pos:
+if not args.has_pos or args.pos_type is not None:
     if hasattr(model, 'pos_embed'):
         model.pos_embed = None
     if hasattr(model, 'rope'):

@@ -37,8 +37,12 @@ except ImportError:
 # =================================================================================
 
 # --- Dynamically set root directory ---
-root_dir = '/home/sshuser' if os.path.exists('/home/sshuser') else '/linux'
-
+if os.path.exists('/ubuntu'):
+    root_dir = '/ubuntu'
+elif os.path.exists('/home/sshuser'):
+    root_dir = '/home/sshuser'
+else:
+    root_dir = '/linux'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
@@ -53,14 +57,14 @@ args = SimpleNamespace(
     img_size=224,
     lr=5e-4,
     epochs=130,
-    has_pos=False, # Set to True or False directly
+    has_pos=True, # Set to True or False directly
     overlap=1,
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
     use_rc_loss=True,
     rc_alpha=30.0,
-    workers=5,
+    workers=3,
 
     # --- Dataset Paths ---
     root_dir=root_dir,
@@ -73,7 +77,7 @@ if args.pos_type is not None:
 
 offset = 20
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch14_dinov2"
-output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}"
+output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}3"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -97,7 +101,8 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 if args.pos_type is not None:
     sys.path.append(r".")
-    from vision_transformer_rope import *
+    # from vision_transformer_rope import *
+    from vision_transformer_rope2d import *
     from vision_transformer_rpe import *
     from vision_transformer_relpos import *
     from vision_transformer_alibi import *
@@ -385,10 +390,17 @@ if args.overlap > 0:
     # model.patch_embed.num_patches = grid_size_h * grid_size_w
     # logger.info(f"Updated to patch_size={new_patch_size}, stride={stride}, padding={padding}, num_patches={model.patch_embed.num_patches}")
 
-if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
-    model.pos_embed.data.zero_()
-    model.pos_embed.requires_grad = False
-    logger.info("✅ Positional embedding has been disabled.")
+# if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
+#     model.pos_embed.data.zero_()
+#     model.pos_embed.requires_grad = False
+#     logger.info("✅ Positional embedding has been disabled.")
+
+if not args.has_pos or args.pos_type is not None:
+    if hasattr(model, 'pos_embed'):
+        model.pos_embed = None
+    if hasattr(model, 'rope'):
+        model.rope = None
+
 if args.pretrained is not None:
     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)

@@ -20,6 +20,8 @@ import sys
 # sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
 import timm
 #%%
+from vision_transformer_rope2d import *
+#%%
 timm.list_models("*dinov2*")
 
 #%%
@@ -30,19 +32,21 @@ model = timm.create_model(
     num_classes=80, # Set the classifier head to 100 classes
     img_size=224,
 )
+
 #%%
 print(model.num_prefix_tokens)
 #%%
 sys.path.append(r".")
-from vision_transformer_rope import *
+# from vision_transformer_rope import *
+from vision_transformer_rope2d import *
 from vision_transformer_rpe import *
 from vision_transformer_relpos import *
 from vision_transformer_alibi import *
 from vision_transformer_sin import *
  #%%
-MODEL_NAME = 'vit_base_patch14_dinov2'
-MODEL_NAME = "vit_rope_small_patch14_224"
-MODEL_NAME = "vit_alibi_base_patch14_dinov2"
+# MODEL_NAME = 'vit_base_patch14_dinov2'
+MODEL_NAME = "vit_rope_base_patch14_dinov2"
+# MODEL_NAME = "vit_alibi_base_patch14_dinov2"
 # MODEL_NAME = "vit_rpe_base_patch14_dinov2"
 # MODEL_NAME = "vit_relpos_base_patch14_dinov2"
 # MODEL_NAME = "vit_sin_base_patch14_dinov2"
