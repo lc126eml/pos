@@ -20,10 +20,20 @@ import sys
 # sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
 import timm
 #%%
-from vision_transformer_rope2d import *
+# from vision_transformer_rope2d import *
 #%%
-timm.list_models("*dinov2*")
-
+timm.list_models("*dinov3*")
+#%%
+MODEL_NAME = "vit_base_patch16_dinov3"
+model = timm.create_model(
+    MODEL_NAME,
+    pretrained=False, # As requested: trains the model from scratch
+    use_abs_pos_emb=True,
+    use_rot_pos_emb=False,
+    num_classes=100, # Set the classifier head to 100 classes
+    dynamic_img_size=True,
+    img_size=224,
+)
 #%%
 MODEL_NAME = "vit_base_patch14_dinov2"
 model = timm.create_model(
@@ -44,8 +54,8 @@ from vision_transformer_relpos import *
 from vision_transformer_alibi import *
 from vision_transformer_sin import *
  #%%
-# MODEL_NAME = 'vit_base_patch14_dinov2'
-MODEL_NAME = "vit_rope_base_patch14_dinov2"
+MODEL_NAME = 'vit_base_patch14_dinov2'
+# MODEL_NAME = "vit_rope_base_patch14_dinov2"
 # MODEL_NAME = "vit_alibi_base_patch14_dinov2"
 # MODEL_NAME = "vit_rpe_base_patch14_dinov2"
 # MODEL_NAME = "vit_relpos_base_patch14_dinov2"
@@ -56,7 +66,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # %%
 
-model = timm.create_model(MODEL_NAME, pretrained=False, num_classes=0, img_size=IMG_SIZE).to(DEVICE)
+model = timm.create_model(MODEL_NAME, pretrained=False, num_classes=5, img_size=IMG_SIZE).to(DEVICE)
 # print(model)
 # %%
 feature_layers = [2, 5, 8, 11]
@@ -74,3 +84,4 @@ print(f"Output shape: {feats.shape}")
 # assert output.shape == (2, NUM_CLASSES, IMG_SIZE, IMG_SIZE)
 # print("✅ Output shape is correct.")
 # %%
+print(model.pos_embed.shape)

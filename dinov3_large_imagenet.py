@@ -396,8 +396,10 @@ if args.overlap > 0:
 #     logger.info("✅ Positional embedding has been disabled.")
 
 if not args.has_pos or args.pos_type is not None:
-    if hasattr(model, 'pos_embed'):
-        model.pos_embed = None
+    if hasattr(model, 'pos_embed') and model.pos_embed is not None:
+        model.pos_embed.data.zero_()
+        model.pos_embed.requires_grad = False
+        logger.info("✅ Positional embedding has been disabled.")
     if hasattr(model, 'rope'):
         model.rope = None
 

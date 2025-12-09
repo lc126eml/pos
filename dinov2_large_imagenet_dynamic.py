@@ -2,6 +2,7 @@
 # =================================================================================
 # Step 1: Install and Import Necessary Libraries
 # =================================================================================
+import math
 import os
 import torch
 import torch.nn as nn
@@ -49,15 +50,17 @@ args = SimpleNamespace(
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type='base',
     num_classes=100,
+    patch_size = 14,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
     # batch_size=320, #rope
     batch_size=392, 
     # ViT models have a fixed input size
-    img_sizes=[224, 196, 238, 378, 518],
+    img_sizes=[224, 182, 196, 252, 308, 322, 336],
+    val_img_sizes=[224, 168, 182, 196, 238, 252, 280, 308, 322, 336, 378],
     lr=5e-4,
-    epochs=130,
-    has_pos=True, # Set to True or False directly
+    epochs=100,
+    has_pos=False, # Set to True or False directly
     overlap=1,
     pretrained=None,
     seed=55,
@@ -65,7 +68,9 @@ args = SimpleNamespace(
     use_rc_loss=True,
     rc_alpha=30.0,
     workers=3,
-
+    train=True,
+    val=True,
+    ckpt_path=None,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -76,8 +81,8 @@ if args.pos_type is not None:
     args.use_patch_position_loss=False
 
 offset = 20
-MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch14_dinov2"
-output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}3"
+MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}_patch{args.patch_size}_dinov2"
+output_dir = f"{args.root_dir}/Codes/pos/output/imagenet{args.num_classes}/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -121,7 +126,7 @@ torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_type}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.rc_alpha}"
-)
+).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 
@@ -177,8 +182,12 @@ import collections
 # =================================================================================
 # This simple Dataset class will load images from a pre-made list of file paths.
 class CustomImageDataset(Dataset):
-    def __init__(self, samples):
+    def __init__(self, samples, transform=None):
         self.samples = samples
+        self.transform = transform
+
+    def set_transform(self, transform):
+        self.transform = transform
 
     def __len__(self):
         return len(self.samples)
@@ -187,6 +196,8 @@ class CustomImageDataset(Dataset):
         path, target = self.samples[idx]
         with open(path, 'rb') as f:
             sample = Image.open(f).convert('RGB')
+        if self.transform:
+            sample = self.transform(sample)
         return sample, target
 
 def multiscale_batch_iterator(single_loader,
@@ -285,14 +296,21 @@ base_transform  = transforms.Compose([
     transforms.Normalize(mean=img_mean, std=img_std),
 ])
 
-valid_transforms = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(args.img_size),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=img_mean, std=img_std),
-])
+# valid_transforms = transforms.Compose([
+#     transforms.Resize(size=256),
+#     transforms.CenterCrop(args.img_sizes[0]),
+#     transforms.ToTensor(),
+#     transforms.Normalize(mean=img_mean, std=img_std),
+# ])
 
-
+def make_valid_transform(img_size):
+    return transforms.Compose([
+        transforms.Resize(size=int(img_size * 1.15)),
+        transforms.CenterCrop(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=img_mean, std=img_std),
+    ])
+valid_transforms = make_valid_transform(args.img_sizes[0])
 # --- Create the final datasets from the filtered samples ---
 train_dataset = CustomImageDataset(train_samples)
 valid_dataset = CustomImageDataset(valid_samples, transform=valid_transforms)
@@ -328,7 +346,6 @@ steps_per_epoch = len(train_loader)
 logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
 logger.info(f"{steps_per_epoch=}, val_steps: {len(valid_loader)}")
 
-# %%
 # %% [code]
 # =================================================================================
 # Step 3.5: Visualize a Batch of Training Data
@@ -356,27 +373,27 @@ def imshow(inp, title=None):
     plt.axis('off')
 
 # Get one batch of training images
-# try:
-#     inputs, classes = next(iter(train_loader))
+try:
+    inputs, classes = next(iter(valid_loader))
     
-#     # Get the class names from the dataset object
-#     # class_names = meta_dict['fine_label_names']
+    # Get the class names from the dataset object
+    # class_names = meta_dict['fine_label_names']
 
-#     # Create a grid of images
-#     fig = plt.figure(figsize=(16, 8))
-#     plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
+    # Create a grid of images
+    # fig = plt.figure(figsize=(16, 8))
+    # plt.suptitle("Sample Images from CIFAR-100 Dataset", fontsize=16)
     
-#     # Display the first 16 images from the batch
-#     for i in range(16):
-#         ax = plt.subplot(4, 8, i + 1)
-#         class_name = classes[i]
-#         imshow(inputs[i], title=class_name)
+    # # Display the first 16 images from the batch
+    # for i in range(16):
+    #     ax = plt.subplot(4, 8, i + 1)
+    #     class_name = classes[i]
+    #     imshow(inputs[i], title=class_name)
         
-#     plt.tight_layout(rect=[0, 0, 1, 0.96])
-#     plt.show()
+    # plt.tight_layout(rect=[0, 0, 1, 0.96])
+    # plt.show()
 
-# except NameError:
-#     logger.info("Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
+except NameError:
+    logger.info("Could not display images. Please ensure the previous cells have been run to create 'train_loader'.")
 
 
 
@@ -390,7 +407,8 @@ model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
     num_classes=args.num_classes, # Set the classifier head to 100 classes
-    img_size=args.img_size,
+    dynamic_img_size=True,
+    img_size=args.img_sizes[0],
 ).to(DEVICE)
 
 # feature_layers = [2, 5, 8, 11]
@@ -414,8 +432,8 @@ if args.overlap > 0:
     original_patch_size = model.patch_embed.proj.kernel_size[0]
     new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
     stride = original_patch_size
-    original_grid_size = args.img_size // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+    original_grid_size = args.img_sizes[0] // stride  # 16 for 224//14
+    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_sizes[0] + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
     # Override the PatchEmbed projection (Conv2d layer)
     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
@@ -428,7 +446,7 @@ if args.overlap > 0:
     ).to(DEVICE)
     
     # Recompute grid size and num_patches
-    # grid_size_h = ((args.img_size + 2 * padding - new_patch_size) // stride) + 1
+    # grid_size_h = ((args.img_sizes[0] + 2 * padding - new_patch_size) // stride) + 1
     # grid_size_w = grid_size_h  # Assuming square input
     # logger.info(new_patch_size, padding, grid_size_h, model.patch_embed.grid_size)
     # model.patch_embed.grid_size = (grid_size_h, grid_size_w)
@@ -441,8 +459,10 @@ if args.overlap > 0:
 #     logger.info("✅ Positional embedding has been disabled.")
 
 if not args.has_pos or args.pos_type is not None:
-    if hasattr(model, 'pos_embed'):
-        model.pos_embed = None
+    if hasattr(model, 'pos_embed') and model.pos_embed is not None:
+        model.pos_embed.data.zero_()
+        model.pos_embed.requires_grad = False
+        logger.info("✅ Positional embedding has been disabled.")
     if hasattr(model, 'rope'):
         model.rope = None
 
@@ -463,7 +483,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_st
 logger.info("✅ Step-based LR Scheduler is ready.")
 
 # %%
-# dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
+# dummy_input = torch.randn(2, 3, args.img_sizes[0], args.img_sizes[0]).to(DEVICE)
 # with torch.no_grad():
 #     feats = model.forward_features(dummy_input)
 # logger.info(f"Model created successfully!")
@@ -503,26 +523,27 @@ class PatchRowColCriterion(nn.Module):
         self.ce = nn.CrossEntropyLoss()
 
         # Precompute row/col labels
-        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w).flatten()
-        cols = torch.arange(grid_w).repeat(grid_h)
+        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w)
+        cols = torch.arange(grid_w).unsqueeze(0).repeat(grid_h, 1)
         self.register_buffer("row_labels", rows)
         self.register_buffer("col_labels", cols)
 
-    def forward(self, feats):
+    def forward(self, feats, hp, wp):
         """
         Args:
             feats: (B, N, D) patch features, N = grid_h * grid_w
+            wp, hp: (B,) number of patches in each row/column
         Returns:
             avg_loss: scalar, sum of row and column classification losses
         """
         B, N, D = feats.shape
-        assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
+        # assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
 
         x = feats.reshape(-1, D)  # (B*N, D)
 
         # Repeat labels for batch
-        row_labels = self.row_labels.repeat(B)
-        col_labels = self.col_labels.repeat(B)
+        row_labels = self.row_labels[:hp, :wp].flatten().repeat(B)
+        col_labels = self.col_labels[:hp, :wp].flatten().repeat(B)
 
         # Predict rows and columns
         row_logits = self.row_mlp(x)
@@ -533,13 +554,29 @@ class PatchRowColCriterion(nn.Module):
         loss_col = self.ce(col_logits, col_labels)
 
         return (loss_row + loss_col) / 2  # average
+#%%
+def get_patch_numbers(img_size, patch_size):
+    """
+    Calculate the number of patches in an image.
 
+    Args:
+        img_size (int or tuple): Size of the input image (H, W)
+        patch_size (int): Size of the patch
+
+    Returns:
+        tuple: Number of patches in the image (H, W)
+    """
+    if isinstance(img_size, int):
+        img_size = (img_size, img_size)
+    assert 2 == len(img_size)
+    hp, wp = img_size[0] // patch_size, img_size[1] // patch_size  
+    return hp, wp
 
 # %%
 
 if args.use_rc_loss:
     # grid_h, grid_w = model.patch_embed.grid_size
-    grid_h, grid_w = 50, 50
+    grid_h = grid_w = max(args.img_sizes)//args.patch_size
     rowcol_loss = PatchRowColCriterion(
         feat_dim=model.embed_dim,
         grid_h=grid_h,
@@ -555,139 +592,183 @@ if args.use_patch_position_loss:
 # %%
 import csv
 
-# FP16: Initialize the Gradient Scaler
-scaler = torch.amp.GradScaler('cuda')
-# =================================================================================
-# Step 5: Training and Validation Loop
-# =================================================================================
-logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
+ckpt_path = None
+if args.train:
+    # FP16: Initialize the Gradient Scaler
+    scaler = torch.amp.GradScaler('cuda')
+    # =================================================================================
+    # Step 5: Training and Validation Loop
+    # =================================================================================
+    logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 
-# ✅ Initialize training_history as a dictionary of lists
-training_history = {
-    'train_loss': [],
-    'train_acc': [],
-    'valid_acc': [],
-    'epoch': [],
-    'step': [],
-}
-step = 0
+    # ✅ Initialize training_history as a dictionary of lists
+    training_history = {
+        'train_loss': [],
+        'train_acc': [],
+        'valid_acc': [],
+        'epoch': [],
+        'step': [],
+    }
+    step = 0
 
-for epoch in range(args.epochs):
-    # --- Training Phase ---
-    model.train()
-    running_loss = 0.0
-    train_correct = 0
-    train_total = 0
-    # train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
-    # train_pbar = train_loader
-    
-    for images, targets in multiscale_batch_iterator(
-        train_loader,
-        image_sizes=args.image_sizes,
-        base_batch_size=args.batch_size,
-        base_img_size=args.img_sizes[0],
-    ):
-    # FP16: Use autocast for the forward pass
-    # for inputs, labels in train_pbar:
-        inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+    for epoch in range(args.epochs):
+        # --- Training Phase ---
+        model.train()
+        running_loss = 0.0
+        train_correct = 0
+        train_total = 0
+        # train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
+        # train_pbar = train_loader
+        num_samples = len(train_dataset)
+        # simple estimate: how many base batches per epoch?
+        est_steps_per_epoch = math.ceil(num_samples / args.batch_size)
         
-        optimizer.zero_grad()
-        aux_loss = None
-        with torch.amp.autocast('cuda', dtype=autocast_dtype):
-            feats = model.forward_features(inputs)
-            outputs = model.forward_head(feats)
-            # outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            if args.use_rc_loss:
-                aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
-                # logger.info(loss, aux_loss)
-                loss = loss + args.rc_alpha * aux_loss
-            
-            if args.use_patch_position_loss:
-                aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
-                # logger.info(f"{loss}, {aux_loss}")
-                loss = loss + args.rc_alpha * aux_loss
-        
-        # FP16: Scale, backward, and step
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        scheduler.step()
-        
-        running_loss += loss.item() * inputs.size(0)
-        _, predicted = torch.max(outputs.data, 1)
-        train_total += labels.size(0)
-        train_correct += (predicted == labels).sum().item()
-        
-        batch_acc = (predicted == labels).sum().item() / labels.size(0)
-        bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
-        if aux_loss is not None:
-            bar_msg['aux'] = aux_loss.item()
-        # train_pbar.set_postfix(bar_msg)
-
-        step += 1
-
-        # if (step + 1) % VAL_STEPS == 0:
-    # --- Validation Phase ---
-    model.eval()
-    val_correct = 0
-    val_total = 0
-    # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
-    
-    with torch.no_grad():
-        for inputs, labels in valid_loader:
+        for inputs, labels in tqdm(multiscale_batch_iterator(
+            train_loader,
+            image_sizes=args.img_sizes,
+            base_batch_size=args.batch_size,
+            base_img_size=args.img_sizes[0],
+        ), total=est_steps_per_epoch, desc=f"Epoch {epoch+1}/{args.epochs} [Training]"):
+        # FP16: Use autocast for the forward pass
+        # for inputs, labels in train_pbar:
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            
+            optimizer.zero_grad()
+            aux_loss = None
             with torch.amp.autocast('cuda', dtype=autocast_dtype):
-                outputs = model(inputs)
+                feats = model.forward_features(inputs)
+                outputs = model.forward_head(feats)
+                # outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                if args.use_rc_loss:
+                    hp, wp = get_patch_numbers(inputs.shape[-2:], model.patch_embed.patch_size[0])
+                    aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :], hp, wp)
+                    # logger.info(loss, aux_loss)
+                    loss = loss + args.rc_alpha * aux_loss
+                
+                if args.use_patch_position_loss:
+                    aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
+                    # logger.info(f"{loss}, {aux_loss}")
+                    loss = loss + args.rc_alpha * aux_loss
+            
+            # FP16: Scale, backward, and step
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            scheduler.step()
+            
+            running_loss += loss.item() * inputs.size(0)
             _, predicted = torch.max(outputs.data, 1)
-            val_total += labels.size(0)
-            val_correct += (predicted == labels).sum().item()
+            train_total += labels.size(0)
+            train_correct += (predicted == labels).sum().item()
+            
+            batch_acc = (predicted == labels).sum().item() / labels.size(0)
+            bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
+            if aux_loss is not None:
+                bar_msg['aux'] = aux_loss.item()
+            # train_pbar.set_postfix(bar_msg)
 
-    epoch_val_acc = val_correct / val_total
+            step += 1
 
-    epoch_train_acc = train_correct / train_total
-    epoch_train_loss = running_loss / len(train_loader.dataset)
-    
-    logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
-    logger.info(f"\nStep {step} Summary:")
-    logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
-    
+            # if (step + 1) % VAL_STEPS == 0:
+        # --- Validation Phase ---
+        model.eval()
+        val_correct = 0
+        val_total = 0
+        # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
+        
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                    outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
 
-    # ✅ Append the results to the correct lists within the dictionary
-    training_history['train_loss'].append(epoch_train_loss)
-    training_history['train_acc'].append(epoch_train_acc)
-    training_history['valid_acc'].append(epoch_val_acc)  
-    training_history['epoch'].append(epoch+1)
-    training_history['step'].append(step+1)
+        epoch_val_acc = val_correct / val_total
+
+        epoch_train_acc = train_correct / train_total
+        epoch_train_loss = running_loss / len(train_loader.dataset)
+        
+        logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
+        logger.info(f"\nStep {step} Summary:")
+        logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
+        
+
+        # ✅ Append the results to the correct lists within the dictionary
+        training_history['train_loss'].append(epoch_train_loss)
+        training_history['train_acc'].append(epoch_train_acc)
+        training_history['valid_acc'].append(epoch_val_acc)  
+        training_history['epoch'].append(epoch+1)
+        training_history['step'].append(step+1)
+        history_df = pd.DataFrame(training_history)
+        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+
+        # Update the learning rate scheduler
+        # if 'scheduler' in locals():
+        #     scheduler.step()
+
+    logger.info("🏁 Training complete.")
+    logger.info(output_dir)
+
+    # =================================================================================
+    # Step 6: Save the Results and Model
+    # =================================================================================
+
+    # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
     history_df = pd.DataFrame(training_history)
+
+    # ✅ Step 2: Add the 'epoch' column at the beginning
+    # Create the list of epochs where validation was actually performed
+    # epochs_validated = range(5, EPOCHS + 1, 5) 
+    # history_df.insert(0, 'epoch', epochs_validated)
+
+    # ✅ Step 3: Save the DataFrame to a CSV file
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    # Save the model's state dictionary
+    ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
+    torch.save(model.state_dict(), ckpt_path)
+    logger.info(f"✅ Model saved to '{ckpt_path}'")
 
-    # Update the learning rate scheduler
-    # if 'scheduler' in locals():
-    #     scheduler.step()
+if args.val:    
+    val_results = {
+        'img_size': [],
+        'valid_acc': []
+    }
 
-logger.info("🏁 Training complete.")
-logger.info(output_dir)
+    if ckpt_path is None:
+        ckpt_path = args.ckpt_path
+    model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+    model.to(DEVICE)
+    model.eval()
+    for img_size in args.val_img_sizes:
+        valid_dataset.set_transform(make_valid_transform(img_size))
+        valid_loader = DataLoader(
+            dataset=valid_dataset,
+            batch_size=args.batch_size,
+            shuffle=False, 
+            num_workers=2,
+            pin_memory=True
+        )    
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                    outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
 
-# =================================================================================
-# Step 6: Save the Results and Model
-# =================================================================================
+        epoch_val_acc = val_correct / val_total
+        val_results['img_size'].append(img_size)
+        val_results['valid_acc'].append(epoch_val_acc)
+    val_df = pd.DataFrame(val_results)
+    val_df.to_csv(os.path.join(output_dir, f'eval.csv'), index=False)
 
-# ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
-history_df = pd.DataFrame(training_history)
-
-# ✅ Step 2: Add the 'epoch' column at the beginning
-# Create the list of epochs where validation was actually performed
-# epochs_validated = range(5, EPOCHS + 1, 5) 
-# history_df.insert(0, 'epoch', epochs_validated)
-
-# ✅ Step 3: Save the DataFrame to a CSV file
-history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-# Save the model's state dictionary
-ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
-torch.save(model.state_dict(), ckpt_path)
-logger.info(f"✅ Model saved to '{ckpt_path}'")
 # if gpu_lock and gpu_lock.is_locked:
 #     logger.info("Manually releasing lock.")
 #     gpu_lock.release()
