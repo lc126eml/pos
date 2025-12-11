@@ -52,7 +52,7 @@ args = SimpleNamespace(
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -61,12 +61,12 @@ args = SimpleNamespace(
     # batch_size=320, #rope
     batch_size=392, 
     # ViT models have a fixed input size
-    img_sizes=[224, 192, 208, 256, 288, 320, 336, 352, 368],
-    # img_sizes=[224],
-    val_img_sizes=[224,160, 176, 192, 208, 256, 272, 288, 320, 336, 352, 368, 384, 400],
+    # img_sizes=[224, 192, 288],
+    img_sizes=[224],
+    val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     lr=5e-4,
     epochs=130,
-    has_pos=False, # Set to True or False directly
+    # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
     seed=55,
@@ -76,7 +76,10 @@ args = SimpleNamespace(
     workers=5,
     train=True,
     val=True,
-    ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
+    ckpt_path=None,
+    # "output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
+    # ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_pos_overlap_0_rc_False_classes_30.0/vit_base_patch16_dinov3_final.pth",
+    # output/imagenet100/dinov3b392s55of0dynamic_224_/base_pos_overlap_0_rc_False_classes_30.0/vit_base_patch16_dinov3_final.pth
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -255,7 +258,7 @@ size_to_transform = {
 
 def make_valid_transform(img_size):
     return transforms.Compose([
-        transforms.Resize(size=int(img_size * 1.15)),
+        transforms.Resize(size=int(img_size * 1.143)),
         transforms.CenterCrop(img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=img_mean, std=img_std),
@@ -285,7 +288,7 @@ batch_sampler = DynamicResolutionBatchSampler(
     dataset=train_dataset,
     image_sizes=args.img_sizes,
     base_batch_size=args.batch_size,    # your “reference” batch size
-    base_img_size=args.img_sizes[0],       # your “reference” resolution (e.g. 224)
+    base_img_size=224, #args.img_sizes[0],       # your “reference” resolution (e.g. 224)
     shuffle=True,
     drop_last=True,
     seed=42,
@@ -372,7 +375,7 @@ model = timm.create_model(
     use_abs_pos_emb=args.use_abs_pos_emb,
     use_rot_pos_emb=args.use_rot_pos_emb,
     num_classes=args.num_classes, # Set the classifier head to 100 classes
-    dynamic_img_size=True,
+    dynamic_img_size=True if len(args.img_sizes)>0 else False,
     img_size=args.img_sizes[0],
 ).to(DEVICE)
 # feature_layers = [2, 5, 8, 11]
@@ -422,13 +425,13 @@ if args.overlap > 0:
 #     model.pos_embed.requires_grad = False
 #     logger.info("✅ Positional embedding has been disabled.")
 
-if not args.has_pos or args.pos_type is not None:
-    if hasattr(model, 'pos_embed') and model.pos_embed is not None:
-        model.pos_embed.data.zero_()
-        model.pos_embed.requires_grad = False
-        logger.info("✅ Positional embedding has been disabled.")
-    if hasattr(model, 'rope'):
-        model.rope = None
+# if not args.has_pos or args.pos_type is not None:
+#     if hasattr(model, 'pos_embed') and model.pos_embed is not None:
+#         model.pos_embed.data.zero_()
+#         model.pos_embed.requires_grad = False
+#         logger.info("✅ Positional embedding has been disabled.")
+#     if hasattr(model, 'rope'):
+#         model.rope = None
 
 if args.pretrained is not None:
     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
@@ -456,68 +459,6 @@ logger.info("✅ Step-based LR Scheduler is ready.")
     
 sys.stdout.flush()
 # %%
-class PatchRowColCriterion(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w):
-        """
-        Predict row and column of each patch independently.
-
-        Args:
-            feat_dim (int): Dimension of patch features (D)
-            grid_h (int): Number of patch rows
-            grid_w (int): Number of patch columns
-        """
-        super().__init__()
-        self.grid_h = grid_h
-        self.grid_w = grid_w
-
-        # MLP for row prediction
-        self.row_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, grid_h)
-        )
-
-        # MLP for column prediction
-        self.col_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, grid_w)
-        )
-
-        self.ce = nn.CrossEntropyLoss()
-
-        # Precompute row/col labels
-        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w)
-        cols = torch.arange(grid_w).unsqueeze(0).repeat(grid_h, 1)
-        self.register_buffer("row_labels", rows)
-        self.register_buffer("col_labels", cols)
-
-    def forward(self, feats, hp, wp):
-        """
-        Args:
-            feats: (B, N, D) patch features, N = grid_h * grid_w
-            wp, hp: (B,) number of patches in each row/column
-        Returns:
-            avg_loss: scalar, sum of row and column classification losses
-        """
-        B, N, D = feats.shape
-        # assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
-
-        x = feats.reshape(-1, D)  # (B*N, D)
-
-        # Repeat labels for batch
-        row_labels = self.row_labels[:hp, :wp].flatten().repeat(B)
-        col_labels = self.col_labels[:hp, :wp].flatten().repeat(B)
-
-        # Predict rows and columns
-        row_logits = self.row_mlp(x)
-        col_logits = self.col_mlp(x)
-
-        # Compute cross-entropy loss for rows and columns
-        loss_row = self.ce(row_logits, row_labels)
-        loss_col = self.ce(col_logits, col_labels)
-
-        return (loss_row + loss_col) / 2  # average
 #%%
 def get_patch_numbers(img_size, patch_size):
     """
@@ -539,15 +480,25 @@ def get_patch_numbers(img_size, patch_size):
 # %%
 
 if args.use_rc_loss:
-    # grid_h, grid_w = model.patch_embed.grid_size
-    grid_h = grid_w = max(args.img_sizes)//args.patch_size
-    rowcol_loss = PatchRowColCriterion(
-        feat_dim=model.embed_dim,
-        grid_h=grid_h,
-        grid_w=grid_w
-    ).to(DEVICE)
+    if len(args.img_sizes)==1:
+        grid_h, grid_w = model.patch_embed.grid_size
+        dynamic = False
+        from core.patch_pos import PatchRowColCriterion
+        rowcol_loss = PatchRowColCriterion(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w
+        ).to(DEVICE)
+    else:
+        grid_h = grid_w = max(args.img_sizes)//args.patch_size
+        from core.patch_pos import PatchRowColCriterionDynamic
+        rowcol_loss = PatchRowColCriterionDynamic(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w
+        ).to(DEVICE)
 if args.use_patch_position_loss:
-    from patch_pos import PatchPositionCriterion
+    from core.patch_pos import PatchPositionCriterion
     position_loss = PatchPositionCriterion(
         feat_dim=model.embed_dim,
         num_classes=model.patch_embed.num_patches
@@ -597,8 +548,11 @@ if args.train:
                 # outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 if args.use_rc_loss:
-                    hp, wp = get_patch_numbers(inputs.shape[-2:], model.patch_embed.patch_size[0])
-                    aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :], hp, wp)
+                    if dynamic:
+                        hp, wp = get_patch_numbers(inputs.shape[-2:], model.patch_embed.patch_size[0])
+                        aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :], hp, wp)
+                    else:
+                        aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
                     # logger.info(loss, aux_loss)
                     loss = loss + args.rc_alpha * aux_loss
                 
@@ -701,9 +655,10 @@ if args.val:
     model.eval()
     for img_size in args.val_img_sizes:
         valid_dataset.set_transform(make_valid_transform(img_size))
+        batch_size = int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size))
         valid_loader = DataLoader(
             dataset=valid_dataset,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             shuffle=False, 
             num_workers=2,
             pin_memory=True
@@ -724,6 +679,8 @@ if args.val:
         val_results['valid_acc'].append(epoch_val_acc)
         val_df = pd.DataFrame(val_results)
         val_df.to_csv(os.path.join(output_dir, f'{subdir_name}_eval.csv'), index=False)
+        logger.info(f"{img_size=}: {epoch_val_acc=}")
+        gc.collect()
 
 # if gpu_lock and gpu_lock.is_locked:
 #     logger.info("Manually releasing lock.")

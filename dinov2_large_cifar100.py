@@ -432,7 +432,7 @@ if args.use_rc_loss:
         grid_w=grid_w
     ).to(DEVICE)
 if args.use_patch_position_loss:
-    from patch_pos import PatchPositionCriterion
+    from core.patch_pos import PatchPositionCriterion
     position_loss = PatchPositionCriterion(
         feat_dim=model.embed_dim,
         num_classes=model.patch_embed.num_patches

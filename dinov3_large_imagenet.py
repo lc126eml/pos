@@ -48,12 +48,15 @@ args = SimpleNamespace(
     # --- Model & Training Settings ---
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type= "dinov3",
+    use_abs_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
+    patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
-    batch_size=320, #rope
-    # batch_size=392, 
+    # batch_size=320, #rope
+    batch_size=392, 
     # ViT models have a fixed input size
     img_size=224,
     lr=5e-4,
@@ -66,6 +69,9 @@ args = SimpleNamespace(
     use_rc_loss=False,
     rc_alpha=30.0,
     workers=5,
+    train=False,
+    val=True,
+    ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
 
     # --- Dataset Paths ---
     root_dir=root_dir,
@@ -78,7 +84,7 @@ if args.pos_type is not None:
 
 offset = 0
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
-output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}/{args.model_size}b{args.batch_size}s{args.seed}3"
+output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}/{args.model_size}b{args.batch_size}s{args.seed}5"
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -120,7 +126,7 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
-    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_"
+    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.rc_alpha}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
@@ -345,6 +351,8 @@ logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} class
 model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
+    use_abs_pos_emb=args.use_abs_pos_emb,
+    use_rot_pos_emb=args.use_rot_pos_emb,
     num_classes=args.num_classes, # Set the classifier head to 100 classes
     img_size=args.img_size,
 ).to(DEVICE)
@@ -500,7 +508,7 @@ if args.use_rc_loss:
         grid_w=grid_w
     ).to(DEVICE)
 if args.use_patch_position_loss:
-    from patch_pos import PatchPositionCriterion
+    from core.patch_pos import PatchPositionCriterion
     position_loss = PatchPositionCriterion(
         feat_dim=model.embed_dim,
         num_classes=model.patch_embed.num_patches
@@ -631,8 +639,9 @@ history_df = pd.DataFrame(training_history)
 # ✅ Step 3: Save the DataFrame to a CSV file
 history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 # Save the model's state dictionary
-# torch.save(model.state_dict(), f'{MODEL_NAME}_final.pth')
-# logger.info(f"✅ Model saved to '{MODEL_NAME}_final.pth'")
+ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
+torch.save(model.state_dict(), ckpt_path)
+logger.info(f"✅ Model saved to '{ckpt_path}'")
 # if gpu_lock and gpu_lock.is_locked:
 #     logger.info("Manually releasing lock.")
 #     gpu_lock.release()
