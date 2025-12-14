@@ -282,6 +282,7 @@ logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} class
 model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
+    patch_size=4,
     num_classes=args.num_classes, # Set the classifier head to 100 classes
     img_size=args.img_size,
 ).to(DEVICE)

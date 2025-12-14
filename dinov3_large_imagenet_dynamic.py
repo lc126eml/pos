@@ -52,33 +52,34 @@ args = SimpleNamespace(
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
-    # batch_size=320, #rope
-    batch_size=392, 
+    batch_size=320, #rope
+    # batch_size=392, 
     # ViT models have a fixed input size
     # img_sizes=[224, 192, 288],
     img_sizes=[224],
-    val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
+    # val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
+    val_img_sizes=[256, 272, 288, 320, 400, 416],
     lr=5e-4,
     epochs=130,
     # has_pos=True, # Set to True or False directly
-    overlap=0,
+    overlap=1,
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     rc_alpha=30.0,
     workers=5,
-    train=True,
+    train=False,
     val=True,
-    ckpt_path=None,
+    # ckpt_path=None,
     # "output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
-    # ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_pos_overlap_0_rc_False_classes_30.0/vit_base_patch16_dinov3_final.pth",
+    ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
     # output/imagenet100/dinov3b392s55of0dynamic_224_/base_pos_overlap_0_rc_False_classes_30.0/vit_base_patch16_dinov3_final.pth
     # --- Dataset Paths ---
     root_dir=root_dir,
@@ -118,7 +119,7 @@ if args.pos_type is not None:
     # from vision_transformer_rope import *
     from vision_transformer_rope2d import *
     from vision_transformer_rpe import *
-    from vision_transformer_relpos import *
+    from vision_transformer_relpos_v2 import *
     from vision_transformer_alibi import *
     from vision_transformer_sin import *
 

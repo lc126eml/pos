@@ -1,5 +1,80 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from typing import Literal, Optional, Dict, Tuple
+
+LossType = Literal["mse", "smooth_l1", "l1"]
+
+class PatchRowColRegressionCriterionFast(nn.Module):
+    def __init__(
+        self,
+        feat_dim: int,
+        grid_h: int,
+        grid_w: int,
+        normalize: bool = True,
+        loss_type: LossType = "smooth_l1",
+        huber_beta: Optional[float] = None,  # only used for smooth_l1; None => PyTorch default
+    ):
+        """
+        Predict row/col index of each patch via regression (single resolution).
+
+        Args:
+            feat_dim: feature dim D
+            grid_h, grid_w: patch grid size (fixed)
+            normalize: if True, targets are normalized to [0,1]
+            loss_type: one of {"mse","smooth_l1","l1"}
+            huber_beta: SmoothL1 transition point. If None, use PyTorch default.
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+        self.loss_type = loss_type
+        self.huber_beta = huber_beta
+
+        # One head, two outputs: (row, col)
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 2),
+        )
+
+        # Precompute targets: (1, N, 2)
+        rows = torch.arange(self.grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, self.grid_w)
+        cols = torch.arange(self.grid_w, dtype=torch.float32).unsqueeze(0).repeat(self.grid_h, 1)
+
+        if self.normalize:
+            rows = rows / max(self.grid_h - 1, 1)
+            cols = cols / max(self.grid_w - 1, 1)
+
+        targets = torch.stack([rows.flatten(), cols.flatten()], dim=-1).unsqueeze(0)  # (1, N, 2)
+        self.register_buffer("targets", targets)
+
+        if loss_type == "mse":
+            self._loss = lambda pred, tgt: F.mse_loss(pred, tgt, reduction="mean")
+        elif loss_type == "l1":
+            self._loss = lambda pred, tgt: F.l1_loss(pred, tgt, reduction="mean")
+        elif loss_type == "smooth_l1":
+            if huber_beta is None:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean")
+            else:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean", beta=huber_beta)
+        else:
+            raise ValueError(f"Unsupported loss_type={self.loss_type}. Use 'mse', 'smooth_l1', or 'l1'.")
+
+    def forward(self, feats: torch.Tensor) -> torch.Tensor:
+        """
+        feats: (B, N, D), N = grid_h * grid_w
+        returns: scalar loss
+        """
+        B, N, D = feats.shape
+        if N != self.grid_h * self.grid_w:
+            raise ValueError(f"Expected N={self.grid_h*self.grid_w}, got N={N}")
+
+        pred = self.mlp(feats)                # (B, N, 2)
+        tgt = self.targets.expand(B, -1, -1)  # view, no allocation
+
+        return self._loss(pred.float(), tgt.float())
 
 class PatchRowColRegressionCriterion(nn.Module):
     def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
@@ -75,6 +150,114 @@ class PatchRowColRegressionCriterion(nn.Module):
 
         return (loss_row + loss_col) / 2.0
 
+class PatchRowColRegressionCriterionDynamicFast(nn.Module):
+    def __init__(
+        self,
+        feat_dim: int,
+        max_grid_h: int,
+        max_grid_w: int,
+        normalize: bool = True,
+        loss_type: LossType = "smooth_l1",
+        huber_beta: Optional[float] = None,
+        cache_targets: bool = True,
+    ):
+        """
+        Fast dynamic-resolution row/col regression.
+
+        Args:
+            feat_dim: feature dim D
+            max_grid_h/w: upper bound of patch grid (used only for validation)
+            normalize: targets in [0,1] based on current hp/wp
+            loss_type: {"mse","smooth_l1","l1"}
+            huber_beta: SmoothL1 beta; None uses PyTorch default
+            cache_targets: cache target tensors per (hp,wp) to avoid recompute
+        """
+        super().__init__()
+        self.max_grid_h = int(max_grid_h)
+        self.max_grid_w = int(max_grid_w)
+        self.normalize = bool(normalize)
+        self.cache_targets = bool(cache_targets)
+
+        # Fused head: predict (row, col)
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 2),
+        )
+
+        # Pre-bind loss function to avoid forward-time branching
+        if loss_type == "mse":
+            self._loss = lambda pred, tgt: F.mse_loss(pred, tgt, reduction="mean")
+        elif loss_type == "l1":
+            self._loss = lambda pred, tgt: F.l1_loss(pred, tgt, reduction="mean")
+        elif loss_type == "smooth_l1":
+            if huber_beta is None:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean")
+            else:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean", beta=huber_beta)
+        else:
+            raise ValueError(f"Unsupported loss_type={self.loss_type}. Use 'mse', 'smooth_l1', or 'l1'.")
+
+        # Python cache: {(hp,wp,device_str,dtype_str): targets(1,N,2)}
+        # Safe because targets are small and resolutions are from a limited set.
+        self._tgt_cache: Dict[Tuple[int, int, str, str], torch.Tensor] = {}
+
+    @torch.no_grad()
+    def _make_targets(self, hp: int, wp: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        """
+        Build targets of shape (1, N, 2) for current (hp,wp), on correct device/dtype.
+        Uses torch operations on the target device (GPU-friendly).
+        """
+        # row indices: (hp,1) broadcast to (hp,wp)
+        rows = torch.arange(hp, device=device, dtype=dtype).unsqueeze(1).expand(hp, wp)
+        cols = torch.arange(wp, device=device, dtype=dtype).unsqueeze(0).expand(hp, wp)
+
+        if self.normalize:
+            rows = rows / max(hp - 1, 1)
+            cols = cols / max(wp - 1, 1)
+
+        # (hp*wp,2) -> (1,N,2)
+        tgt = torch.stack((rows.reshape(-1), cols.reshape(-1)), dim=-1).unsqueeze(0)
+        return tgt  # (1, N, 2)
+
+    def _get_targets(self, hp: int, wp: int, feats: torch.Tensor) -> torch.Tensor:
+        """
+        Retrieve cached targets, or create and cache them.
+        """
+        device = feats.device
+        # Use feats.dtype so loss runs in same dtype under autocast
+        dtype = feats.dtype
+
+        key = (hp, wp, str(device), str(dtype))
+        if self.cache_targets:
+            tgt = self._tgt_cache.get(key, None)
+            if tgt is None:
+                tgt = self._make_targets(hp, wp, device=device, dtype=dtype)
+                self._tgt_cache[key] = tgt
+            return tgt
+        else:
+            return self._make_targets(hp, wp, device=device, dtype=dtype)
+
+    def forward(self, feats: torch.Tensor, hp: int, wp: int) -> torch.Tensor:
+        """
+        feats: (B, N, D), where N = hp*wp
+        hp/wp: ints (one resolution per batch)
+
+        returns: scalar loss
+        """
+        B, N, D = feats.shape
+
+        # Optional validation (remove for max speed once stable)
+        # if hp > self.max_grid_h or wp > self.max_grid_w:
+        #     raise ValueError(f"hp/wp=({hp},{wp}) exceed max=({self.max_grid_h},{self.max_grid_w})")
+        # if N != hp * wp:
+        #     raise ValueError(f"Expected N=hp*wp={hp*wp}, got N={N}")
+
+        pred = self.mlp(feats)                    # (B, N, 2)
+        tgt = self._get_targets(hp, wp, feats)    # (1, N, 2)
+        tgt = tgt.expand(B, -1, -1)               # (B, N, 2), view
+
+        return self._loss(pred, tgt)
 
 class PatchRowColRegressionCriterionDynamic(nn.Module):
     def __init__(self, feat_dim, grid_h, grid_w, normalize=True):

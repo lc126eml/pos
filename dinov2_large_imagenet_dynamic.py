@@ -109,7 +109,7 @@ if args.pos_type is not None:
     # from vision_transformer_rope import *
     from vision_transformer_rope2d import *
     from vision_transformer_rpe import *
-    from vision_transformer_relpos import *
+    from vision_transformer_relpos_v2 import *
     from vision_transformer_alibi import *
     from vision_transformer_sin import *
 

@@ -59,6 +59,7 @@ args = SimpleNamespace(
     batch_size=392, 
     # ViT models have a fixed input size
     img_size=224,
+    val_img_sizes=[224],
     lr=5e-4,
     epochs=130,
     has_pos=True, # Set to True or False directly
@@ -69,8 +70,8 @@ args = SimpleNamespace(
     use_rc_loss=False,
     rc_alpha=30.0,
     workers=5,
-    train=False,
-    val=True,
+    train=True,
+    val=False,
     ckpt_path="output/imagenet100/dinov3b392s55of0dynamic_224_192_208_256_288_320_336_352_368_/base_overlap_1_rc_True_classes_30.0/vit_base_patch16_dinov3_final.pth",
 
     # --- Dataset Paths ---
@@ -111,7 +112,7 @@ if args.pos_type is not None:
     # from vision_transformer_rope import *
     from vision_transformer_rope2d import *
     from vision_transformer_rpe import *
-    from vision_transformer_relpos import *
+    from vision_transformer_relpos_v2 import *
     from vision_transformer_alibi import *
     from vision_transformer_sin import *
 
@@ -127,7 +128,7 @@ torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_classes_{args.rc_alpha}"
+    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{args.rc_alpha}"
 )
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -257,11 +258,17 @@ train_transforms = transforms.Compose([
 
 valid_transforms = transforms.Compose([
     transforms.Resize(256),
-    transforms.CenterCrop(args.img_size),
+    transforms.CenterCrop(224),
     transforms.ToTensor(),
     transforms.Normalize(mean=img_mean, std=img_std),
 ])
-
+def make_valid_transform(img_size):
+    return transforms.Compose([
+        transforms.Resize(size=int(img_size * 1.143)),
+        transforms.CenterCrop(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=img_mean, std=img_std),
+    ])
 
 # --- Create the final datasets from the filtered samples ---
 train_dataset = CustomImageDataset(train_samples, transform=train_transforms)
@@ -437,71 +444,9 @@ logger.info("✅ Step-based LR Scheduler is ready.")
     
 sys.stdout.flush()
 # %%
-class PatchRowColCriterion(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w):
-        """
-        Predict row and column of each patch independently.
-
-        Args:
-            feat_dim (int): Dimension of patch features (D)
-            grid_h (int): Number of patch rows
-            grid_w (int): Number of patch columns
-        """
-        super().__init__()
-        self.grid_h = grid_h
-        self.grid_w = grid_w
-
-        # MLP for row prediction
-        self.row_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, grid_h)
-        )
-
-        # MLP for column prediction
-        self.col_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, grid_w)
-        )
-
-        self.ce = nn.CrossEntropyLoss()
-
-        # Precompute row/col labels
-        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w).flatten()
-        cols = torch.arange(grid_w).repeat(grid_h)
-        self.register_buffer("row_labels", rows)
-        self.register_buffer("col_labels", cols)
-
-    def forward(self, feats):
-        """
-        Args:
-            feats: (B, N, D) patch features, N = grid_h * grid_w
-        Returns:
-            avg_loss: scalar, sum of row and column classification losses
-        """
-        B, N, D = feats.shape
-        assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
-
-        x = feats.reshape(-1, D)  # (B*N, D)
-
-        # Repeat labels for batch
-        row_labels = self.row_labels.repeat(B)
-        col_labels = self.col_labels.repeat(B)
-
-        # Predict rows and columns
-        row_logits = self.row_mlp(x)
-        col_logits = self.col_mlp(x)
-
-        # Compute cross-entropy loss for rows and columns
-        loss_row = self.ce(row_logits, row_labels)
-        loss_col = self.ce(col_logits, col_labels)
-
-        return (loss_row + loss_col) / 2  # average
-
-#%%
 if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
+    from core.patch_pos import PatchRowColCriterion
     rowcol_loss = PatchRowColCriterion(
         feat_dim=model.embed_dim,
         grid_h=grid_h,
@@ -517,131 +462,174 @@ if args.use_patch_position_loss:
 # %%
 import csv
 
-# FP16: Initialize the Gradient Scaler
-scaler = torch.amp.GradScaler('cuda')
-# =================================================================================
-# Step 5: Training and Validation Loop
-# =================================================================================
-logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
+ckpt_path = None
+if args.train:
+    # FP16: Initialize the Gradient Scaler
+    scaler = torch.amp.GradScaler('cuda')
+    # =================================================================================
+    # Step 5: Training and Validation Loop
+    # =================================================================================
+    logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 
-# ✅ Initialize training_history as a dictionary of lists
-training_history = {
-    'train_loss': [],
-    'train_acc': [],
-    'valid_acc': [],
-    'epoch': [],
-    'step': [],
-}
-step = 0
+    # ✅ Initialize training_history as a dictionary of lists
+    training_history = {
+        'train_loss': [],
+        'train_acc': [],
+        'valid_acc': [],
+        'epoch': [],
+        'step': [],
+    }
+    step = 0
 
-for epoch in range(args.epochs):
-    # --- Training Phase ---
-    model.train()
-    running_loss = 0.0
-    train_correct = 0
-    train_total = 0
-    train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
-    # train_pbar = train_loader
-    
-    # FP16: Use autocast for the forward pass
-    for inputs, labels in train_pbar:
-        inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+    for epoch in range(args.epochs):
+        # --- Training Phase ---
+        model.train()
+        running_loss = 0.0
+        train_correct = 0
+        train_total = 0
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
+        # train_pbar = train_loader
         
-        optimizer.zero_grad()
-        aux_loss = None
-        with torch.amp.autocast('cuda', dtype=autocast_dtype):
-            feats = model.forward_features(inputs)
-            outputs = model.forward_head(feats)
-            # outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            if args.use_rc_loss:
-                aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
-                # logger.info(loss, aux_loss)
-                loss = loss + args.rc_alpha * aux_loss
-            
-            if args.use_patch_position_loss:
-                aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
-                # logger.info(f"{loss}, {aux_loss}")
-                loss = loss + args.rc_alpha * aux_loss
-        
-        # FP16: Scale, backward, and step
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        scheduler.step()
-        
-        running_loss += loss.item() * inputs.size(0)
-        _, predicted = torch.max(outputs.data, 1)
-        train_total += labels.size(0)
-        train_correct += (predicted == labels).sum().item()
-        
-        batch_acc = (predicted == labels).sum().item() / labels.size(0)
-        bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
-        if aux_loss is not None:
-            bar_msg['aux'] = aux_loss.item()
-        train_pbar.set_postfix(bar_msg)
-
-        step += 1
-
-        # if (step + 1) % VAL_STEPS == 0:
-    # --- Validation Phase ---
-    model.eval()
-    val_correct = 0
-    val_total = 0
-    # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
-    
-    with torch.no_grad():
-        for inputs, labels in valid_loader:
+        # FP16: Use autocast for the forward pass
+        for inputs, labels in train_pbar:
             inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            
+            optimizer.zero_grad()
+            aux_loss = None
             with torch.amp.autocast('cuda', dtype=autocast_dtype):
-                outputs = model(inputs)
+                feats = model.forward_features(inputs)
+                outputs = model.forward_head(feats)
+                # outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                if args.use_rc_loss:
+                    aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
+                    # logger.info(loss, aux_loss)
+                    loss = loss + args.rc_alpha * aux_loss
+                
+                if args.use_patch_position_loss:
+                    aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
+                    # logger.info(f"{loss}, {aux_loss}")
+                    loss = loss + args.rc_alpha * aux_loss
+            
+            # FP16: Scale, backward, and step
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+            scheduler.step()
+            
+            running_loss += loss.item() * inputs.size(0)
             _, predicted = torch.max(outputs.data, 1)
-            val_total += labels.size(0)
-            val_correct += (predicted == labels).sum().item()
+            train_total += labels.size(0)
+            train_correct += (predicted == labels).sum().item()
+            
+            batch_acc = (predicted == labels).sum().item() / labels.size(0)
+            bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
+            if aux_loss is not None:
+                bar_msg['aux'] = aux_loss.item()
+            train_pbar.set_postfix(bar_msg)
 
-    epoch_val_acc = val_correct / val_total
+            step += 1
 
-    epoch_train_acc = train_correct / train_total
-    epoch_train_loss = running_loss / len(train_loader.dataset)
-    
-    logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
-    logger.info(f"\nStep {step} Summary:")
-    logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
+            # if (step + 1) % VAL_STEPS == 0:
+        # --- Validation Phase ---
+        model.eval()
+        val_correct = 0
+        val_total = 0
+        # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
+        
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                    outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
 
-    # ✅ Append the results to the correct lists within the dictionary
-    training_history['train_loss'].append(epoch_train_loss)
-    training_history['train_acc'].append(epoch_train_acc)
-    training_history['valid_acc'].append(epoch_val_acc)  
-    training_history['epoch'].append(epoch+1)
-    training_history['step'].append(step+1)
+        epoch_val_acc = val_correct / val_total
+
+        epoch_train_acc = train_correct / train_total
+        epoch_train_loss = running_loss / len(train_loader.dataset)
+        
+        logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
+        logger.info(f"\nStep {step} Summary:")
+        logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
+
+        # ✅ Append the results to the correct lists within the dictionary
+        training_history['train_loss'].append(epoch_train_loss)
+        training_history['train_acc'].append(epoch_train_acc)
+        training_history['valid_acc'].append(epoch_val_acc)  
+        training_history['epoch'].append(epoch+1)
+        training_history['step'].append(step+1)
+        history_df = pd.DataFrame(training_history)
+        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+
+        # Update the learning rate scheduler
+        # if 'scheduler' in locals():
+        #     scheduler.step()
+
+    logger.info("🏁 Training complete.")
+    logger.info(output_dir)
+    # =================================================================================
+    # Step 6: Save the Results and Model
+    # =================================================================================
+
+    # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
     history_df = pd.DataFrame(training_history)
+
+    # ✅ Step 2: Add the 'epoch' column at the beginning
+    # Create the list of epochs where validation was actually performed
+    # epochs_validated = range(5, EPOCHS + 1, 5) 
+    # history_df.insert(0, 'epoch', epochs_validated)
+
+    # ✅ Step 3: Save the DataFrame to a CSV file
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    # Save the model's state dictionary
+    ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
+    torch.save(model.state_dict(), ckpt_path)
+    logger.info(f"✅ Model saved to '{ckpt_path}'")
 
-    # Update the learning rate scheduler
-    # if 'scheduler' in locals():
-    #     scheduler.step()
+if args.val:    
+    val_results = {
+        'img_size': [],
+        'valid_acc': []
+    }
 
-logger.info("🏁 Training complete.")
-logger.info(output_dir)
-# =================================================================================
-# Step 6: Save the Results and Model
-# =================================================================================
+    if ckpt_path is None:
+        ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
+    model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+    model.to(DEVICE)
+    model.eval()
+    for img_size in args.val_img_sizes:
+        valid_dataset.set_transform(make_valid_transform(img_size))
+        batch_size = int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size))
+        valid_loader = DataLoader(
+            dataset=valid_dataset,
+            batch_size=batch_size,
+            shuffle=False, 
+            num_workers=2,
+            pin_memory=True
+        )    
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
+                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                    outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
 
-# ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
-history_df = pd.DataFrame(training_history)
+        epoch_val_acc = val_correct / val_total
+        val_results['img_size'].append(img_size)
+        val_results['valid_acc'].append(epoch_val_acc)
+        val_df = pd.DataFrame(val_results)
+        val_df.to_csv(os.path.join(output_dir, f'{subdir_name}_eval.csv'), index=False)
+        logger.info(f"{img_size=}: {epoch_val_acc=}")
+        gc.collect()
 
-# ✅ Step 2: Add the 'epoch' column at the beginning
-# Create the list of epochs where validation was actually performed
-# epochs_validated = range(5, EPOCHS + 1, 5) 
-# history_df.insert(0, 'epoch', epochs_validated)
-
-# ✅ Step 3: Save the DataFrame to a CSV file
-history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-# Save the model's state dictionary
-ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
-torch.save(model.state_dict(), ckpt_path)
-logger.info(f"✅ Model saved to '{ckpt_path}'")
 # if gpu_lock and gpu_lock.is_locked:
 #     logger.info("Manually releasing lock.")
 #     gpu_lock.release()
