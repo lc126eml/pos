@@ -50,35 +50,39 @@ args = SimpleNamespace(
     # --- Model & Training Settings ---
     pos_type = None, # 'sin', 'alibi', 'relpos',  'rpe', 'rope', None, 
     model_type= "dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 528, etc.
     batch_size=512,
     # ViT models have a fixed input size
     img_size=32,
-    lr=3e-3,
-    epochs=130,
+    lr=1e-3,
+    epochs=30,
     has_pos=False, # Set to True or False directly
-    overlap=1,
+    overlap=0,
     pretrained=None,
     seed=55,
     wdecay=0.1,
     use_patch_position_loss=False,
     use_rc_loss=True,
-    rc_alpha=100.0,
+    loss_type="l1",
+    huber_beta=0.1,
+    rc_alpha=50.0,
     workers=5,
     train=True,
     val=False,
     ckpt_path="",
+    lock=False,
+    clip_value=1.0,
 
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
 
-MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch14_{args.model_type}"
+MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
 output_dir = f"{args.root_dir}/output/cifar100redo/{args.model_size}b{args.batch_size}s{args.seed}_{args.img_size}"
 BASE_PATH = f'{args.root_dir}/Data/cifar100/'
 
@@ -97,8 +101,8 @@ torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}"
-)
+    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
+).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 
@@ -119,15 +123,17 @@ logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
 # --- Acquire a file lock to ensure exclusive GPU usage ---
-if FileLock:
-    lock_path = "/tmp/gpu.lock"
-    gpu_lock = FileLock(lock_path)
-    logger.info(f"Attempting to acquire lock on '{lock_path}'...")
-    gpu_lock.acquire()
-    logger.info("Lock acquired. It is safe to proceed.")
-    # The lock will be automatically released when the script exits.
-else:
-    logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+gpu_lock = None
+if args.lock:
+    if FileLock:
+        lock_path = "/tmp/gpu.lock"
+        gpu_lock = FileLock(lock_path)
+        logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+        gpu_lock.acquire()
+        logger.info("Lock acquired. It is safe to proceed.")
+        # The lock will be automatically released when the script exits.
+    else:
+        logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
 
 logger.info("Cleaning up memory...")
 if torch.cuda.is_available():
@@ -367,11 +373,12 @@ sys.stdout.flush()
 # %%
 if args.use_rc_loss:
     grid_h, grid_w = model.patch_embed.grid_size
-    from core.patch_pos import PatchRowColRegressionCriterion
-    rowcol_loss = PatchRowColRegressionCriterion(
+    from core.patch_pos import PatchRowColRegressionCriterionFast
+    rowcol_loss = PatchRowColRegressionCriterionFast(
         feat_dim=model.embed_dim,
         grid_h=grid_h,
-        grid_w=grid_w
+        grid_w=grid_w,
+        loss_type=args.loss_type,
     ).to(DEVICE)
 if args.use_patch_position_loss:
     from core.patch_pos import PatchPositionCriterion
@@ -412,6 +419,8 @@ if args.train:
             'step': [],
         }
     step = 0
+    best_acc = 0.0
+
     for epoch in range(args.epochs):
         # --- Training Phase ---
         model.train()
@@ -448,6 +457,12 @@ if args.train:
             
             # FP16: Scale, backward, and step
             scaler.scale(loss).backward()
+
+            if args.clip_value is not None:
+                scaler.unscale_(optimizer)
+                clip_value = args.clip_value  # typical default for Transformer/ViT-style training
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_value)
+
             scaler.step(optimizer)
             scaler.update()
 
@@ -481,6 +496,8 @@ if args.train:
                 val_correct += (predicted == labels).sum().item()
 
         epoch_val_acc = val_correct / val_total
+        if best_acc < epoch_val_acc:
+            best_acc = epoch_val_acc
 
         epoch_train_acc = train_correct / train_total
         epoch_train_loss = running_loss / len(train_loader.dataset)
@@ -512,6 +529,7 @@ if args.train:
         #     scheduler.step()
 
     logger.info("🏁 Training complete.")
+    logger.info(f"Best Accuracy: {best_acc:.4f}")
     logger.info(output_dir)
     # =================================================================================
     # Step 6: Save the Results and Model

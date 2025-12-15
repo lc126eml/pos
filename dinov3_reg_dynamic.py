@@ -52,9 +52,9 @@ args = SimpleNamespace(
     pos_type = None, # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='small',
-    num_classes=20,
+    num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
@@ -66,24 +66,26 @@ args = SimpleNamespace(
     img_sizes=[224],
     # val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     val_img_sizes=[224],
-    lr=1.e-3,
+    lr=1e-3,
     eta_min=0.0,
-    weight_decay=0.05,
-    epochs=30,
+    weight_decay=0.01,
+    epochs=130,
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     loss_type="l1",
-    rc_alpha=300.0,
+    huber_beta=0.1,
+    rc_alpha=20.0,
     workers=5,
     train=True,
     val=False,
     ckpt_path=None,
     lock=False,
-    composite_lr=True,
+    composite_lr=False,
+    clip_value=1.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -96,6 +98,7 @@ args.eta_min = args.lr * 0.1
 offset = 0
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
 output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}redo_ablation/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
+ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
 BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
@@ -115,19 +118,22 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
-# print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
+print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
 # sys.exit(0)
 
 #%%
 
 if args.pos_type is not None:
     sys.path.append(r".")
+    from timm_pe.eva_relpos import *
+    from timm_pe.eva_alibi import *
+    from timm_pe.eva_sin import *
     # from vision_transformer_rope import *
     # from vision_transformer_rope2d import *
     # from vision_transformer_rpe import *
     # from vision_transformer_relpos import *
-    from vision_transformer_alibi import *
-    from vision_transformer_sin import *
+    # from vision_transformer_alibi import *
+    # from vision_transformer_sin import *
 
 # %%
 # timm.list_models("vit_*_dinov2")
@@ -145,6 +151,7 @@ subdir_name = (
 ).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
+os.makedirs(ckpt_output_dir, exist_ok=True)
 
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
@@ -524,6 +531,7 @@ if args.use_rc_loss:
             grid_h=grid_h,
             grid_w=grid_w,
             loss_type=args.loss_type,
+            huber_beta=args.huber_beta,
         ).to(DEVICE)
     else:
         grid_h = grid_w = max(args.img_sizes)//args.patch_size
@@ -533,6 +541,7 @@ if args.use_rc_loss:
             grid_h=grid_h,
             grid_w=grid_w,
             loss_type=args.loss_type,
+            huber_beta=args.huber_beta,
         ).to(DEVICE)
 if args.use_patch_position_loss:
     from core.patch_pos import PatchPositionCriterion
@@ -617,6 +626,12 @@ if args.train:
             
             # FP16: Scale, backward, and step
             scaler.scale(loss).backward()
+
+            if args.clip_value is not None:
+                scaler.unscale_(optimizer)
+                clip_value = args.clip_value  # typical default for Transformer/ViT-style training
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_value)
+
             scaler.step(optimizer)
             scaler.update()
 
@@ -704,7 +719,7 @@ if args.train:
     # ✅ Step 3: Save the DataFrame to a CSV file
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     # Save the model's state dictionary
-    # ckpt_path = os.path.join(output_dir, f'{MODEL_NAME}_final.pth')
+    # ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
     # torch.save(model.state_dict(), ckpt_path)
     # logger.info(f"✅ Model saved to '{ckpt_path}'")
 

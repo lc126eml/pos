@@ -20,7 +20,10 @@ import sys
 # sys.path.append(r"D:\codes\working\pos\pytorch-image-models")
 import timm
 #%%
-# from vision_transformer_rope2d import *
+sys.path.append(r".")
+from timm_pe.eva_relpos import *
+from timm_pe.eva_alibi import *
+from timm_pe.eva_sin import *
 #%%
 timm.list_models("*dinov3*")
 #%%
@@ -48,18 +51,23 @@ print(model.num_prefix_tokens)
 #%%
 sys.path.append(r".")
 # from vision_transformer_rope import *
-from vision_transformer_rope2d import *
-from vision_transformer_rpe import *
-from vision_transformer_relpos_v2 import *
-from vision_transformer_alibi import *
-from vision_transformer_sin import *
+# from vision_transformer_rope2d import *
+# from vision_transformer_rpe import *
+# from vision_transformer_relpos_v2 import *
+# from vision_transformer_alibi import *
+# from vision_transformer_sin import *
+from timm_pe.eva_relpos import *
+from timm_pe.eva_alibi import *
+from timm_pe.eva_sin import *
  #%%
-MODEL_NAME = 'vit_base_patch14_dinov2'
+# MODEL_NAME = 'vit_base_patch14_dinov2'
 # MODEL_NAME = "vit_rope_base_patch14_dinov2"
 # MODEL_NAME = "vit_alibi_base_patch14_dinov2"
 # MODEL_NAME = "vit_rpe_base_patch14_dinov2"
-# MODEL_NAME = "vit_relpos_base_patch14_dinov2"
+MODEL_NAME = "vit_small_patch16_dinov3_relpos"
 # MODEL_NAME = "vit_sin_base_patch14_dinov2"
+MODEL_NAME = "vit_sin_base_patch16_dinov3"
+# MODEL_NAME = "vit_alibi_base_patch16_dinov3"
 
 IMG_SIZE = 224
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
