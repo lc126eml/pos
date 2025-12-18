@@ -34,25 +34,30 @@ try:
 except ImportError:
     FileLock = None
 
+from core.utils import log_grads
 # %%
 # =================================================================================
 # Step 2: Configuration
 # =================================================================================
 
 # --- Dynamically set root directory ---
-if os.path.exists('/ubuntu'):
-    root_dir = '/ubuntu'
-elif os.path.exists('/home/sshuser'):
+if os.path.exists('/home/sshuser'):
     root_dir = '/home/sshuser'
+    BASE_PATH = f'{root_dir}/Data/imagenet100/'
+elif os.path.exists('/lc'):
+    root_dir = '/lc/logs'
+    BASE_PATH = f'/lc/data/imagenet100/'
 else:
     root_dir = '/linux'
+    BASE_PATH = f'{root_dir}/Data/imagenet100/'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = None, # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='small',
     num_classes=100,
     patch_size = 16,
@@ -64,9 +69,11 @@ args = SimpleNamespace(
     # ViT models have a fixed input size
     # img_sizes=[224, 192, 288],
     img_sizes=[224],
-    # val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
-    val_img_sizes=[224],
-    lr=1e-3,
+    val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
+    # val_img_sizes=[224],
+    lr=1e-3, #small
+    # lr=5e-4, #
+    lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
     epochs=130,
@@ -75,16 +82,18 @@ args = SimpleNamespace(
     pretrained=None,
     seed=55,
     use_patch_position_loss=False,
-    use_rc_loss=False,
-    loss_type="l1",
-    huber_beta=0.1,
-    rc_alpha=20.0,
+    use_rc_loss=True,
+    # loss_type="smooth_l1", # "mse", "smooth_l1"
+    # huber_beta=None,
+    rc_alpha=600.0,
+    warmup_steps_for_aux=1,
     workers=5,
     train=True,
-    val=False,
+    val=True,
     ckpt_path=None,
-    lock=False,
+    lock=True,
     composite_lr=False,
+    warmup_steps=20,
     clip_value=1.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
@@ -94,12 +103,12 @@ if args.pos_type is not None:
     args.overlap = 0
     args.use_rc_loss=False
     args.use_patch_position_loss=False
-args.eta_min = args.lr * 0.1
+    args.dynamic_img_size=False
+    args.val=False
 offset = 0
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
-output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}redo_ablation/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
+output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}redo_ablation3/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
-BASE_PATH = f'{args.root_dir}/Data/imagenet100/'
 
 # List of all the partial training directories
 TRAIN_PATHS = [
@@ -258,7 +267,6 @@ import torchvision.transforms as T
 img_mean = [0.485, 0.456, 0.406]
 img_std  = [0.229, 0.224, 0.225]
 
-image_sizes = [160, 192, 224, 256]  # example
 
 def make_train_transform(size: int):
     return T.Compose([
@@ -315,6 +323,7 @@ train_loader = DataLoader(
     num_workers=args.workers,           # now workers do the transforms
     pin_memory=True,
     persistent_workers=(args.workers > 0),
+    prefetch_factor=2,
 )
 valid_loader = DataLoader(
     dataset=valid_dataset,
@@ -391,7 +400,7 @@ model = timm.create_model(
     use_abs_pos_emb=args.use_abs_pos_emb,
     use_rot_pos_emb=args.use_rot_pos_emb,
     num_classes=args.num_classes, # Set the classifier head to 100 classes
-    dynamic_img_size=True if len(args.img_sizes)>0 else False,
+    dynamic_img_size=args.dynamic_img_size,
     img_size=args.img_sizes[0],
 ).to(DEVICE)
 # feature_layers = [2, 5, 8, 11]
@@ -449,38 +458,114 @@ if args.overlap > 0:
 #     if hasattr(model, 'rope'):
 #         model.rope = None
 
-if args.pretrained is not None:
-    state_dicts = torch.load(args.pretrained, map_location=DEVICE)
-    IncompatibleKeys = model.load_state_dict(state_dicts)
-    logger.info(IncompatibleKeys)
+# if args.pretrained is not None:
+#     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
+#     IncompatibleKeys = model.load_state_dict(state_dicts)
+#     logger.info(IncompatibleKeys)
+# %%
+dynamic = True
+training_parameters = list(model.parameters()) 
+param_groups = []
+lr_aux = getattr(args, "lr_aux", args.lr)
+if args.use_rc_loss:
+    if len(args.img_sizes)==1:
+        grid_h, grid_w = model.patch_embed.grid_size
+        dynamic = False
+        from core.patch_pos import PatchRowColRegressionCriterion
+        rowcol_loss = PatchRowColRegressionCriterion(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            # loss_type=args.loss_type,
+            # huber_beta=args.huber_beta,
+        ).to(DEVICE)
+    else:
+        grid_h = grid_w = max(args.img_sizes)//args.patch_size
+        from core.patch_pos import PatchRowColRegressionCriterionDynamic
+        rowcol_loss = PatchRowColRegressionCriterionDynamic(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            # loss_type=args.loss_type,
+            # huber_beta=args.huber_beta,
+        ).to(DEVICE)
+    training_parameters += list(rowcol_loss.parameters())
+    param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
+if args.use_patch_position_loss:
+    from core.patch_pos import PatchPositionCriterion
+    position_loss = PatchPositionCriterion(
+        feat_dim=model.embed_dim,
+        num_classes=model.patch_embed.num_patches
+    ).to(DEVICE)
+    training_parameters += list(position_loss.parameters())
+    param_groups.append({"params": position_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
+
+decay_params = []
+no_decay_params = []
+
+for n, p in model.named_parameters():
+    if not p.requires_grad:
+        continue
+    if n.endswith(".bias") or ("norm" in n.lower()):
+        no_decay_params.append(p)
+    else:
+        decay_params.append(p)
+
+param_groups.append({
+    "params": decay_params,
+    "lr": args.lr,
+    "weight_decay": args.weight_decay,
+})
+param_groups.append({
+    "params": no_decay_params,
+    "lr": args.lr,
+    "weight_decay": 0.0,
+})
 # --- Loss Function & Optimizer ---
 criterion = nn.CrossEntropyLoss()
 if args.composite_lr:
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # optimizer = torch.optim.AdamW(training_parameters, lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+
+    total = sum(p.numel() for p in model.parameters())
+    opt_total = sum(p.numel() for g in optimizer.param_groups for p in g["params"])
+    print("model params:", total, "optimizer params:", opt_total)
+
+    # Ensure no parameter appears in multiple groups
+    seen = set()
+    dups = 0
+    for g in optimizer.param_groups:
+        for p in g["params"]:
+            pid = id(p)
+            if pid in seen:
+                dups += 1
+            seen.add(pid)
+    print("duplicate params in groups:", dups)
 
     total_steps = args.epochs * steps_per_epoch
-    warmup_steps = int(0.01 * total_steps)
+    # warmup_steps = 100 #int(0.01 * total_steps)
 
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=1e-7 / args.lr,   # warmup start lr = 1e-7, weight_decay=0.05
         end_factor=1.0,                # warmup end lr = base_lr
-        total_iters=warmup_steps
+        total_iters=args.warmup_steps
     )
 
     cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=total_steps - warmup_steps,
+        T_max=total_steps - args.warmup_steps,
         eta_min=1e-8
     )
 
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
         schedulers=[warmup, cosine],
-        milestones=[warmup_steps]
+        milestones=[args.warmup_steps]
     )
 else:
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    # optimizer = optim.AdamW(training_parameters, lr=args.lr, weight_decay=args.weight_decay)
     logger.info("✅ Model, Loss Function, and Optimizer are ready.")
 
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
@@ -519,36 +604,6 @@ def get_patch_numbers(img_size, patch_size):
     hp, wp = img_size[0] // patch_size, img_size[1] // patch_size  
     return hp, wp
 
-# %%
-dynamic = True
-if args.use_rc_loss:
-    if len(args.img_sizes)==1:
-        grid_h, grid_w = model.patch_embed.grid_size
-        dynamic = False
-        from core.patch_pos import PatchRowColRegressionCriterionFast
-        rowcol_loss = PatchRowColRegressionCriterionFast(
-            feat_dim=model.embed_dim,
-            grid_h=grid_h,
-            grid_w=grid_w,
-            loss_type=args.loss_type,
-            huber_beta=args.huber_beta,
-        ).to(DEVICE)
-    else:
-        grid_h = grid_w = max(args.img_sizes)//args.patch_size
-        from core.patch_pos import PatchRowColRegressionCriterionDynamicFast
-        rowcol_loss = PatchRowColRegressionCriterionDynamicFast(
-            feat_dim=model.embed_dim,
-            grid_h=grid_h,
-            grid_w=grid_w,
-            loss_type=args.loss_type,
-            huber_beta=args.huber_beta,
-        ).to(DEVICE)
-if args.use_patch_position_loss:
-    from core.patch_pos import PatchPositionCriterion
-    position_loss = PatchPositionCriterion(
-        feat_dim=model.embed_dim,
-        num_classes=model.patch_embed.num_patches
-    ).to(DEVICE)
 
 # %%
 import csv
@@ -609,15 +664,21 @@ if args.train:
                 loss = criterion(outputs, labels)
                 if args.use_rc_loss:
                     base_loss += loss.item() * inputs.size(0)
-                if args.use_rc_loss:
                     if dynamic:
                         hp, wp = get_patch_numbers(inputs.shape[-2:], model.patch_embed.patch_size[0])
                         aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :], hp, wp)
                     else:
                         aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
+                    
+                    # logger.info(f"grid={model.patch_embed.grid_size}, {dynamic=} num_prefix={model.num_prefix_tokens}")
+                    # # once after a forward:
+                    # logger.info(f"feats={feats.shape}, patch_tokens={feats[:, model.num_prefix_tokens:, :].shape[1]}")
+
                     # logger.info(loss, aux_loss)
                     aux_loss_sum += aux_loss.item() * inputs.size(0)
-                    loss = loss + args.rc_alpha * aux_loss
+                    # warmup_steps_for_aux = 100
+                    alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    loss = loss + alpha_t * aux_loss
                 
                 if args.use_patch_position_loss:
                     aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
@@ -629,8 +690,10 @@ if args.train:
 
             if args.clip_value is not None:
                 scaler.unscale_(optimizer)
-                clip_value = args.clip_value  # typical default for Transformer/ViT-style training
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_value)
+                # log_grads(logger, model, rowcol_loss=rowcol_loss if args.use_rc_loss else None,
+        #   every=331, step=step)
+                
+                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
 
             scaler.step(optimizer)
             scaler.update()
@@ -646,7 +709,7 @@ if args.train:
             bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
             if aux_loss is not None:
                 bar_msg['aux'] = aux_loss.item()
-            # train_pbar.set_postfix(bar_msg)
+            train_pbar.set_postfix(bar_msg)
 
             step += 1
 
@@ -671,10 +734,10 @@ if args.train:
             best_acc = epoch_val_acc
 
         epoch_train_acc = train_correct / train_total
-        epoch_train_loss = running_loss / len(train_loader.dataset)
+        epoch_train_loss = running_loss / train_total
         if args.use_rc_loss:
-            epoch_aux_loss = aux_loss_sum / len(train_loader.dataset)
-            epoch_base_loss = base_loss / len(train_loader.dataset)
+            epoch_aux_loss = aux_loss_sum / train_total
+            epoch_base_loss = base_loss / train_total
             training_history['aux_loss'].append(epoch_aux_loss)
             training_history['base_loss'].append(epoch_base_loss)
         
@@ -695,6 +758,9 @@ if args.train:
         training_history['step'].append(step+1)
         history_df = pd.DataFrame(training_history)
         history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # Update the learning rate scheduler
         # if 'scheduler' in locals():
@@ -719,9 +785,9 @@ if args.train:
     # ✅ Step 3: Save the DataFrame to a CSV file
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     # Save the model's state dictionary
-    # ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
-    # torch.save(model.state_dict(), ckpt_path)
-    # logger.info(f"✅ Model saved to '{ckpt_path}'")
+    ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
+    torch.save(model.state_dict(), ckpt_path)
+    logger.info(f"✅ Model saved to '{ckpt_path}'")
 
 if args.val:    
     val_results = {

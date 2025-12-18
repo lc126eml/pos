@@ -5,7 +5,77 @@ from typing import Literal, Optional, Dict, Tuple
 
 LossType = Literal["mse", "smooth_l1", "l1"]
 
+class PatchRowColRegressionCriterionSimple(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
+        """
+        Predict row and column index of each patch via regression (single resolution).
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Number of patch rows (fixed)
+            grid_w (int): Number of patch columns (fixed)
+            normalize (bool): If True, normalize row/col targets to [0, 1]
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+
+        # Regression heads: scalar row / scalar col
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 1)   # scalar row index
+        )
+
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 1)   # scalar col index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        # Precompute row/col targets once (N = grid_h * grid_w)
+        rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
+        cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
+
+        if normalize:
+            rows_2d = rows_2d / (grid_h - 1)
+            cols_2d = cols_2d / (grid_w - 1)
+
+        # Flatten to 1D (N,)
+        row_targets = rows_2d.flatten()
+        col_targets = cols_2d.flatten()
+
+        # Register as buffers so they move with .to(device)
+        self.register_buffer("row_targets", row_targets)  # (N,)
+        self.register_buffer("col_targets", col_targets)  # (N,)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features, N = grid_h * grid_w
+
+        Returns:
+            avg_loss: scalar, average of row and column regression losses
+        """
+        B, N, D = feats.shape
+        assert N == self.grid_h * self.grid_w, f"Expected N = grid_h * grid_w = {self.grid_h * self.grid_w}, got N = {N}"
+
+        # (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Repeat targets for batch: (N,) -> (B*N,)
+        row_targets = self.row_targets.repeat(B)
+        col_targets = self.col_targets.repeat(B)
+
+        # Predict rows and columns: (B*N, 1) -> (B*N,)
+        row_pred = self.row_mlp(x).squeeze(-1)
+        col_pred = self.col_mlp(x).squeeze(-1)
+
+        loss_row = self.loss_fn(row_pred, row_targets)
+        loss_col = self.loss_fn(col_pred, col_targets)
+
+        return (loss_row + loss_col) / 2.0
 class PatchRowColRegressionCriterionFast(nn.Module):
+    # deprecated, mlp shared
     def __init__(
         self,
         feat_dim: int,
@@ -38,6 +108,7 @@ class PatchRowColRegressionCriterionFast(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(256, 2),
         )
+        self._init_mlp()
 
         # Precompute targets: (1, N, 2)
         rows = torch.arange(self.grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, self.grid_w)
@@ -62,6 +133,20 @@ class PatchRowColRegressionCriterionFast(nn.Module):
         else:
             raise ValueError(f"Unsupported loss_type={self.loss_type}. Use 'mse', 'smooth_l1', or 'l1'.")
 
+    def _init_mlp(self):
+        # First linear: standard init
+        nn.init.xavier_uniform_(self.mlp[0].weight)
+        nn.init.zeros_(self.mlp[0].bias)
+
+        # Last linear: near-zero so it doesn't dominate early training
+        nn.init.xavier_uniform_(self.mlp[2].weight)
+        # nn.init.normal_(self.mlp[2].weight, mean=0.0, std=1e-3)
+        nn.init.zeros_(self.mlp[2].bias)
+
+        # Optional: start at center of [0,1] if normalize=True
+        # This is often stable for L1 / SmoothL1
+        if self.normalize:
+            self.mlp[2].bias.data.fill_(0.5)
     def forward(self, feats: torch.Tensor) -> torch.Tensor:
         """
         feats: (B, N, D), N = grid_h * grid_w

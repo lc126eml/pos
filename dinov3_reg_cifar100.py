@@ -348,6 +348,39 @@ if args.pretrained is not None:
     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
     IncompatibleKeys = model.load_state_dict(state_dicts)
     logger.info(IncompatibleKeys)
+# %%
+dynamic = True
+training_parameters = list(model.parameters()) 
+if args.use_rc_loss:
+    if len(args.img_sizes)==1:
+        grid_h, grid_w = model.patch_embed.grid_size
+        dynamic = False
+        from core.patch_pos import PatchRowColRegressionCriterionFast
+        rowcol_loss = PatchRowColRegressionCriterionFast(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            loss_type=args.loss_type,
+            huber_beta=args.huber_beta,
+        ).to(DEVICE)
+    else:
+        grid_h = grid_w = max(args.img_sizes)//args.patch_size
+        from core.patch_pos import PatchRowColRegressionCriterionDynamicFast
+        rowcol_loss = PatchRowColRegressionCriterionDynamicFast(
+            feat_dim=model.embed_dim,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            loss_type=args.loss_type,
+            huber_beta=args.huber_beta,
+        ).to(DEVICE)
+    training_parameters += list(rowcol_loss.parameters())
+if args.use_patch_position_loss:
+    from core.patch_pos import PatchPositionCriterion
+    position_loss = PatchPositionCriterion(
+        feat_dim=model.embed_dim,
+        num_classes=model.patch_embed.num_patches
+    ).to(DEVICE)
+    training_parameters += list(position_loss.parameters())
 # --- Loss Function & Optimizer ---
 criterion = nn.CrossEntropyLoss()
 # optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -371,21 +404,7 @@ logger.info("✅ Step-based LR Scheduler is ready.")
     
 sys.stdout.flush()
 # %%
-if args.use_rc_loss:
-    grid_h, grid_w = model.patch_embed.grid_size
-    from core.patch_pos import PatchRowColRegressionCriterionFast
-    rowcol_loss = PatchRowColRegressionCriterionFast(
-        feat_dim=model.embed_dim,
-        grid_h=grid_h,
-        grid_w=grid_w,
-        loss_type=args.loss_type,
-    ).to(DEVICE)
-if args.use_patch_position_loss:
-    from core.patch_pos import PatchPositionCriterion
-    position_loss = PatchPositionCriterion(
-        feat_dim=model.embed_dim,
-        num_classes=model.patch_embed.num_patches
-    ).to(DEVICE)
+
 
 # %%
 import csv
