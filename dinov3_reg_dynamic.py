@@ -85,7 +85,7 @@ args = SimpleNamespace(
     use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=600.0,
+    rc_alpha=350.0,
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
@@ -95,6 +95,8 @@ args = SimpleNamespace(
     composite_lr=False,
     warmup_steps=20,
     clip_value=1.0,
+    log_interval=50,
+    csv_interval=3,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -638,24 +640,34 @@ if args.train:
         }
     step = 0
     best_acc = 0.0
-
+    log_interval = getattr(args, "log_interval", 50)
+    csv_interval = getattr(args, "csv_interval", 1) 
     for epoch in range(args.epochs):
         # --- Training Phase ---
         model.train()
-        running_loss = 0.0
-        train_correct = 0
+
+        aux_loss = None
+
+        running_loss_t = torch.zeros((), device=DEVICE)   # scalar tensor
+        aux_loss_sum_t = torch.zeros((), device=DEVICE)
+        base_loss_t = torch.zeros((), device=DEVICE)
+        train_correct_t = torch.zeros((), device=DEVICE)
         train_total = 0
-        base_loss = 0.0
-        aux_loss_sum = 0.0
+
+        # running_loss = 0.0
+        # train_correct = 0
+        train_total = 0
+        # aux_loss_sum = 0.0
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
         # train_pbar = train_loader
         batch_sampler.set_epoch(epoch)
         
         # FP16: Use autocast for the forward pass
         for inputs, labels in train_pbar:
-            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
+            bs = inputs.size(0)
             
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             aux_loss = None
             with torch.amp.autocast('cuda', dtype=autocast_dtype):
                 feats = model.forward_features(inputs)
@@ -663,7 +675,7 @@ if args.train:
                 # outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 if args.use_rc_loss:
-                    base_loss += loss.item() * inputs.size(0)
+                    base_loss_t += loss.detach() * bs
                     if dynamic:
                         hp, wp = get_patch_numbers(inputs.shape[-2:], model.patch_embed.patch_size[0])
                         aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :], hp, wp)
@@ -675,15 +687,15 @@ if args.train:
                     # logger.info(f"feats={feats.shape}, patch_tokens={feats[:, model.num_prefix_tokens:, :].shape[1]}")
 
                     # logger.info(loss, aux_loss)
-                    aux_loss_sum += aux_loss.item() * inputs.size(0)
+                    aux_loss_sum_t += aux_loss.detach() * bs
                     # warmup_steps_for_aux = 100
-                    alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
-                    loss = loss + alpha_t * aux_loss
-                
-                if args.use_patch_position_loss:
-                    aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
-                    # logger.info(f"{loss}, {aux_loss}")
+                    # alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
                     loss = loss + args.rc_alpha * aux_loss
+                
+                # if args.use_patch_position_loss:
+                #     aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
+                #     # logger.info(f"{loss}, {aux_loss}")
+                #     loss = loss + args.rc_alpha * aux_loss
             
             # FP16: Scale, backward, and step
             scaler.scale(loss).backward()
@@ -699,24 +711,31 @@ if args.train:
             scaler.update()
 
             scheduler.step()
-            
-            running_loss += loss.item() * inputs.size(0)
-            _, predicted = torch.max(outputs.data, 1)
-            train_total += labels.size(0)
-            train_correct += (predicted == labels).sum().item()
-            
-            batch_acc = (predicted == labels).sum().item() / labels.size(0)
-            bar_msg={'loss': loss.item(), 'acc': f'{batch_acc:.2f}'}
-            if aux_loss is not None:
-                bar_msg['aux'] = aux_loss.item()
-            train_pbar.set_postfix(bar_msg)
+
+            running_loss_t += loss.detach() * bs
+            train_total += bs
+
+            with torch.no_grad():
+                pred = outputs.detach().argmax(dim=1)
+                train_correct_t += (pred == labels).sum()
+
+            # only log every N steps (minimize sync + formatting)
+            if (step + 1) % log_interval == 0:
+                # now pay the sync cost, but only occasionally
+                avg_loss = (running_loss_t / train_total).float().item()
+                avg_acc = (train_correct_t / train_total).float().item()
+                if aux_loss is not None:
+                    avg_aux = (aux_loss_sum_t / train_total).float().item()
+                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f} aux={avg_aux:.4f}")
+                else:
+                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f}")
 
             step += 1
 
             # if (step + 1) % VAL_STEPS == 0:
         # --- Validation Phase ---
         model.eval()
-        val_correct = 0
+        val_correct_t = torch.zeros((), device=DEVICE)
         val_total = 0
         # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
         
@@ -725,25 +744,24 @@ if args.train:
                 inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
                 with torch.amp.autocast('cuda', dtype=autocast_dtype):
                     outputs = model(inputs)
-                _, predicted = torch.max(outputs.data, 1)
+                pred = outputs.argmax(dim=1)
+                val_correct_t += (pred == labels).sum()
                 val_total += labels.size(0)
-                val_correct += (predicted == labels).sum().item()
 
-        epoch_val_acc = val_correct / val_total
+        epoch_val_acc = (val_correct_t / val_total).item()
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
 
-        epoch_train_acc = train_correct / train_total
-        epoch_train_loss = running_loss / train_total
-        if args.use_rc_loss:
-            epoch_aux_loss = aux_loss_sum / train_total
-            epoch_base_loss = base_loss / train_total
-            training_history['aux_loss'].append(epoch_aux_loss)
-            training_history['base_loss'].append(epoch_base_loss)
-        
+        epoch_train_acc  = (train_correct_t / train_total).item()
+        epoch_train_loss = (running_loss_t / train_total).item()
         logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
         logger.info(f"\nStep {step} Summary:")
+
         if args.use_rc_loss:
+            epoch_aux_loss   = (aux_loss_sum_t / train_total).item()
+            epoch_base_loss  = (base_loss_t / train_total).item()
+            training_history['aux_loss'].append(epoch_aux_loss)
+            training_history['base_loss'].append(epoch_base_loss)
             logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
         else:
             logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
@@ -756,11 +774,11 @@ if args.train:
         training_history['valid_acc'].append(epoch_val_acc)  
         training_history['epoch'].append(epoch+1)
         training_history['step'].append(step+1)
-        history_df = pd.DataFrame(training_history)
-        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if (epoch + 1) % csv_interval == 0:
+            pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        # gc.collect()
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
 
         # Update the learning rate scheduler
         # if 'scheduler' in locals():
@@ -775,7 +793,6 @@ if args.train:
     # =================================================================================
 
     # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
-    history_df = pd.DataFrame(training_history)
 
     # ✅ Step 2: Add the 'epoch' column at the beginning
     # Create the list of epochs where validation was actually performed
@@ -783,7 +800,7 @@ if args.train:
     # history_df.insert(0, 'epoch', epochs_validated)
 
     # ✅ Step 3: Save the DataFrame to a CSV file
-    history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     # Save the model's state dictionary
     ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
     torch.save(model.state_dict(), ckpt_path)

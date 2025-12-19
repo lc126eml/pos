@@ -55,7 +55,7 @@ args = SimpleNamespace(
     num_classes=150,  # For ADE20K
     batch_size=168,
     # batch_size=24,
-    img_size=256,
+    img_size=224,
     # img_size=384,
     # lr=3e-4,
     # lr=8e-4,
@@ -67,14 +67,14 @@ args = SimpleNamespace(
     weight_decay=0.01, 
     epochs=130,
     # has_pos=True,
-    overlap=1,
+    overlap=0,
     start_epoch=0,
     seed=55,
     use_rc_loss=True,
     # loss_type="l1",
     # huber_beta=0.1,
-    rc_alpha=600.0,
-    dice_weight=0.0,
+    rc_alpha=300.0,
+    # dice_weight=0.0,
     workers=5,
     train=True,
     val=False,
@@ -82,6 +82,8 @@ args = SimpleNamespace(
     lock=True,
     clip_value=1.0,
     output_dir=f"{root_dir}/output/seg_redo",
+    log_interval=50,
+    csv_interval=3,
     # --- Dataset Paths ---
     base_path=f"{BASE_PATH}",
 )
@@ -477,6 +479,23 @@ logger.info("✅ Initialized Loss, Optimizer, and LR Scheduler.")
 # %%
 
 
+@torch.no_grad()
+def fast_confusion_matrix(pred: torch.Tensor, target: torch.Tensor, num_classes: int, ignore_index: int = -1):
+    """
+    pred/target: (B, H, W) or any same-shape tensors.
+    Returns: confmat [C, C] on pred.device
+    """
+    pred = pred.view(-1).to(torch.int64)
+    target = target.view(-1).to(torch.int64)
+
+    valid = target != ignore_index
+    pred = pred[valid]
+    target = target[valid]
+
+    # idx = target * C + pred
+    idx = target * num_classes + pred
+    conf = torch.bincount(idx, minlength=num_classes * num_classes)
+    return conf.view(num_classes, num_classes)
 
 #%%
 def compute_miou(preds, labels, num_classes, ignore_index=-1):
@@ -545,22 +564,25 @@ if args.train:
         }
     step = 0
     best_acc = 0.0
-
+    log_interval = getattr(args, "log_interval", 50)
+    csv_interval = getattr(args, "csv_interval", 1) 
     for epoch in range(args.epochs):
         # --- Training Phase ---
         model.train()
         decoder.train()
-        running_loss = 0.0
-        train_correct = 0
-        train_total = 0
-        base_loss = 0.0
-        aux_loss_sum = 0.0
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
+        running_loss_t = torch.zeros((), device=DEVICE)
+        base_loss_t    = torch.zeros((), device=DEVICE)
+        aux_loss_sum_t = torch.zeros((), device=DEVICE)
+        train_correct_t = torch.zeros((), device=DEVICE)
+        train_total_t   = torch.zeros((), device=DEVICE)
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]", mininterval=0.5)
         # train_pbar = train_loader
         
         # FP16: Use autocast for the forward pass
         for batch_idx, (inputs, labels) in enumerate(train_pbar):
-            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            inputs = inputs.to(DEVICE, non_blocking=True)
+            labels = labels.to(DEVICE, non_blocking=True)
+            bs = inputs.size(0)
             
             optimizer.zero_grad(set_to_none=True)
             aux_loss = None
@@ -571,9 +593,9 @@ if args.train:
                 loss = ce_criterion(outputs, labels)               
 
                 if args.use_rc_loss:
-                    base_loss += loss.item() * inputs.size(0)
+                    base_loss_t += loss.detach() * bs
                     aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
-                    aux_loss_sum += aux_loss.item() * inputs.size(0)
+                    aux_loss_sum_t += aux_loss.detach() * bs
                     # logger.info(loss, aux_loss)
                     loss = loss + args.rc_alpha * aux_loss
             
@@ -582,28 +604,31 @@ if args.train:
 
             if args.clip_value is not None:
                 scaler.unscale_(optimizer)
-                clip_value = args.clip_value  # typical default for Transformer/ViT-style training
-                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=clip_value)
+                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
 
             scaler.step(optimizer)
             scaler.update()
 
             scheduler.step()
             
-            running_loss += loss.item() * inputs.size(0)
-            predicted = torch.argmax(outputs, dim=1)
-            mask = (labels >= 0)
-            train_correct += ((predicted == labels) & mask).sum().item()
-            train_total += mask.sum().item()
+            running_loss_t += loss.detach() * bs
 
-            batch_pixel_acc = train_correct / train_total if train_total > 0 else 0.0
-            bar_msg = {
-                    'loss': f'{loss.item():.4f}', 
-                    'acc': f'{batch_pixel_acc:.3f}'
-                }
-            if aux_loss is not None:
-                bar_msg['aux'] = f'{aux_loss.item():.4f}'
-            train_pbar.set_postfix(bar_msg)
+            with torch.no_grad():
+                pred = outputs.detach().argmax(dim=1)  # (B,H,W)
+                mask = (labels >= 0)
+                train_correct_t += ((pred == labels) & mask).sum()
+                train_total_t   += mask.sum()
+
+            # Throttled logging/postfix: only sync every log_interval
+            if (step + 1) % log_interval == 0:
+                avg_loss = (running_loss_t / (train_total_t.clamp_min(1))).float().item()  # note: per-pixel-ish if bs varies
+                avg_acc  = (train_correct_t / train_total_t.clamp_min(1)).float().item()
+
+                if args.use_rc_loss:
+                    avg_aux  = (aux_loss_sum_t / (train_total_t.clamp_min(1))).float().item()
+                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f} aux={avg_aux:.4f}")
+                else:
+                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f}")
 
             step += 1
 
@@ -611,69 +636,76 @@ if args.train:
         
         model.eval()
         decoder.eval()
-        val_correct = 0
-        val_total = 0
-        val_intersection = torch.zeros(args.num_classes).to(DEVICE)
-        val_union = torch.zeros(args.num_classes).to(DEVICE)
-        val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]")
-        
-        with torch.no_grad():
+        val_correct_t = torch.zeros((), device=DEVICE)
+        val_total_t   = torch.zeros((), device=DEVICE)
+        confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
+
+        val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]", mininterval=0.5)
+
+        with torch.inference_mode():
             for inputs, labels in val_pbar:
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                inputs = inputs.to(DEVICE, non_blocking=True)
+                labels = labels.to(DEVICE, non_blocking=True)
+
+                with torch.amp.autocast("cuda", dtype=autocast_dtype):
                     feats = model.forward_features(inputs)
                     outputs = decoder(feats[:, model.num_prefix_tokens:, :])
-                predicted = torch.argmax(outputs, dim=1)
+
+                pred = outputs.argmax(dim=1)  # (B,H,W)
                 mask = (labels >= 0)
-                val_correct += ((predicted == labels) & mask).sum().item()
-                val_total += mask.sum().item()
 
-                # Compute IoU for the batch
-                for c in range(args.num_classes):
-                    pred_c = (predicted == c) & mask
-                    label_c = (labels == c) & mask
-                    val_intersection[c] += (pred_c & label_c).sum()
-                    val_union[c] += (pred_c | label_c).sum()
+                val_correct_t += ((pred == labels) & mask).sum()
+                val_total_t   += mask.sum()
 
-        # Compute validation mIoU
-        iou = torch.zeros(args.num_classes).to(DEVICE)
-        valid = val_union > 0
-        iou[valid] = val_intersection[valid] / val_union[valid]
-        epoch_val_miou = iou[valid].mean().item()
-        
-        epoch_val_acc = val_correct / val_total if val_total > 0 else 0.0
-        epoch_train_acc = train_correct / train_total if train_total > 0 else 0.0
-        epoch_train_loss = running_loss / len(train_dataset)
+                # mIoU via confusion matrix (vectorized)
+                confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+
+        # Compute IoU from confmat
+        confmat_f = confmat.to(torch.float32)
+        intersection = torch.diag(confmat_f)
+        union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
+        valid = union > 0
+        epoch_val_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
+
+        epoch_val_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
+        epoch_train_acc = (train_correct_t / train_total_t.clamp_min(1)).float().item()
+
+        # Epoch losses (single sync each)
+        # If you want dataset-normalized loss like before: divide by len(train_loader.dataset)
+        denom = float(len(train_loader.dataset))
+        epoch_train_loss = (running_loss_t / denom).float().item()
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
 
-        if args.use_rc_loss:
-            epoch_aux_loss = aux_loss_sum / len(train_loader.dataset)
-            epoch_base_loss = base_loss / len(train_loader.dataset)
-            training_history['aux_loss'].append(epoch_aux_loss)
-            training_history['base_loss'].append(epoch_base_loss)
-
         logger.info(f"\nEpoch {epoch+1+args.start_epoch}/{args.epochs} Summary:")
         logger.info(f"Step {step} Summary:")
+
         if args.use_rc_loss:
-            logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
-                f"Valid mIoU: {epoch_val_miou:.4f}\n")
+            epoch_aux_loss  = (aux_loss_sum_t / denom).float().item()
+            epoch_base_loss = (base_loss_t / denom).float().item()
+            logger.info(
+                f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | "
+                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+            )
+            training_history["aux_loss"].append(epoch_aux_loss)
+            training_history["base_loss"].append(epoch_base_loss)
         else:
-            logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
-                f"Valid mIoU: {epoch_val_miou:.4f}\n")
-        
-        # ✅ Append the results to the correct lists within the dictionary
-        training_history['train_loss'].append(epoch_train_loss)
-        training_history['train_acc'].append(epoch_train_acc)
-        training_history['valid_acc'].append(epoch_val_acc)  
-        training_history['valid_miou'].append(epoch_val_miou)
-        training_history['epoch'].append(epoch+1)
-        training_history['step'].append(step+1)
-        history_df = pd.DataFrame(training_history)
-        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            logger.info(
+                f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
+                f"Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+            )
+
+        training_history["train_loss"].append(epoch_train_loss)
+        training_history["train_acc"].append(epoch_train_acc)
+        training_history["valid_acc"].append(epoch_val_acc)
+        training_history["valid_miou"].append(epoch_val_miou)
+        training_history["epoch"].append(epoch + 1)
+        training_history["step"].append(step)
+        if (epoch + 1) % csv_interval == 0:
+            pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        # gc.collect()
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
 
 
     logger.info("🏁 Training complete.")
