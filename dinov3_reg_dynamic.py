@@ -35,6 +35,10 @@ except ImportError:
     FileLock = None
 
 from core.utils import log_grads
+# Enable faster matmul/conv kernels on Ampere+ without extra memory cost
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -97,6 +101,7 @@ args = SimpleNamespace(
     clip_value=1.0,
     log_interval=50,
     csv_interval=3,
+    compile_model=False,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -156,6 +161,8 @@ random.seed(args.seed)
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
+if torch.cuda.is_available() and len(args.img_sizes) == 1:
+    torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
@@ -465,6 +472,13 @@ if args.overlap > 0:
 #     IncompatibleKeys = model.load_state_dict(state_dicts)
 #     logger.info(IncompatibleKeys)
 # %%
+if args.compile_model:
+    if hasattr(torch, "compile"):
+        logger.info("Compiling model with torch.compile (mode='reduce-overhead').")
+        model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
+    else:
+        logger.warning("torch.compile not available; skipping compilation.")
+
 dynamic = True
 training_parameters = list(model.parameters()) 
 param_groups = []
@@ -739,9 +753,10 @@ if args.train:
         val_total = 0
         # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
         
-        with torch.no_grad():
+        with torch.inference_mode():
             for inputs, labels in valid_loader:
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                inputs = inputs.to(DEVICE, non_blocking=True)
+                labels = labels.to(DEVICE, non_blocking=True)
                 with torch.amp.autocast('cuda', dtype=autocast_dtype):
                     outputs = model(inputs)
                 pred = outputs.argmax(dim=1)
@@ -829,9 +844,10 @@ if args.val:
         )    
         val_correct = 0
         val_total = 0
-        with torch.no_grad():
+        with torch.inference_mode():
             for inputs, labels in valid_loader:
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+                inputs = inputs.to(DEVICE, non_blocking=True)
+                labels = labels.to(DEVICE, non_blocking=True)
                 with torch.amp.autocast('cuda', dtype=autocast_dtype):
                     outputs = model(inputs)
                 _, predicted = torch.max(outputs.data, 1)

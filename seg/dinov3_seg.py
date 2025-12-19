@@ -30,6 +30,10 @@ try:
     from filelock import FileLock
 except ImportError:
     FileLock = None
+# Enable faster matmul/conv kernels on Ampere+ without extra memory cost
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -84,6 +88,7 @@ args = SimpleNamespace(
     output_dir=f"{root_dir}/output/seg_redo",
     log_interval=50,
     csv_interval=3,
+    compile_model=False,
     # --- Dataset Paths ---
     base_path=f"{BASE_PATH}",
 )
@@ -110,6 +115,7 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
@@ -400,6 +406,13 @@ if args.overlap > 0:
 #         logger.info("✅ Positional embedding has been disabled.")
 #     if hasattr(model, 'rope'):
 #         model.rope = None
+
+if args.compile_model:
+    if hasattr(torch, "compile"):
+        logger.info("Compiling model with torch.compile (mode='reduce-overhead').")
+        model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
+    else:
+        logger.warning("torch.compile not available; skipping compilation.")
 
 # if args.pretrained is not None:
 #     state_dicts = torch.load(args.pretrained, map_location=DEVICE)
