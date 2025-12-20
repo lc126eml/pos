@@ -412,10 +412,10 @@ class PatchRowColRegressionCriterionDynamic(nn.Module):
         row_idx_2d = self.row_index_full[:hp, :wp]  # [0..hp-1]
         col_idx_2d = self.col_index_full[:hp, :wp]  # [0..wp-1]
 
-        #if self.normalize:
-        # Normalize to [0, 1] based on current hp/wp
-        row_idx_2d = row_idx_2d / (hp - 1)
-        col_idx_2d = col_idx_2d / (wp - 1)
+        if self.normalize:
+            # Normalize to [0, 1] based on current hp/wp
+            row_idx_2d = row_idx_2d / max(hp - 1, 1)
+            col_idx_2d = col_idx_2d / max(wp - 1, 1)
 
         # Flatten to 1D and repeat for batch: (hp*wp,) -> (B*hp*wp,)
         row_targets = row_idx_2d.flatten().repeat(B)
@@ -607,6 +607,109 @@ class PatchPositionCriterion(nn.Module):
         logits = self.mlp(x)
         # Compute CE loss
         loss = self.ce(logits, labels)
+        return loss
+
+class PatchPositionRegressionCriterion(nn.Module):
+    def __init__(self, feat_dim, num_classes, normalize=True):
+        """
+        Predict patch position index via regression (single resolution).
+
+        Args:
+            feat_dim (int): Feature dimension of each patch (D)
+            num_classes (int): Number of patches (grid_h * grid_w)
+            normalize (bool): If True, normalize position targets to [0, 1]
+        """
+        super().__init__()
+        self.num_classes = num_classes
+        self.normalize = normalize
+
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar position index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        # Precompute patch position targets once
+        position_targets = torch.arange(num_classes, dtype=torch.float32)
+        if normalize:
+            position_targets = position_targets / max(num_classes - 1, 1)
+        self.register_buffer("position_targets", position_targets)  # (N,)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features
+        Returns:
+            loss: scalar, SmoothL1 loss over all patches
+        """
+        B, N, D = feats.shape
+        assert N == self.num_classes, f"Expected {self.num_classes} patches, got {N}"
+
+        # Flatten batch and patches: (B*N, D)
+        x = feats.reshape(-1, D)
+        # Repeat targets for batch: (N,) -> (B*N,)
+        targets = self.position_targets.repeat(B)
+        # Predict positions: (B*N, 1) -> (B*N,)
+        pred = self.mlp(x).squeeze(-1)
+        # Compute regression loss
+        loss = self.loss_fn(pred, targets)
+        return loss
+
+class PatchPositionRegressionCriterionDynamic(nn.Module):
+    def __init__(self, feat_dim, max_patch_count, normalize=True):
+        """
+        Predict patch position index via regression, supporting dynamic resolutions.
+
+        Args:
+            feat_dim (int): Feature dimension of each patch (D)
+            max_patch_count (int): Max number of patches (upper bound)
+            normalize (bool): If True, normalize position targets to [0, 1]
+                              based on the *current* patch count for each batch.
+        """
+        super().__init__()
+        self.max_patch_count = max_patch_count
+        self.normalize = normalize
+
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar position index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        positions = torch.arange(max_patch_count, dtype=torch.float32)
+        self.register_buffer("position_index_full", positions) 
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features.
+        Returns:
+            loss: scalar, SmoothL1 loss over all patches.
+        """
+        B, N, D = feats.shape
+        if N > self.max_patch_count:
+            raise ValueError(f"Expected N <= max_patch_count={self.max_patch_count}, got N={N}")
+
+        # Flatten features: (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Slice position indices to current patch count: (N,)
+        pos_idx = self.position_index_full[:N]
+
+        if self.normalize:
+            pos_idx = pos_idx / max(N - 1, 1)
+
+        # Repeat for batch: (N,) -> (B*N,)
+        targets = pos_idx.repeat(B)
+
+        # Predict positions: (B*N, 1) -> (B*N,)
+        pred = self.mlp(x).squeeze(-1)
+
+        loss = self.loss_fn(pred, targets)
         return loss
         
 # if Use_Patch_Position_Loss:

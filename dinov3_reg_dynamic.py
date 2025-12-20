@@ -39,6 +39,9 @@ from core.utils import log_grads
 if torch.cuda.is_available():
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+    # Prefer faster matmul kernels when available (Torch 2.0+)
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -62,7 +65,7 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
@@ -75,8 +78,8 @@ args = SimpleNamespace(
     img_sizes=[224],
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
-    lr=1e-3, #small
-    # lr=5e-4, #
+    # lr=1e-3, #small
+    lr=5e-4, #
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -85,11 +88,11 @@ args = SimpleNamespace(
     overlap=0,
     pretrained=None,
     seed=55,
-    use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_patch_position_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=350.0,
+    rc_alpha=600.0,
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
@@ -131,7 +134,8 @@ LABEL_PATH = os.path.join(BASE_PATH, 'Labels.json')
 # --- Device Configuration ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+use_amp = torch.cuda.is_available()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
@@ -159,8 +163,9 @@ if args.pos_type is not None:
 np.random.seed(args.seed)
 random.seed(args.seed)
 torch.manual_seed(args.seed)
-torch.cuda.manual_seed(args.seed)
-torch.cuda.manual_seed_all(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
 if torch.cuda.is_available() and len(args.img_sizes) == 1:
     torch.backends.cudnn.benchmark = True
 subdir_name = (
@@ -310,36 +315,44 @@ logger.info(f"Total training images ({args.num_classes} classes): {len(train_dat
 logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_dataset)}")
 
 # --- Create DataLoaders ---
-# train_loader = DataLoader(
-#     dataset=train_dataset,
-#     batch_size=args.batch_size,
-#     shuffle=True, 
-#     num_workers=args.workers,
-#     pin_memory=True
-# )
-batch_sampler = DynamicResolutionBatchSampler(
-    dataset=train_dataset,
-    image_sizes=args.img_sizes,
-    base_batch_size=args.batch_size,    # your “reference” batch size
-    base_img_size=224, #args.img_sizes[0],       # your “reference” resolution (e.g. 224)
-    shuffle=True,
-    drop_last=True,
-    seed=42,
-)
-train_loader = DataLoader(
-    dataset=train_dataset,
-    batch_sampler=batch_sampler,
-    num_workers=args.workers,           # now workers do the transforms
-    pin_memory=True,
-    persistent_workers=(args.workers > 0),
-    prefetch_factor=2,
-)
+batch_sampler = None
+prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
+if len(args.img_sizes) == 1:
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers,
+        pin_memory=True,
+        persistent_workers=(args.workers > 0),
+        **prefetch_kwargs,
+    )
+else:
+    batch_sampler = DynamicResolutionBatchSampler(
+        dataset=train_dataset,
+        image_sizes=args.img_sizes,
+        base_batch_size=args.batch_size,    # your “reference” batch size
+        base_img_size=224, #args.img_sizes[0],       # your “reference” resolution (e.g. 224)
+        shuffle=True,
+        drop_last=True,
+        seed=42,
+    )
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_sampler=batch_sampler,
+        num_workers=args.workers,           # now workers do the transforms
+        pin_memory=True,
+        persistent_workers=(args.workers > 0),
+        **prefetch_kwargs,
+    )
 valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_size=args.batch_size,
-    shuffle=False, 
-    num_workers=2,
-    pin_memory=True
+    shuffle=False,
+    num_workers=args.workers,
+    pin_memory=True,
+    persistent_workers=(args.workers > 0),
+    **prefetch_kwargs,
 )
 steps_per_epoch = len(train_loader)
 logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
@@ -508,11 +521,20 @@ if args.use_rc_loss:
     training_parameters += list(rowcol_loss.parameters())
     param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
 if args.use_patch_position_loss:
-    from core.patch_pos import PatchPositionCriterion
-    position_loss = PatchPositionCriterion(
-        feat_dim=model.embed_dim,
-        num_classes=model.patch_embed.num_patches
-    ).to(DEVICE)
+    if len(args.img_sizes)==1:
+        from core.patch_pos import PatchPositionRegressionCriterion
+        position_loss = PatchPositionRegressionCriterion(
+            feat_dim=model.embed_dim,
+            num_classes=model.patch_embed.num_patches
+        ).to(DEVICE)
+    else:
+        max_grid = max(args.img_sizes)//args.patch_size
+        max_patch_count = max_grid * max_grid
+        from core.patch_pos import PatchPositionRegressionCriterionDynamic
+        position_loss = PatchPositionRegressionCriterionDynamic(
+            feat_dim=model.embed_dim,
+            max_patch_count=max_patch_count
+        ).to(DEVICE)
     training_parameters += list(position_loss.parameters())
     param_groups.append({"params": position_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
 
@@ -627,14 +649,14 @@ import csv
 ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.amp.GradScaler(enabled=use_amp)
     # =================================================================================
     # Step 5: Training and Validation Loop
     # =================================================================================
     logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 
     # ✅ Initialize training_history as a dictionary of lists
-    if args.use_rc_loss:
+    if args.use_rc_loss or args.use_patch_position_loss:
         training_history = {
             'train_loss': [],
             'train_acc': [],
@@ -674,7 +696,8 @@ if args.train:
         # aux_loss_sum = 0.0
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
         # train_pbar = train_loader
-        batch_sampler.set_epoch(epoch)
+        if batch_sampler is not None:
+            batch_sampler.set_epoch(epoch)
         
         # FP16: Use autocast for the forward pass
         for inputs, labels in train_pbar:
@@ -683,7 +706,7 @@ if args.train:
             
             optimizer.zero_grad(set_to_none=True)
             aux_loss = None
-            with torch.amp.autocast('cuda', dtype=autocast_dtype):
+            with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                 feats = model.forward_features(inputs)
                 outputs = model.forward_head(feats)
                 # outputs = model(inputs)
@@ -700,16 +723,16 @@ if args.train:
                     # # once after a forward:
                     # logger.info(f"feats={feats.shape}, patch_tokens={feats[:, model.num_prefix_tokens:, :].shape[1]}")
 
-                    # logger.info(loss, aux_loss)
                     aux_loss_sum_t += aux_loss.detach() * bs
                     # warmup_steps_for_aux = 100
                     # alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
                     loss = loss + args.rc_alpha * aux_loss
                 
-                # if args.use_patch_position_loss:
-                #     aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
-                #     # logger.info(f"{loss}, {aux_loss}")
-                #     loss = loss + args.rc_alpha * aux_loss
+                if args.use_patch_position_loss:
+                    base_loss_t += loss.detach() * bs
+                    aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
+                    aux_loss_sum_t += aux_loss.detach() * bs
+                    loss = loss + args.rc_alpha * aux_loss
             
             # FP16: Scale, backward, and step
             scaler.scale(loss).backward()
@@ -757,7 +780,7 @@ if args.train:
             for inputs, labels in valid_loader:
                 inputs = inputs.to(DEVICE, non_blocking=True)
                 labels = labels.to(DEVICE, non_blocking=True)
-                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                     outputs = model(inputs)
                 pred = outputs.argmax(dim=1)
                 val_correct_t += (pred == labels).sum()
@@ -772,7 +795,7 @@ if args.train:
         logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
         logger.info(f"\nStep {step} Summary:")
 
-        if args.use_rc_loss:
+        if aux_loss is not None:
             epoch_aux_loss   = (aux_loss_sum_t / train_total).item()
             epoch_base_loss  = (base_loss_t / train_total).item()
             training_history['aux_loss'].append(epoch_aux_loss)
@@ -834,21 +857,23 @@ if args.val:
     model.eval()
     for img_size in args.val_img_sizes:
         valid_dataset.set_transform(make_valid_transform(img_size))
-        batch_size = int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size))
+        batch_size = max(1, int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size)))
         valid_loader = DataLoader(
             dataset=valid_dataset,
             batch_size=batch_size,
-            shuffle=False, 
-            num_workers=2,
-            pin_memory=True
-        )    
+            shuffle=False,
+            num_workers=args.workers,
+            pin_memory=True,
+            persistent_workers=(args.workers > 0),
+            **prefetch_kwargs,
+        )
         val_correct = 0
         val_total = 0
         with torch.inference_mode():
             for inputs, labels in valid_loader:
                 inputs = inputs.to(DEVICE, non_blocking=True)
                 labels = labels.to(DEVICE, non_blocking=True)
-                with torch.amp.autocast('cuda', dtype=autocast_dtype):
+                with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                     outputs = model(inputs)
                 _, predicted = torch.max(outputs.data, 1)
                 val_total += labels.size(0)

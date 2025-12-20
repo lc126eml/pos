@@ -77,7 +77,7 @@ args = SimpleNamespace(
     use_rc_loss=True,
     # loss_type="l1",
     # huber_beta=0.1,
-    rc_alpha=300.0,
+    rc_alpha=100.0,
     # dice_weight=0.0,
     workers=5,
     train=True,
@@ -105,7 +105,8 @@ VALID_ANNOTATION_PATH = os.path.join(args.base_path, 'annotations', 'validation'
 # --- Device Configuration ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+use_amp = torch.cuda.is_available()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 # %%
 # Set seeds
@@ -141,7 +142,7 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 logger.info(f"Using device: {DEVICE}")
-logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
+logger.info(f"Using mixed precision: {'disabled' if not use_amp else ('bfloat16' if use_bf16 else 'float16')}")
 logger.info(f"Arguments: {args}")
 logger.info(output_dir)
 logger.info(subdir_name)
@@ -547,7 +548,8 @@ import csv
 ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
-    scaler = torch.amp.GradScaler('cuda', enabled=(autocast_dtype == torch.float16))
+    use_scaler = use_amp and (autocast_dtype == torch.float16)
+    scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
 
     # =================================================================================
     # Step 5: Training and Validation Loop
@@ -588,6 +590,7 @@ if args.train:
         aux_loss_sum_t = torch.zeros((), device=DEVICE)
         train_correct_t = torch.zeros((), device=DEVICE)
         train_total_t   = torch.zeros((), device=DEVICE)
+        train_samples_t = torch.zeros((), device=DEVICE)
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]", mininterval=0.5)
         # train_pbar = train_loader
         
@@ -599,18 +602,18 @@ if args.train:
             
             optimizer.zero_grad(set_to_none=True)
             aux_loss = None
-            with torch.amp.autocast('cuda', dtype=autocast_dtype):
+            with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                 feats = model.forward_features(inputs)
                 outputs = decoder(feats[:, model.num_prefix_tokens:, :])            
 
-                loss = ce_criterion(outputs, labels)               
+                loss = ce_criterion(outputs, labels)
+                base_loss = loss              
 
                 if args.use_rc_loss:
-                    base_loss_t += loss.detach() * bs
                     aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
                     aux_loss_sum_t += aux_loss.detach() * bs
                     # logger.info(loss, aux_loss)
-                    loss = loss + args.rc_alpha * aux_loss
+                    loss = base_loss + args.rc_alpha * aux_loss
             
             # FP16: Scale, backward, and step
             scaler.scale(loss).backward()
@@ -624,21 +627,25 @@ if args.train:
 
             scheduler.step()
             
-            running_loss_t += loss.detach() * bs
-
             with torch.no_grad():
                 pred = outputs.detach().argmax(dim=1)  # (B,H,W)
                 mask = (labels >= 0)
+                valid_pixels = mask.sum()
                 train_correct_t += ((pred == labels) & mask).sum()
-                train_total_t   += mask.sum()
+                train_total_t   += valid_pixels
+                train_samples_t += bs
+
+            running_loss_t += loss.detach() * valid_pixels
+            if args.use_rc_loss:
+                base_loss_t += base_loss.detach() * valid_pixels
 
             # Throttled logging/postfix: only sync every log_interval
             if (step + 1) % log_interval == 0:
-                avg_loss = (running_loss_t / (train_total_t.clamp_min(1))).float().item()  # note: per-pixel-ish if bs varies
+                avg_loss = (running_loss_t / (train_total_t.clamp_min(1))).float().item()
                 avg_acc  = (train_correct_t / train_total_t.clamp_min(1)).float().item()
 
                 if args.use_rc_loss:
-                    avg_aux  = (aux_loss_sum_t / (train_total_t.clamp_min(1))).float().item()
+                    avg_aux  = (aux_loss_sum_t / train_samples_t.clamp_min(1)).float().item()
                     train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f} aux={avg_aux:.4f}")
                 else:
                     train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f}")
@@ -660,7 +667,7 @@ if args.train:
                 inputs = inputs.to(DEVICE, non_blocking=True)
                 labels = labels.to(DEVICE, non_blocking=True)
 
-                with torch.amp.autocast("cuda", dtype=autocast_dtype):
+                with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                     feats = model.forward_features(inputs)
                     outputs = decoder(feats[:, model.num_prefix_tokens:, :])
 
@@ -685,8 +692,9 @@ if args.train:
 
         # Epoch losses (single sync each)
         # If you want dataset-normalized loss like before: divide by len(train_loader.dataset)
-        denom = float(len(train_loader.dataset))
-        epoch_train_loss = (running_loss_t / denom).float().item()
+        denom_pixels = train_total_t.clamp_min(1).float()
+        denom_samples = train_samples_t.clamp_min(1).float()
+        epoch_train_loss = (running_loss_t / denom_pixels).float().item()
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
 
@@ -694,8 +702,8 @@ if args.train:
         logger.info(f"Step {step} Summary:")
 
         if args.use_rc_loss:
-            epoch_aux_loss  = (aux_loss_sum_t / denom).float().item()
-            epoch_base_loss = (base_loss_t / denom).float().item()
+            epoch_aux_loss  = (aux_loss_sum_t / denom_samples).float().item()
+            epoch_base_loss = (base_loss_t / denom_pixels).float().item()
             logger.info(
                 f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | "
                 f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"

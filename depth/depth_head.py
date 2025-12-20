@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import List, Tuple, Union
 
 class DWConvBlock(nn.Module):
     """Depthwise-separable conv block: light but effective."""
@@ -21,11 +22,9 @@ class Lite4LayerDepthHead(nn.Module):
         embed_dim: int = 768,
         fuse_ch: int = 128,     # per-layer projected channels
         dec_ch: int = 128,      # decoder channels
-        num_prefix_tokens: int = 1,  # CLS only; set >1 if you have reg tokens
         use_softplus: bool = True,
     ):
         super().__init__()
-        self.num_prefix_tokens = num_prefix_tokens
         self.use_softplus = use_softplus
 
         # Token-space normalization + projection for each of 4 layers
@@ -58,7 +57,7 @@ class Lite4LayerDepthHead(nn.Module):
 
     def forward(self, feats4, grid_hw=None, out_hw=None):
         """
-        feats4: list/tuple of 4 tensors, each (B, N_prefix+N, D)
+        feats4: list/tuple of 4 tensors, each (B, N, D) patch tokens only
                 e.g. [feat_l3, feat_l6, feat_l9, feat_l12]
         grid_hw: (gh, gw) patch grid. Recommended.
         out_hw:  (H, W) output depth size. Recommended.
@@ -68,8 +67,7 @@ class Lite4LayerDepthHead(nn.Module):
         assert len(feats4) == 4
         B, Nt, D = feats4[0].shape
 
-        # strip prefix tokens consistently
-        toks = [f[:, self.num_prefix_tokens:, :] for f in feats4]
+        toks = feats4
         N = toks[0].shape[1]
         for t in toks[1:]:
             assert t.shape[1] == N, "All 4 layers must have same number of patch tokens."

@@ -52,24 +52,35 @@ args = SimpleNamespace(
     use_rot_pos_emb=False,
     model_size='base',
     img_sizes=[224],
-    batch_size=196,
+    batch_size=256,
     # batch_size=6,
     patch_size=16,
     lr=5e-4,
-    epochs=100,
+    lr_aux=1e-5,
+    epochs=130,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
     seed=55,
-    val_steps=500,
+    val_steps=None,
     use_rc_loss=True,
-    rc_alpha=300.0,
-    warmup_steps_for_aux=100,
+    rc_alpha=100.0,
+    # warmup_steps_for_aux=100,
     workers=5,
     warmup_steps=20,
     clip_value=1.0,
-    lock=False,
+    lock=True,
+    depth_decoder="lite4",  # "simple" or "lite4"
+    log_interval=100,
+    depth_eval_mode="scale_invariant",  # "metric" or "scale_invariant"
+    depth_norm="median",  # "mean" or "median" (scale-invariant alignment)
+    ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
+    ssim_percentiles=(5.0, 95.0),
+    debug_dataset=False,
     output_dir=f'{root_dir}/output/depth',
+    csv_interval=5,
+    prefetch_factor=4,
+    compile_model=True,
 )
 
 print(args)
@@ -88,7 +99,10 @@ RC_ALPHA = args.rc_alpha
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+torch.backends.cudnn.benchmark = True
+
+use_amp = torch.cuda.is_available()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 np.random.seed(SEED)
@@ -102,12 +116,19 @@ if torch.cuda.is_available():
 output_dir = args.output_dir
 
 subdir_name = (
-    f"{MODEL_NAME}{'_pos' if args.has_pos else ''}_overlap_{args.overlap}_rc_{args.use_rc_loss}"
+    f"{args.model_size}"
+    f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
+    f"{'_rot_pos' if args.use_rot_pos_emb else ''}_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
 )
-output_dir = os.path.join(output_dir, subdir_name)
-os.makedirs(output_dir, exist_ok=True)
+if args.use_rc_loss:
+    subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
-log_file_path = os.path.join(output_dir, 'training.log')
+output_dir = os.path.join(args.output_dir, subdir_name)
+ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(ckpt_output_dir, exist_ok=True)
+
+log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -120,8 +141,9 @@ logger = logging.getLogger()
 
 logger.info(f"Arguments: {args}")
 logger.info(f"Using device: {DEVICE}")
-logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
+logger.info(f"Using mixed precision: {'disabled' if not use_amp else ('bfloat16' if use_bf16 else 'float16')}")
 logger.info(args)
+logger.info(output_dir)
 logger.info(subdir_name)
 # wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
 # --- Acquire a file lock to ensure exclusive GPU usage ---
@@ -172,29 +194,34 @@ try:
     )
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
-        pin_memory=True, drop_last=True, persistent_workers=True, collate_fn=collate_fn
+        pin_memory=torch.cuda.is_available(), drop_last=True,
+        persistent_workers=(args.workers > 0), prefetch_factor=args.prefetch_factor,
+        collate_fn=collate_fn
     )
     valid_loader = DataLoader(
-        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2,
-        pin_memory=True, drop_last=True, persistent_workers=True, collate_fn=collate_fn
+        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=5,
+        pin_memory=torch.cuda.is_available(), drop_last=False,
+        persistent_workers=True, prefetch_factor=args.prefetch_factor,
+        collate_fn=collate_fn
     )
     steps_per_epoch = len(train_loader)
     logger.info(f"✅ DataLoaders created successfully.")
     logger.info(f"   - Training samples: {len(train_dataset)}, Batches per epoch: {len(train_loader)}")
     logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: {len(valid_loader)}")
     
-    # Test sample loading and display stats
-    logger.info("\n🔍 Dataset validation:")
-    batch_imgs, batch_depths = next(iter(train_loader))
-    logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
-    logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
-    logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
+    if args.debug_dataset:
+        # Test sample loading and display stats
+        logger.info("\n🔍 Dataset validation:")
+        batch_imgs, batch_depths = next(iter(train_loader))
+        logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
+        logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
+        logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
 
-    logger.info("\n🔍 Valid Dataset validation:")
-    batch_imgs, batch_depths = next(iter(valid_loader))
-    logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
-    logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
-    logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
+        logger.info("\n🔍 Valid Dataset validation:")
+        batch_imgs, batch_depths = next(iter(valid_loader))
+        logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
+        logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
+        logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
     
 except Exception as e:
     logger.error(f"❌ Error creating datasets: {e}")
@@ -218,14 +245,17 @@ def setup_model(img_size, device):
     for param in model.parameters():
         param.requires_grad = True
     
-    # decoder = SimpleDepthDecoder(embed_dim=768, patch_size=14, img_size=img_size).to(device)
+    from depth_head import Lite4LayerDepthHead, SimpleDepthDecoderV2
+    decoder_type = getattr(args, "depth_decoder", "simple")
+    if decoder_type == "lite4":
+        decoder = Lite4LayerDepthHead(
+            embed_dim=model.embed_dim,
+        ).to(device)
+    elif decoder_type == "simple":
+        decoder = SimpleDepthDecoderV2(embed_dim=model.embed_dim).to(device)
+    else:
+        raise ValueError(f"Unsupported depth_decoder='{decoder_type}'. Use 'simple' or 'lite4'.")
 
-    decoder = DPTHead(
-        dim_in=model.embed_dim,
-        patch_size=model.patch_embed.patch_size[0],
-        output_dim=1, # Monocular depth
-        pos_embed=False
-    ).to(device)
     
     # Sanity check
     feature_layers = [2, 5, 8, 11]
@@ -249,6 +279,52 @@ def setup_model(img_size, device):
     return model, decoder, feature_layers
 
 model, decoder, feature_layers = setup_model(IMG_SIZE, DEVICE)
+if args.compile_model:
+    try:
+        model = torch.compile(model)
+        logger.info("✅ torch.compile enabled for model.")
+    except Exception as e:
+        logger.warning(f"torch.compile failed; continuing without it. Error: {e}")
+
+
+def _compute_scale_from_gt(gt, mask, mode):
+    if mode == "mean":
+        denom = mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(1)
+        scale = (gt * mask).sum(dim=(1, 2, 3), keepdim=True) / denom
+        return scale.clamp_min(1e-8)
+    if mode == "median":
+        out = []
+        for b in range(gt.shape[0]):
+            gb = gt[b, 0]
+            mb = mask[b, 0] > 0.5
+            vals = gb[mb]
+            if vals.numel() == 0:
+                out.append(torch.tensor(1.0, device=gt.device, dtype=gt.dtype))
+            else:
+                out.append(vals.median())
+        return torch.stack(out, dim=0).view(gt.shape[0], 1, 1, 1).clamp_min(1e-8)
+    raise ValueError(f"Unsupported depth_norm='{mode}'. Use 'mean' or 'median'.")
+
+
+def _compute_scale_align_pred(gt, pred, mask, mode):
+    if mode == "mean":
+        denom = mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(1)
+        gt_mean = (gt * mask).sum(dim=(1, 2, 3), keepdim=True) / denom
+        pred_mean = (pred * mask).sum(dim=(1, 2, 3), keepdim=True) / denom
+        scale = gt_mean / pred_mean.clamp_min(1e-8)
+        return scale.clamp_min(1e-8)
+    if mode == "median":
+        out = []
+        for b in range(gt.shape[0]):
+            mb = mask[b, 0] > 0.5
+            gt_vals = gt[b, 0][mb]
+            pred_vals = pred[b, 0][mb]
+            if gt_vals.numel() == 0 or pred_vals.numel() == 0:
+                out.append(torch.tensor(1.0, device=gt.device, dtype=gt.dtype))
+            else:
+                out.append(gt_vals.median() / pred_vals.median().clamp_min(1e-8))
+        return torch.stack(out, dim=0).view(gt.shape[0], 1, 1, 1).clamp_min(1e-8)
+    raise ValueError(f"Unsupported depth_norm='{mode}'. Use 'mean' or 'median'.")
 
 
 def compute_depth_metrics(pred, target, mask=None):
@@ -257,37 +333,60 @@ def compute_depth_metrics(pred, target, mask=None):
     This optimized version performs all calculations on the GPU and transfers
     results to the CPU only once at the end.
     """
-    if mask is not None:
-        pred, target = pred[mask], target[mask]
-    
-    # Ensure tensors are flat
-    pred = pred.flatten()
-    target = target.flatten()
+    if pred.dim() == 3:
+        pred = pred.unsqueeze(1)
+    if target.dim() == 3:
+        target = target.unsqueeze(1)
+    if pred.dim() != 4 or target.dim() != 4:
+        raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
 
     # Create a mask for valid pixels (finite, positive depth)
     valid_mask = (target > 0) & (pred > 0) & torch.isfinite(pred) & torch.isfinite(target)
-    if valid_mask.sum() == 0:
+    if mask is not None:
+        valid_mask = valid_mask & mask.bool()
+
+    valid_mask_f = valid_mask.float()
+    denom = valid_mask_f.sum(dim=(1, 2, 3))
+    valid_img = denom > 0
+    if not valid_img.any():
         return {}
+    denom = denom.clamp_min(1)
 
-    pred = pred[valid_mask]
-    target = target[valid_mask]
+    if args.depth_eval_mode == "scale_invariant":
+        scale = _compute_scale_align_pred(target, pred, valid_mask_f, args.depth_norm)
+        pred_cmp = pred * scale
+        target_cmp = target
+    else:
+        pred_cmp = pred
+        target_cmp = target
 
-    # --- All calculations below are on GPU ---
-    diff = pred - target
-    log_diff = torch.log(pred) - torch.log(target)
-    ratio = torch.maximum(pred / target, target / pred)
+    diff = pred_cmp - target_cmp
+    pred_c = pred_cmp.clamp_min(1e-8)
+    target_c = target_cmp.clamp_min(1e-8)
+    log_diff = torch.log(pred_c) - torch.log(target_c)
+    ratio = torch.maximum(pred_c / target_c, target_c / pred_c)
+
+    def masked_mean_per_image(x):
+        return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom
+
+    abs_rel = masked_mean_per_image(torch.abs(diff) / target_c)
+    sq_rel = masked_mean_per_image((diff ** 2) / target_c)
+    rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
+    rmse_log = torch.sqrt(masked_mean_per_image(log_diff ** 2))
+    a1 = masked_mean_per_image((ratio < 1.25).float())
+    a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
+    a3 = masked_mean_per_image((ratio < 1.25 ** 3).float())
 
     metrics = {
-        'abs_rel': (torch.abs(diff) / target).mean(),
-        'sq_rel': (((diff) ** 2) / target).mean(),
-        'rmse': torch.sqrt((diff ** 2).mean()),
-        'rmse_log': torch.sqrt((log_diff ** 2).mean()),
-        'a1': (ratio < 1.25).float().mean(),
-        'a2': (ratio < 1.25 ** 2).float().mean(),
-        'a3': (ratio < 1.25 ** 3).float().mean(),
+        'abs_rel': abs_rel[valid_img].mean(),
+        'sq_rel': sq_rel[valid_img].mean(),
+        'rmse': rmse[valid_img].mean(),
+        'rmse_log': rmse_log[valid_img].mean(),
+        'a1': a1[valid_img].mean(),
+        'a2': a2[valid_img].mean(),
+        'a3': a3[valid_img].mean(),
     }
 
-    # Transfer all results to CPU at once
     return {k: v.item() for k, v in metrics.items()}
 
 training_parameters = list(model.parameters()) + list(decoder.parameters())
@@ -357,14 +456,50 @@ param_groups.append({
 })
 
 from depth.depth_loss import MonocularDepthLoss
+depth_norm_mode = getattr(args, "depth_norm", "mean")
+depth_eval_mode = getattr(args, "depth_eval_mode", "scale_invariant")
+if depth_eval_mode not in ("metric", "scale_invariant"):
+    raise ValueError(f"Unsupported depth_eval_mode='{depth_eval_mode}'. Use 'metric' or 'scale_invariant'.")
+if depth_eval_mode == "metric":
+    ssim_norm_mode = "per_image"
+else:
+    ssim_norm_mode = "per_image"
+if depth_eval_mode == "scale_invariant":
+    if depth_norm_mode == "mean":
+        scale_mode = "gt_mean"
+    elif depth_norm_mode == "median":
+        scale_mode = "gt_median"
+    else:
+        raise ValueError(f"Unsupported depth_norm='{depth_norm_mode}'. Use 'mean' or 'median'.")
+else:
+    scale_mode = "none"
+
+if depth_eval_mode == "metric":
+    silog_w = 0.0
+    l1_w = 1.0
+    grad_w = 0.5
+    ssim_w = 0.2
+    lambda_var = 0.0
+    grad_use_log = True
+else:
+    silog_w = 1.0
+    l1_w = 0.0
+    grad_w = 0.5
+    ssim_w = 0.2
+    lambda_var = 1.0
+    grad_use_log = True
+
 criterion = MonocularDepthLoss(
-    silog_w=0.0,     # start without SILog; add later if needed
-    l1_w=1.0,
-    grad_w=0.5,
-    ssim_w=0.2,
-    lambda_var=0.0,
-    scale_mode="gt_mean",   # internal per-image normalization
+    silog_w=silog_w,
+    l1_w=l1_w,
+    grad_w=grad_w,
+    ssim_w=ssim_w,
+    lambda_var=lambda_var,
+    scale_mode=scale_mode,   # internal per-image normalization
     ssim_log_range=4.0,     # SSIM compares within ~[1/4, 4] multiplicative band
+    grad_use_log=grad_use_log,
+    ssim_norm_mode=ssim_norm_mode,
+    ssim_percentiles=getattr(args, "ssim_percentiles", (5.0, 95.0)),
 )
 
 
@@ -380,37 +515,66 @@ logger.info("✅ Loss, Optimizer, and Scheduler are ready.")
 # Step 5: Training and Validation Loop
 # =================================================================================
 
+def _infer_grid_hw(model, inputs):
+    patch_size = model.patch_embed.patch_size
+    if isinstance(patch_size, tuple):
+        ph, pw = patch_size
+    else:
+        ph = pw = patch_size
+    return (inputs.shape[-2] // ph, inputs.shape[-1] // pw)
+
+def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
+    if grid_hw is None:
+        grid_hw = _infer_grid_hw(model, inputs)
+    if args.depth_decoder == "lite4":
+        features = model.forward_intermediates(
+            inputs,
+            indices=feature_layers,
+            norm=False,
+            intermediates_only=True,
+            output_fmt="NLC",
+        )
+        pred_depths = decoder(features, grid_hw=grid_hw, out_hw=inputs.shape[-2:])
+    else:
+        features = model.forward_features(inputs)
+        pred_depths = decoder(features, grid_hw=grid_hw, out_hw=inputs.shape[-2:])
+    return pred_depths, features
+
 def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, total_epochs):
     """Trains the model for one epoch."""
     model.train()
     decoder.train()
-    epoch_loss = 0.0
-    train_metrics = {'abs_rel': 0, 'sq_rel': 0, 'rmse': 0, 'rmse_log': 0, 'a1': 0, 'a2': 0, 'a3': 0}
-    base_loss = 0.0
-    aux_loss_sum = 0.0
+    running_loss_t = torch.zeros((), device=DEVICE)
+    base_loss_t = torch.zeros((), device=DEVICE)
+    aux_loss_sum_t = torch.zeros((), device=DEVICE)
+    total_samples = 0
+    log_interval = getattr(args, "log_interval", 50)
     pbar = tqdm(loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
     
     for i, (inputs, gt_depths) in enumerate(pbar):
-        inputs, gt_depths = inputs.to(DEVICE), gt_depths.to(DEVICE)
-        optimizer.zero_grad()
+        inputs = inputs.to(DEVICE, non_blocking=True)
+        gt_depths = gt_depths.to(DEVICE, non_blocking=True)
+        bs = inputs.size(0)
+        optimizer.zero_grad(set_to_none=True)
         aux_loss = None
-        with torch.amp.autocast('cuda', dtype=autocast_dtype):
-            # features = model.forward_features(inputs)
-            # pred_depths = decoder(features)
-            # loss, _ = criterion(pred_depths, gt_depths)
-            features = model.forward_intermediates(inputs, indices=feature_layers, norm=False, intermediates_only=True, output_fmt="NLC")
-            pred_depths, _ = decoder(features, inputs.unsqueeze(1), patch_start_idx=0)
-            pred_depths = pred_depths.squeeze(1)
-            loss, loss_dict = criterion(pred_depths, gt_depths)
+        with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
+            pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
+            valid = (gt_depths > 0) & torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
+            base_loss, loss_dict = criterion(pred_depths, gt_depths, valid_mask=valid)
+            loss = base_loss
         
         if Use_Row_Col_Loss:
-            base_loss += loss.item() 
-            aux_loss = rowcol_loss(features[-1])
-            alpha_t = args.rc_alpha
-            if epoch == 0:
-                alpha_t = args.rc_alpha * min(1.0, (i + 1) / args.warmup_steps_for_aux)
-            loss = loss + alpha_t * aux_loss
-            aux_loss_sum += aux_loss.item()
+            last_feat = features[-1] if isinstance(features, (list, tuple)) else features
+            if args.depth_decoder == "lite4":
+                aux_loss = rowcol_loss(last_feat)
+            else:
+                aux_loss = rowcol_loss(last_feat[:, model.num_prefix_tokens:, :])
+            # alpha_t = args.rc_alpha
+            # if epoch == 0:
+            #     alpha_t = args.rc_alpha * min(1.0, (i + 1) / args.warmup_steps_for_aux)
+            loss = base_loss + args.rc_alpha * aux_loss
+            base_loss_t += base_loss.detach() * bs
+            aux_loss_sum_t += aux_loss.detach() * bs
         scaler.scale(loss).backward()
         if args.clip_value is not None:
             scaler.unscale_(optimizer)
@@ -423,50 +587,49 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         scaler.update()
         scheduler.step()
         
-        epoch_loss += loss.item()
-        # batch_metrics = compute_depth_metrics(pred_depths.detach(), gt_depths.detach())
-        # for k in train_metrics:
-        #     train_metrics[k] += batch_metrics.get(k, 0)
-        # , 'grad_norm': f'{total_norm:.2f}'
-        pbar_dict = {'loss': f'{loss.item():.4f}'}
-        if aux_loss is not None:
-            pbar_dict['aux'] = aux_loss.item()
-        # pbar_dict.update(train_metrics)
-        # pbar_dict.update({k: f'{v / (i + 1):.4f}' for k, v in train_metrics.items()})
-        pbar.set_postfix(pbar_dict)
+        running_loss_t += loss.detach() * bs
+        total_samples += bs            
+
+        if (i + 1) % log_interval == 0:
+            avg_loss = (running_loss_t / max(total_samples, 1)).float().item()
+            if aux_loss is not None:
+                avg_aux = (aux_loss_sum_t / max(total_samples, 1)).float().item()
+                pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}")
+            else:
+                pbar.set_postfix_str(f"loss={avg_loss:.4f}")
     
-    # if args.use_rc_loss:
-    #     train_metrics["aux_loss"] = aux_loss_sum
-    #     train_metrics["base_loss"] = base_loss
-    
-    return epoch_loss / len(loader), aux_loss_sum / len(loader), base_loss / len(loader)
+    denom = max(total_samples, 1)
+    avg_loss = (running_loss_t / denom).float().item()
+    avg_aux = (aux_loss_sum_t / denom).float().item()
+    avg_base = (base_loss_t / denom).float().item()
+    return avg_loss, avg_aux, avg_base
 # {k: v / len(loader) for k, v in train_metrics.items()}
 
-def validate(model, decoder, loader, criterion, feature_layers):
+def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
     """Validates the model."""
     model.eval()
     decoder.eval()
     val_loss = 0.0
     val_metrics = {'abs_rel': 0, 'sq_rel': 0, 'rmse': 0, 'rmse_log': 0, 'a1': 0, 'a2': 0, 'a3': 0}
+    steps = 0
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for val_inputs, gt_depths in loader:
-            val_inputs, gt_depths = val_inputs.to(DEVICE), gt_depths.to(DEVICE)
-            with torch.amp.autocast('cuda', dtype=autocast_dtype):
-                # features = model.forward_features(inputs)
-                # pred_depths = decoder(features)
-                # v_loss, _ = criterion(pred_depths, gt_depths)
-
-                features = model.forward_intermediates(val_inputs, indices=feature_layers, norm=False, intermediates_only=True, output_fmt="NLC")
-                val_pred_depths, _ = decoder(features, val_inputs.unsqueeze(1), patch_start_idx=0)
-                val_pred_depths = val_pred_depths.squeeze(1)
+            val_inputs = val_inputs.to(DEVICE, non_blocking=True)
+            gt_depths = gt_depths.to(DEVICE, non_blocking=True)
+            with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
+                val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # v_loss, _ = criterion(val_pred_depths, gt_depths)
             # val_loss += v_loss.item()
             batch_metrics = compute_depth_metrics(val_pred_depths, gt_depths)
             for k in val_metrics:
                 val_metrics[k] += batch_metrics.get(k, 0)
+            steps += 1
+            if max_steps and steps >= max_steps:
+                break
     # val_loss / len(loader)
-    return 0.0, {k: v / len(loader) for k, v in val_metrics.items()}
+    denom = max(steps, 1)
+    return 0.0, {k: v / denom for k, v in val_metrics.items()}
 
 def save_checkpoint(model, decoder, output_dir, suffix):
     encoder_path = os.path.join(output_dir, f'encoder_{suffix}.pth')
@@ -475,11 +638,11 @@ def save_checkpoint(model, decoder, output_dir, suffix):
     torch.save(decoder.state_dict(), decoder_path)
     logger.info(f"Checkpoint saved: {suffix}")
 
-scaler = torch.amp.GradScaler('cuda')
+scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_amp)
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 # 'valid_loss': [], 
 training_history = {
-    'train_loss': [], 'base_loss': [], 'aux_loss': [], 'train_abs_rel': [], 'train_rmse': [], 'train_a1': [],
+    'train_loss': [], 'base_loss': [], 'aux_loss': [],
     'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
     'epoch': []
 }
@@ -492,7 +655,7 @@ for epoch in range(EPOCHS):
     )
     # , avg_train_metrics
     avg_val_loss, avg_val_metrics = validate(
-        model, decoder, valid_loader, criterion, feature_layers
+        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
     )
 
     logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
@@ -512,15 +675,16 @@ for epoch in range(EPOCHS):
     
     # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
     #     best_val_abs_rel = avg_val_metrics['abs_rel']
-    history_df = pd.DataFrame(training_history)
-    history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-        # save_checkpoint(model, decoder, output_dir, "best")
+    if args.csv_interval and (epoch + 1) % args.csv_interval == 0:
+        history_df = pd.DataFrame(training_history)
+        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        # save_checkpoint(model, decoder, ckpt_output_dir, "best")
 
 logger.info("Training complete.")
 
 history_df = pd.DataFrame(training_history)
 history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-# save_checkpoint(model, decoder, output_dir, "final")
+save_checkpoint(model, decoder, ckpt_output_dir, "final")
 
 if not history_df.empty:
     best_a1 = history_df['valid_a1'].max()

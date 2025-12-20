@@ -95,7 +95,13 @@ class MonocularDepthLoss(nn.Module):
         scale_mode: str = "gt_mean",   # 'gt_mean' | 'gt_median' | 'dataset' | 'none'
         dataset_scale: float | None = None,
         scale_detach: bool = True,     # stop-grad through scale to avoid cheating
+        # gradient loss domain
+        grad_use_log: bool = False,
         # SSIM settings
+        ssim_norm_mode: str = "per_image",  # "per_image"
+        ssim_min: float | None = None,
+        ssim_max: float | None = None,
+        ssim_percentiles: tuple[float, float] = (5.0, 95.0),
         ssim_window: int = 3,
         ssim_erode_mask: bool = True,
         ssim_log_range: float = 4.0,   # map log-depth in [1/r, r] to [0,1]; default r=4
@@ -113,6 +119,11 @@ class MonocularDepthLoss(nn.Module):
         self.scale_mode = str(scale_mode)
         self.dataset_scale = dataset_scale
         self.scale_detach = bool(scale_detach)
+        self.grad_use_log = bool(grad_use_log)
+        self.ssim_norm_mode = str(ssim_norm_mode)
+        self.ssim_min = ssim_min
+        self.ssim_max = ssim_max
+        self.ssim_percentiles = ssim_percentiles
 
         self.ssim_window = int(ssim_window)
         self.ssim_erode_mask = bool(ssim_erode_mask)
@@ -159,7 +170,13 @@ class MonocularDepthLoss(nn.Module):
             loss_dict["l1"] = float(l1.detach().item())
 
         if self.grad_w > 0:
-            grad = self._gradient_loss(pred_n, gt_n, mask)
+            if self.grad_use_log:
+                pred_g = torch.log(torch.clamp(pred_n, min=self.eps))
+                gt_g = torch.log(torch.clamp(gt_n, min=self.eps))
+            else:
+                pred_g = pred_n
+                gt_g = gt_n
+            grad = self._gradient_loss(pred_g, gt_g, mask)
             total = total + self.grad_w * grad
             loss_dict["grad"] = float(grad.detach().item())
 
@@ -245,11 +262,26 @@ class MonocularDepthLoss(nn.Module):
         pred_l = torch.log(pred_c)
         gt_l   = torch.log(gt_c)
 
-        # map log-depth in [-ln(r), +ln(r)] -> [0,1]
-        r = max(self.ssim_log_range, 1.0001)
-        ln_r = float(torch.log(torch.tensor(r)).item())
-        pred01 = torch.clamp((pred_l + ln_r) / (2 * ln_r), 0.0, 1.0)
-        gt01   = torch.clamp((gt_l   + ln_r) / (2 * ln_r), 0.0, 1.0)
+        if self.ssim_norm_mode == "per_image":
+            p_lo, p_hi = self.ssim_percentiles
+            pred01_list = []
+            gt01_list = []
+            for b in range(pred_l.shape[0]):
+                mb = ssim_mask[b, 0] > 0.5
+                vals = gt_l[b, 0][mb]
+                if vals.numel() == 0:
+                    min_l = torch.tensor(0.0, device=pred_l.device, dtype=pred_l.dtype)
+                    max_l = torch.tensor(1.0, device=pred_l.device, dtype=pred_l.dtype)
+                else:
+                    min_l = torch.quantile(vals, p_lo / 100.0)
+                    max_l = torch.quantile(vals, p_hi / 100.0)
+                denom = (max_l - min_l).clamp_min(self.eps)
+                pred01_list.append(torch.clamp((pred_l[b:b+1] - min_l) / denom, 0.0, 1.0))
+                gt01_list.append(torch.clamp((gt_l[b:b+1] - min_l) / denom, 0.0, 1.0))
+            pred01 = torch.cat(pred01_list, dim=0)
+            gt01 = torch.cat(gt01_list, dim=0)
+        else:
+            raise ValueError(f"Unsupported ssim_norm_mode='{self.ssim_norm_mode}'.")
 
         dist = ssim_distance_map_unit01(pred01, gt01, window=self.ssim_window)
 
