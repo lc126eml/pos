@@ -31,9 +31,9 @@ try:
 except ImportError:
     FileLock = None
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
-if torch.cuda.is_available():
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+# if torch.cuda.is_available():
+#     torch.backends.cuda.matmul.allow_tf32 = True
+#     torch.backends.cudnn.allow_tf32 = True
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -74,7 +74,7 @@ args = SimpleNamespace(
     overlap=0,
     start_epoch=0,
     seed=55,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="l1",
     # huber_beta=0.1,
     rc_alpha=100.0,
@@ -94,6 +94,7 @@ args = SimpleNamespace(
 )
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
+    # args.use_patch_position_loss=False
     args.use_rc_loss = False
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
@@ -116,7 +117,7 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
@@ -412,6 +413,7 @@ if args.compile_model:
     if hasattr(torch, "compile"):
         logger.info("Compiling model with torch.compile (mode='reduce-overhead').")
         model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
+        decoder = torch.compile(decoder)
     else:
         logger.warning("torch.compile not available; skipping compilation.")
 
@@ -760,3 +762,12 @@ if args.train:
     logger.info(f"  Best miou:      {best_miou_val:.4f} (Epoch {best_miou_epoch})")
     logger.info(f"  Best acc:  {best_acc_val:.4f} (Epoch {best_acc_epoch})")
     logger.info("------------------------------------------")
+
+del model, decoder
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+
+if args.lock and gpu_lock and gpu_lock.is_locked:
+    logger.info("Manually releasing lock.")
+    gpu_lock.release()

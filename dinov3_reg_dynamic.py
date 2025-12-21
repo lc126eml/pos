@@ -36,12 +36,12 @@ except ImportError:
 
 from core.utils import log_grads
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
-if torch.cuda.is_available():
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    # Prefer faster matmul kernels when available (Torch 2.0+)
-    if hasattr(torch, "set_float32_matmul_precision"):
-        torch.set_float32_matmul_precision("high")
+# if torch.cuda.is_available():
+#     torch.backends.cuda.matmul.allow_tf32 = True
+#     torch.backends.cudnn.allow_tf32 = True
+#     # Prefer faster matmul kernels when available (Torch 2.0+)
+#     if hasattr(torch, "set_float32_matmul_precision"):
+#         torch.set_float32_matmul_precision("high")
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -65,7 +65,7 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
@@ -78,8 +78,8 @@ args = SimpleNamespace(
     img_sizes=[224],
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
-    # lr=1e-3, #small
-    lr=5e-4, #
+    lr=1e-3, #small
+    # lr=5e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -88,11 +88,11 @@ args = SimpleNamespace(
     overlap=0,
     pretrained=None,
     seed=55,
-    use_patch_position_loss=True,
-    use_rc_loss=False,
+    use_patch_position_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=600.0,
+    rc_alpha=400.0,
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
@@ -115,6 +115,10 @@ if args.pos_type is not None:
     args.use_patch_position_loss=False
     args.dynamic_img_size=False
     args.val=False
+if args.use_abs_pos_emb or args.use_rot_pos_emb:
+    args.overlap = 0
+    args.use_patch_position_loss=False
+    args.use_rc_loss = False
 offset = 0
 MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
 output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}redo_ablation3/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
@@ -166,8 +170,8 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-if torch.cuda.is_available() and len(args.img_sizes) == 1:
-    torch.backends.cudnn.benchmark = True
+# if torch.cuda.is_available() and len(args.img_sizes) == 1:
+#     torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
@@ -304,20 +308,16 @@ def make_valid_transform(img_size):
 
 valid_transforms = make_valid_transform(args.img_sizes[0])
 # --- Create the final datasets from the filtered samples ---
-train_dataset = MultiScaleImageDataset(
-    samples=train_samples,              # list of (path, target)
-    size_to_transform=size_to_transform
-)
 
 valid_dataset = CustomImageDataset(valid_samples, transform=valid_transforms)
 
-logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
 logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_dataset)}")
 
 # --- Create DataLoaders ---
 batch_sampler = None
 prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
 if len(args.img_sizes) == 1:
+    train_dataset = CustomImageDataset(train_samples, transform=size_to_transform[args.img_sizes[0]])
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,
@@ -325,9 +325,13 @@ if len(args.img_sizes) == 1:
         num_workers=args.workers,
         pin_memory=True,
         persistent_workers=(args.workers > 0),
-        **prefetch_kwargs,
+        # **prefetch_kwargs,
     )
 else:
+    train_dataset = MultiScaleImageDataset(
+        samples=train_samples,              # list of (path, target)
+        size_to_transform=size_to_transform
+    )
     batch_sampler = DynamicResolutionBatchSampler(
         dataset=train_dataset,
         image_sizes=args.img_sizes,
@@ -343,8 +347,9 @@ else:
         num_workers=args.workers,           # now workers do the transforms
         pin_memory=True,
         persistent_workers=(args.workers > 0),
-        **prefetch_kwargs,
+        # **prefetch_kwargs,
     )
+logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
 valid_loader = DataLoader(
     dataset=valid_dataset,
     batch_size=args.batch_size,
@@ -485,7 +490,7 @@ if args.overlap > 0:
 #     IncompatibleKeys = model.load_state_dict(state_dicts)
 #     logger.info(IncompatibleKeys)
 # %%
-if args.compile_model:
+if args.compile_model and len(args.img_sizes)==1:
     if hasattr(torch, "compile"):
         logger.info("Compiling model with torch.compile (mode='reduce-overhead').")
         model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
@@ -885,7 +890,6 @@ if args.val:
         val_df = pd.DataFrame(val_results)
         val_df.to_csv(os.path.join(output_dir, f'{subdir_name}_eval.csv'), index=False)
         logger.info(f"{img_size=}: {epoch_val_acc=}")
-        gc.collect()
 
 del model
 gc.collect()

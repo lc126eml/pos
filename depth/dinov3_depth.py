@@ -1,3 +1,4 @@
+import gc
 import os
 import torch
 import torch.nn as nn
@@ -49,7 +50,7 @@ args = SimpleNamespace(
     data_root="/lc/data/3D",
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     img_sizes=[224],
     batch_size=256,
@@ -57,7 +58,7 @@ args = SimpleNamespace(
     patch_size=16,
     lr=5e-4,
     lr_aux=1e-5,
-    epochs=130,
+    epochs=10,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
@@ -77,12 +78,16 @@ args = SimpleNamespace(
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
     debug_dataset=False,
-    output_dir=f'{root_dir}/output/depth',
+    output_dir=f'{root_dir}/output/depth_lr',
     csv_interval=5,
-    prefetch_factor=4,
+    # prefetch_factor=2,
     compile_model=True,
 )
 
+if args.use_abs_pos_emb or args.use_rot_pos_emb:
+    args.overlap = 0
+    # args.use_patch_position_loss=False
+    args.use_rc_loss = False
 print(args)
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
@@ -99,7 +104,7 @@ RC_ALPHA = args.rc_alpha
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-torch.backends.cudnn.benchmark = True
+# torch.backends.cudnn.benchmark = True
 
 use_amp = torch.cuda.is_available()
 use_bf16 = use_amp and torch.cuda.is_bf16_supported()
@@ -195,13 +200,15 @@ try:
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=True,
-        persistent_workers=(args.workers > 0), prefetch_factor=args.prefetch_factor,
+        persistent_workers=(args.workers > 0), 
+        # prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
     valid_loader = DataLoader(
         valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=5,
         pin_memory=torch.cuda.is_available(), drop_last=False,
-        persistent_workers=True, prefetch_factor=args.prefetch_factor,
+        persistent_workers=True, 
+        # prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
     steps_per_epoch = len(train_loader)
@@ -282,6 +289,7 @@ model, decoder, feature_layers = setup_model(IMG_SIZE, DEVICE)
 if args.compile_model:
     try:
         model = torch.compile(model)
+        decoder = torch.compile(decoder)
         logger.info("✅ torch.compile enabled for model.")
     except Exception as e:
         logger.warning(f"torch.compile failed; continuing without it. Error: {e}")
@@ -684,7 +692,7 @@ logger.info("Training complete.")
 
 history_df = pd.DataFrame(training_history)
 history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-save_checkpoint(model, decoder, ckpt_output_dir, "final")
+# save_checkpoint(model, decoder, ckpt_output_dir, "final")
 
 if not history_df.empty:
     best_a1 = history_df['valid_a1'].max()
@@ -719,6 +727,14 @@ if not history_df.empty:
     logger.info(f"  Best RMSE:    {best_rmse_val:.4f} (Epoch {best_rmse_epoch})")
     logger.info("------------------------------------------")
 
+logger.info(output_dir)
+logger.info(subdir_name)
+
+del model, decoder
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+    
 if args.lock and gpu_lock and gpu_lock.is_locked:
     logger.info("Manually releasing lock.")
     gpu_lock.release()
