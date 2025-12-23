@@ -162,7 +162,7 @@ class PatchRowColRegressionCriterionFast(nn.Module):
         return self._loss(pred.float(), tgt.float())
 
 class PatchRowColRegressionCriterion(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
+    def __init__(self, feat_dim, grid_h, grid_w, normalize=True, huber_beta=None):
         """
         Predict row and column index of each patch via regression (single resolution).
 
@@ -190,7 +190,10 @@ class PatchRowColRegressionCriterion(nn.Module):
             nn.Linear(256, 1)   # scalar col index
         )
 
-        self.loss_fn = nn.SmoothL1Loss()
+        if huber_beta is None:
+            self.loss_fn = nn.SmoothL1Loss()
+        else:
+            self.loss_fn = nn.SmoothL1Loss(beta=0.5/self.grid_h)
 
         # Precompute row/col targets once (N = grid_h * grid_w)
         rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)

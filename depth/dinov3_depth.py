@@ -50,7 +50,7 @@ args = SimpleNamespace(
     data_root="/lc/data/3D",
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     img_sizes=[224],
     batch_size=256,
@@ -58,14 +58,14 @@ args = SimpleNamespace(
     patch_size=16,
     lr=5e-4,
     lr_aux=1e-5,
-    epochs=10,
+    epochs=80,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
     seed=55,
     val_steps=None,
-    use_rc_loss=True,
-    rc_alpha=100.0,
+    use_rc_loss=False,
+    rc_alpha=20.0,
     # warmup_steps_for_aux=100,
     workers=5,
     warmup_steps=20,
@@ -78,10 +78,10 @@ args = SimpleNamespace(
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
     debug_dataset=False,
-    output_dir=f'{root_dir}/output/depth_lr',
+    output_dir=f'{root_dir}/output/depth_alpha',
     csv_interval=5,
     # prefetch_factor=2,
-    compile_model=True,
+    compile_model=False,
 )
 
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
@@ -687,6 +687,8 @@ for epoch in range(EPOCHS):
         history_df = pd.DataFrame(training_history)
         history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
         # save_checkpoint(model, decoder, ckpt_output_dir, "best")
+    # if epoch == 3:
+    #     break
 
 logger.info("Training complete.")
 

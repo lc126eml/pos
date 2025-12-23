@@ -27,6 +27,7 @@ import sys
 import timm
 from types import SimpleNamespace
 import gc
+import time
 import argparse
 import logging
 try:
@@ -63,23 +64,23 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     # batch_size=256, #rpe
     # batch_size=320, #rope
-    batch_size=392, 
+    batch_size=400, 
     # batch_size=512, 
     # ViT models have a fixed input size
     # img_sizes=[224, 192, 288],
     img_sizes=[224],
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
-    lr=1e-3, #small
-    # lr=5e-4, #base
+    # lr=1e-3, #small
+    lr=5e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -92,18 +93,19 @@ args = SimpleNamespace(
     use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=400.0,
+    rc_alpha=250.0,
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
     val=True,
     ckpt_path=None,
     lock=True,
-    composite_lr=False,
-    warmup_steps=20,
+    composite_lr=True,
+    warmup_steps=3000,
     clip_value=1.0,
     log_interval=50,
     csv_interval=3,
+    save_ckpt=True,
     compile_model=False,
     # --- Dataset Paths ---
     root_dir=root_dir,
@@ -170,8 +172,8 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-# if torch.cuda.is_available() and len(args.img_sizes) == 1:
-#     torch.backends.cudnn.benchmark = True
+if torch.cuda.is_available() and len(args.img_sizes) == 1:
+    torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
@@ -356,8 +358,8 @@ valid_loader = DataLoader(
     shuffle=False,
     num_workers=args.workers,
     pin_memory=True,
-    persistent_workers=(args.workers > 0),
-    **prefetch_kwargs,
+    persistent_workers=False,
+    # **prefetch_kwargs,
 )
 steps_per_epoch = len(train_loader)
 logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
@@ -683,9 +685,11 @@ if args.train:
     best_acc = 0.0
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
+    # train_epoch_times = []
     for epoch in range(args.epochs):
         # --- Training Phase ---
         model.train()
+        # epoch_train_start = time.perf_counter()
 
         aux_loss = None
 
@@ -774,7 +778,9 @@ if args.train:
 
             step += 1
 
-            # if (step + 1) % VAL_STEPS == 0:
+        # if (step + 1) % VAL_STEPS == 0:
+        # epoch_train_end = time.perf_counter()
+        # train_epoch_times.append(epoch_train_end - epoch_train_start)
         # --- Validation Phase ---
         model.eval()
         val_correct_t = torch.zeros((), device=DEVICE)
@@ -844,10 +850,17 @@ if args.train:
 
     # ✅ Step 3: Save the DataFrame to a CSV file
     pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-    # Save the model's state dictionary
-    ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
-    torch.save(model.state_dict(), ckpt_path)
-    logger.info(f"✅ Model saved to '{ckpt_path}'")
+    # times_csv_path = os.path.join(output_dir, f'{subdir_name}_train_epoch_times.csv')
+    # logger.info(f"{train_epoch_times=}")
+    # with open(times_csv_path, "w", newline="") as csv_file:
+    #     writer = csv.writer(csv_file)
+    #     for epoch_time in train_epoch_times:
+    #         writer.writerow([epoch_time])
+    if args.save_ckpt:
+        # Save the model's state dictionary
+        ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
+        torch.save(model.state_dict(), ckpt_path)
+        logger.info(f"✅ Model saved to '{ckpt_path}'")
 
 if args.val:    
     val_results = {
@@ -855,9 +868,10 @@ if args.val:
         'valid_acc': []
     }
 
-    if ckpt_path is None:
-        ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
-    model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+    if not args.train:
+        if ckpt_path is None:
+            ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
+        model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
     model.to(DEVICE)
     model.eval()
     for img_size in args.val_img_sizes:

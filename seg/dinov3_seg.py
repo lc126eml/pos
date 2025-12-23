@@ -58,7 +58,7 @@ args = SimpleNamespace(
     model_size='base',
     num_classes=150,  # For ADE20K
     batch_size=168,
-    # batch_size=24,
+    # batch_size=80,
     img_size=224,
     # img_size=384,
     # lr=3e-4,
@@ -74,10 +74,10 @@ args = SimpleNamespace(
     overlap=0,
     start_epoch=0,
     seed=55,
-    use_rc_loss=False,
+    use_rc_loss=True,
     # loss_type="l1",
-    # huber_beta=0.1,
-    rc_alpha=100.0,
+    huber_beta=0.1,
+    rc_alpha=30.0,
     # dice_weight=0.0,
     workers=5,
     train=True,
@@ -85,7 +85,7 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     clip_value=1.0,
-    output_dir=f"{root_dir}/output/seg_redo",
+    output_dir=f"{root_dir}/output/seg_redo2",
     log_interval=50,
     csv_interval=3,
     compile_model=False,
@@ -435,7 +435,7 @@ if args.use_rc_loss:
         grid_h=grid_h,
         grid_w=grid_w,
         # loss_type=args.loss_type,
-        # huber_beta=args.huber_beta,
+        huber_beta=args.huber_beta,
     ).to(DEVICE)
     training_parameters += list(rowcol_loss.parameters())
     param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
@@ -729,6 +729,8 @@ if args.train:
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
+        # if epoch == 3:
+        #     break
 
 
     logger.info("🏁 Training complete.")
