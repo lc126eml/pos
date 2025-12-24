@@ -31,9 +31,12 @@ try:
 except ImportError:
     FileLock = None
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
-# if torch.cuda.is_available():
-#     torch.backends.cuda.matmul.allow_tf32 = True
-#     torch.backends.cudnn.allow_tf32 = True
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # Prefer faster matmul kernels when available (Torch 2.0+)
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -88,6 +91,7 @@ args = SimpleNamespace(
     output_dir=f"{root_dir}/output/seg_redo2",
     log_interval=50,
     csv_interval=3,
+    save_ckpt=True,
     compile_model=False,
     # --- Dataset Paths ---
     base_path=f"{BASE_PATH}",
@@ -117,7 +121,8 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-    # torch.backends.cudnn.benchmark = True
+if torch.cuda.is_available() and len(args.img_sizes) == 1:
+    torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
@@ -152,8 +157,10 @@ logger.info(subdir_name)
 gpu_lock = None
 if args.lock:
     if FileLock:
+        from core.lock_utils import PriorityFileLock
         lock_path = "/tmp/gpu.lock"
-        gpu_lock = FileLock(lock_path)
+        gpu_lock = PriorityFileLock("/tmp/gpu.lock", prio=args.lock_prio, poll_s=1.0)
+    #     gpu_lock = FileLock(lock_path)
         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
         gpu_lock.acquire()
         logger.info("Lock acquired. It is safe to proceed.")

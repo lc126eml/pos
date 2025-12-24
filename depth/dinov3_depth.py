@@ -24,6 +24,12 @@ try:
 except ImportError:
     FileLock = None
 
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # Prefer faster matmul kernels when available (Torch 2.0+)
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
 if os.path.exists('/home/sshuser'):
     root_dir = '/home/sshuser'
     BASE_PATH = f'{root_dir}/Data/imagenet100/'
@@ -117,6 +123,8 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
 
+if torch.cuda.is_available() and len(args.img_sizes) == 1:
+    torch.backends.cudnn.benchmark = True
 # --- Setup Logging ---
 output_dir = args.output_dir
 
@@ -154,8 +162,10 @@ logger.info(subdir_name)
 # --- Acquire a file lock to ensure exclusive GPU usage ---
 if args.lock:
     if FileLock:
+        from core.lock_utils import PriorityFileLock
         lock_path = "/tmp/gpu.lock"
-        gpu_lock = FileLock(lock_path)
+        gpu_lock = PriorityFileLock("/tmp/gpu.lock", prio=args.lock_prio, poll_s=1.0)
+    #     gpu_lock = FileLock(lock_path)
         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
         gpu_lock.acquire()
         logger.info("Lock acquired. It is safe to proceed.")
@@ -646,7 +656,8 @@ def save_checkpoint(model, decoder, output_dir, suffix):
     torch.save(decoder.state_dict(), decoder_path)
     logger.info(f"Checkpoint saved: {suffix}")
 
-scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_amp)
+use_scaler = use_amp and (autocast_dtype == torch.float16)
+scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 # 'valid_loss': [], 
 training_history = {

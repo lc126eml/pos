@@ -37,12 +37,12 @@ except ImportError:
 
 from core.utils import log_grads
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
-# if torch.cuda.is_available():
-#     torch.backends.cuda.matmul.allow_tf32 = True
-#     torch.backends.cudnn.allow_tf32 = True
-#     # Prefer faster matmul kernels when available (Torch 2.0+)
-#     if hasattr(torch, "set_float32_matmul_precision"):
-#         torch.set_float32_matmul_precision("high")
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # Prefer faster matmul kernels when available (Torch 2.0+)
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
 # %%
 # =================================================================================
 # Step 2: Configuration
@@ -64,9 +64,9 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=True,
-    use_rot_pos_emb=False,
-    model_size='base',
+    use_abs_pos_emb=False,
+    use_rot_pos_emb=True,
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
@@ -79,8 +79,8 @@ args = SimpleNamespace(
     img_sizes=[224],
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
-    # lr=1e-3, #small
-    lr=5e-4, #base
+    lr=1e-3, #small
+    # lr=5e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -100,10 +100,11 @@ args = SimpleNamespace(
     val=True,
     ckpt_path=None,
     lock=True,
+    lock_prio=6,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
-    log_interval=50,
+    log_interval=100,
     csv_interval=3,
     save_ckpt=True,
     compile_model=False,
@@ -203,8 +204,10 @@ logger.info(subdir_name)
 gpu_lock = None
 if args.lock:
     if FileLock:
+        from core.lock_utils import PriorityFileLock
         lock_path = "/tmp/gpu.lock"
-        gpu_lock = FileLock(lock_path)
+        gpu_lock = PriorityFileLock("/tmp/gpu.lock", prio=args.lock_prio, poll_s=1.0)
+    #     gpu_lock = FileLock(lock_path)
         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
         gpu_lock.acquire()
         logger.info("Lock acquired. It is safe to proceed.")
@@ -656,7 +659,8 @@ import csv
 ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
-    scaler = torch.amp.GradScaler(enabled=use_amp)
+    use_scaler = use_amp and (autocast_dtype == torch.float16)
+    scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
     # =================================================================================
     # Step 5: Training and Validation Loop
     # =================================================================================
