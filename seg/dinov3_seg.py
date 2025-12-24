@@ -57,7 +57,7 @@ args = SimpleNamespace(
     # --- Model & Training Settings ---
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=150,  # For ADE20K
     batch_size=168,
@@ -71,22 +71,26 @@ args = SimpleNamespace(
     # lr=1e-3,
     # lr=8e-4,
     eta_min=0.0,
+    composite_lr=True,
+    warmup_epochs=10,
     weight_decay=0.01, 
     epochs=130,
     # has_pos=True,
     overlap=0,
     start_epoch=0,
     seed=55,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="l1",
     huber_beta=0.1,
     rc_alpha=30.0,
     # dice_weight=0.0,
     workers=5,
+    persistent_workers=False,
     train=True,
-    val=False,
+    # val=False,
     ckpt_path=None,
     lock=True,
+    lock_prio=6,
     clip_value=1.0,
     output_dir=f"{root_dir}/output/seg_redo2",
     log_interval=50,
@@ -121,7 +125,7 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-if torch.cuda.is_available() and len(args.img_sizes) == 1:
+if torch.cuda.is_available() and args.img_size is not None:
     torch.backends.cudnn.benchmark = True
 subdir_name = (
     f"{args.model_size}"
@@ -273,10 +277,28 @@ valid_dataset = SegmentationDataset(
     std=img_std
 )
 
-train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
-valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=False)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=args.batch_size,
+    shuffle=True,
+    num_workers=args.workers,
+    pin_memory=torch.cuda.is_available(),
+    drop_last=True,
+    persistent_workers=(args.workers > 0 and args.persistent_workers),
+)
+valid_loader = DataLoader(
+    valid_dataset,
+    batch_size=args.batch_size,
+    shuffle=False,
+    num_workers=args.workers,
+    pin_memory=torch.cuda.is_available(),
+    drop_last=False,
+    persistent_workers=(args.workers > 0 and args.persistent_workers),
+)
 
 steps_per_epoch = len(train_loader)
+warmup_steps = int(args.warmup_epochs * steps_per_epoch)
+total_steps = args.epochs * steps_per_epoch
 logger.info(f"✅ DataLoaders created successfully.")
 logger.info(f"   - Training samples: {len(train_dataset)}, Batches per epoch: {len(train_loader)}")
 logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: {len(valid_loader)}")
@@ -485,10 +507,29 @@ from seg_loss import MMSegCrossEntropyLoss
 ce_criterion = MMSegCrossEntropyLoss(ignore_index=-1, avg_non_ignore=True)
 # dice_criterion = GatherDiceLoss(ignore_index=-1)  # Our new Dice Loss
 
-optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-# optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=args.lr)
-total_steps = args.epochs * steps_per_epoch
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=args.eta_min)
+if args.composite_lr:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-7 / args.lr,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=1e-8,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup, cosine],
+        milestones=[warmup_steps],
+    )
+else:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=total_steps, eta_min=args.eta_min
+    )
 logger.info("✅ Initialized Loss, Optimizer, and LR Scheduler.")
 
 # %%

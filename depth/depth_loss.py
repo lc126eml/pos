@@ -156,18 +156,15 @@ class MonocularDepthLoss(nn.Module):
         pred_n = pred / scale
         gt_n   = gt   / scale
 
-        loss_dict = {}
         total = pred_n.new_zeros(())
 
         if self.silog_w > 0:
             silog = self._silog_loss(pred_n, gt_n, mask)
             total = total + self.silog_w * silog
-            loss_dict["silog"] = float(silog.detach().item())
 
         if self.l1_w > 0:
             l1 = self._l1_loss(pred_n, gt_n, mask)
             total = total + self.l1_w * l1
-            loss_dict["l1"] = float(l1.detach().item())
 
         if self.grad_w > 0:
             if self.grad_use_log:
@@ -178,22 +175,15 @@ class MonocularDepthLoss(nn.Module):
                 gt_g = gt_n
             grad = self._gradient_loss(pred_g, gt_g, mask)
             total = total + self.grad_w * grad
-            loss_dict["grad"] = float(grad.detach().item())
 
         if self.ssim_w > 0:
             ssim_l = self._ssim_loss(pred_n, gt_n, mask)
             total = total + self.ssim_w * ssim_l
-            loss_dict["ssim"] = float(ssim_l.detach().item())
 
         if self.l_inf_w > 0:
             linf = self._l_inf_loss(pred_n, gt_n, mask)
             total = total + self.l_inf_w * linf
-            loss_dict["l_inf"] = float(linf.detach().item())
-
-        # helpful for debugging
-        loss_dict["scale_mean"] = float(scale.mean().detach().item())
-
-        return total, loss_dict
+        return total
 
     def _compute_scale(self, gt: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         if self.scale_mode == "none":

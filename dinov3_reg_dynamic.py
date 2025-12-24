@@ -64,8 +64,8 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_abs_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='small',
     num_classes=100,
     patch_size = 16,
@@ -106,11 +106,38 @@ args = SimpleNamespace(
     clip_value=1.0,
     log_interval=100,
     csv_interval=3,
-    save_ckpt=True,
+    save_ckpt=False,
+    save_full_ckpt=True,
     compile_model=False,
+    resume=False,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
+resume_arg_mismatches = []
+resume_ckpt_missing = False
+resume_ckpt_no_args = False
+if args.resume and args.ckpt_path is not None:
+    resume_path = args.ckpt_path
+    if not os.path.isabs(resume_path):
+        resume_path = os.path.join(args.root_dir, resume_path)
+    if os.path.isfile(resume_path):
+        resume_ckpt = torch.load(resume_path, map_location="cpu")
+        if isinstance(resume_ckpt, dict) and "args" in resume_ckpt:
+            saved_args = resume_ckpt["args"]
+            current_args = vars(args).copy()
+            for key, saved_val in saved_args.items():
+                if key in current_args and saved_val != current_args[key]:
+                    resume_arg_mismatches.append((key, saved_val, current_args[key]))
+            merged = current_args.copy()
+            for key, saved_val in saved_args.items():
+                if key in {"root_dir", "ckpt_path", "resume"}:
+                    continue
+                merged[key] = saved_val
+            args = SimpleNamespace(**merged)
+        else:
+            resume_ckpt_no_args = True
+    else:
+        resume_ckpt_missing = True
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -175,10 +202,40 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 if torch.cuda.is_available() and len(args.img_sizes) == 1:
     torch.backends.cudnn.benchmark = True
+
+def resolve_ckpt_path(path):
+    if path is None:
+        return None
+    if os.path.isabs(path):
+        return path
+    return os.path.join(args.root_dir, path)
+
+def capture_rng_state():
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+def restore_rng_state(state):
+    if not state:
+        return
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if torch.cuda.is_available() and "cuda" in state:
+        torch.cuda.set_rng_state_all(state["cuda"])
+
 subdir_name = (
-    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
-).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
+    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}"
+    f"_rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_lr{int(args.lr/1e-5)}"
+)
+
+if args.use_rc_loss:
+    subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
@@ -199,6 +256,12 @@ logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
 logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
+if resume_ckpt_missing:
+    logger.warning("Resume requested but checkpoint not found.")
+if resume_ckpt_no_args:
+    logger.warning("Resume checkpoint has no saved args; using current args.")
+for key, saved_val, current_val in resume_arg_mismatches:
+    logger.warning(f"Resume arg mismatch: {key} saved={saved_val} current={current_val}")
 
 # --- Acquire a file lock to ensure exclusive GPU usage ---
 gpu_lock = None
@@ -321,15 +384,18 @@ logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_d
 # --- Create DataLoaders ---
 batch_sampler = None
 prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
+train_generator = torch.Generator()
+train_generator.manual_seed(args.seed)
 if len(args.img_sizes) == 1:
     train_dataset = CustomImageDataset(train_samples, transform=size_to_transform[args.img_sizes[0]])
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
+        generator=train_generator,
         num_workers=args.workers,
         pin_memory=True,
-        persistent_workers=(args.workers > 0),
+        persistent_workers=False,
         # **prefetch_kwargs,
     )
 else:
@@ -351,7 +417,7 @@ else:
         batch_sampler=batch_sampler,
         num_workers=args.workers,           # now workers do the transforms
         pin_memory=True,
-        persistent_workers=(args.workers > 0),
+        persistent_workers=False,
         # **prefetch_kwargs,
     )
 logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
@@ -666,31 +732,85 @@ if args.train:
     # =================================================================================
     logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 
-    # ✅ Initialize training_history as a dictionary of lists
-    if args.use_rc_loss or args.use_patch_position_loss:
-        training_history = {
+    def init_training_history():
+        if args.use_rc_loss or args.use_patch_position_loss:
+            return {
+                'train_loss': [],
+                'train_acc': [],
+                'valid_acc': [],
+                'epoch': [],
+                'step': [],
+                'base_loss': [],
+                'aux_loss': [],
+            }
+        return {
             'train_loss': [],
             'train_acc': [],
             'valid_acc': [],
             'epoch': [],
             'step': [],
-            'base_loss': [],
-            'aux_loss': [],
         }
-    else:
-        training_history = {
-            'train_loss': [],
-            'train_acc': [],
-            'valid_acc': [],
-            'epoch': [],
-            'step': [],
+
+    def ensure_history_keys(history):
+        base = init_training_history()
+        for key in base.keys():
+            history.setdefault(key, [])
+        return history
+
+    def save_full_checkpoint(path, epoch, step, best_acc, history):
+        ckpt = {
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "scaler": scaler.state_dict() if use_scaler else None,
+            "epoch": epoch,
+            "step": step,
+            "best_acc": best_acc,
+            "training_history": history,
+            "rng_state": capture_rng_state(),
+            "train_generator_state": train_generator.get_state(),
+            "args": vars(args),
         }
+        torch.save(ckpt, path)
+
+    def load_full_checkpoint(path):
+        checkpoint = torch.load(path, map_location="cpu")
+        if "model" not in checkpoint:
+            return None
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        if use_scaler and checkpoint.get("scaler") is not None:
+            scaler.load_state_dict(checkpoint["scaler"])
+        restore_rng_state(checkpoint.get("rng_state"))
+        if "train_generator_state" in checkpoint:
+            train_generator.set_state(checkpoint["train_generator_state"])
+        return checkpoint
+
+    training_history = init_training_history()
     step = 0
     best_acc = 0.0
+    start_epoch = 0
+    if args.resume and args.ckpt_path is not None:
+        resume_path = resolve_ckpt_path(args.ckpt_path)
+        if resume_path and os.path.isfile(resume_path):
+            logger.info(f"Resuming full checkpoint from: {resume_path}")
+            resume_ckpt = load_full_checkpoint(resume_path)
+            if resume_ckpt:
+                training_history = ensure_history_keys(
+                    resume_ckpt.get("training_history", training_history)
+                )
+                step = int(resume_ckpt.get("step", 0))
+                best_acc = float(resume_ckpt.get("best_acc", 0.0))
+                start_epoch = int(resume_ckpt.get("epoch", -1)) + 1
+            else:
+                logger.warning("Checkpoint is not a full checkpoint; skipping resume.")
+        else:
+            logger.warning(f"Checkpoint not found at: {resume_path}")
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         # --- Training Phase ---
         model.train()
         # epoch_train_start = time.perf_counter()
@@ -802,8 +922,10 @@ if args.train:
                 val_total += labels.size(0)
 
         epoch_val_acc = (val_correct_t / val_total).item()
+        is_best = False
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
+            is_best = True
 
         epoch_train_acc  = (train_correct_t / train_total).item()
         epoch_train_loss = (running_loss_t / train_total).item()
@@ -829,6 +951,12 @@ if args.train:
         training_history['step'].append(step+1)
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        if args.save_full_ckpt:
+            ckpt_last_path = os.path.join(ckpt_output_dir, f'{subdir_name}{MODEL_NAME}_last.pth')
+            save_full_checkpoint(ckpt_last_path, epoch, step, best_acc, training_history)
+            if is_best:
+                ckpt_best_path = os.path.join(ckpt_output_dir, f'{subdir_name}{MODEL_NAME}_best.pth')
+                save_full_checkpoint(ckpt_best_path, epoch, step, best_acc, training_history)
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
@@ -874,8 +1002,12 @@ if args.val:
 
     if not args.train:
         if ckpt_path is None:
-            ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
-        model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+            ckpt_path = resolve_ckpt_path(args.ckpt_path)
+        ckpt_state = torch.load(ckpt_path, map_location="cpu")
+        if isinstance(ckpt_state, dict) and "model" in ckpt_state:
+            model.load_state_dict(ckpt_state["model"])
+        else:
+            model.load_state_dict(ckpt_state)
     model.to(DEVICE)
     model.eval()
     for img_size in args.val_img_sizes:
@@ -887,7 +1019,7 @@ if args.val:
             shuffle=False,
             num_workers=args.workers,
             pin_memory=True,
-            persistent_workers=(args.workers > 0),
+            persistent_workers=False,
             **prefetch_kwargs,
         )
         val_correct = 0

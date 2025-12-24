@@ -64,19 +64,23 @@ args = SimpleNamespace(
     patch_size=16,
     lr=5e-4,
     lr_aux=1e-5,
-    epochs=80,
+    eta_min=0.0,
+    epochs=100,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
     seed=55,
-    val_steps=None,
+    val_steps=200,
     use_rc_loss=False,
     rc_alpha=20.0,
     # warmup_steps_for_aux=100,
     workers=5,
-    warmup_steps=20,
+    persistent_workers=False,
+    warmup_epochs=10,
+    composite_lr=True,
     clip_value=1.0,
     lock=True,
+    lock_prio=8,
     depth_decoder="lite4",  # "simple" or "lite4"
     log_interval=100,
     depth_eval_mode="scale_invariant",  # "metric" or "scale_invariant"
@@ -210,18 +214,19 @@ try:
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=True,
-        persistent_workers=(args.workers > 0), 
+        persistent_workers=(args.workers > 0 and args.persistent_workers),
         # prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
     valid_loader = DataLoader(
-        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=5,
+        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=False,
-        persistent_workers=True, 
+        persistent_workers=(args.workers > 0 and args.persistent_workers),
         # prefetch_factor=args.prefetch_factor,
         collate_fn=collate_fn
     )
-    steps_per_epoch = len(train_loader)
+steps_per_epoch = len(train_loader)
+warmup_steps = int(args.warmup_epochs * steps_per_epoch)
     logger.info(f"✅ DataLoaders created successfully.")
     logger.info(f"   - Training samples: {len(train_dataset)}, Batches per epoch: {len(train_loader)}")
     logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: {len(valid_loader)}")
@@ -522,10 +527,31 @@ criterion = MonocularDepthLoss(
 
 
 # criterion = MonocularDepthLossSimple()
-optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-# optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=args.lr)
-total_steps = EPOCHS * steps_per_epoch
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+if args.composite_lr:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    total_steps = EPOCHS * steps_per_epoch
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-7 / args.lr,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=1e-8,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup, cosine],
+        milestones=[warmup_steps],
+    )
+else:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    total_steps = EPOCHS * steps_per_epoch
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=total_steps, eta_min=args.eta_min
+    )
 logger.info("✅ Loss, Optimizer, and Scheduler are ready.")
 
 # %%
@@ -578,8 +604,9 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
             valid = (gt_depths > 0) & torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
-            base_loss, loss_dict = criterion(pred_depths, gt_depths, valid_mask=valid)
+            base_loss = criterion(pred_depths, gt_depths, valid_mask=valid)
             loss = base_loss
+            base_loss_t += base_loss.detach() * bs
         
         if Use_Row_Col_Loss:
             last_feat = features[-1] if isinstance(features, (list, tuple)) else features
@@ -591,7 +618,6 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
             # if epoch == 0:
             #     alpha_t = args.rc_alpha * min(1.0, (i + 1) / args.warmup_steps_for_aux)
             loss = base_loss + args.rc_alpha * aux_loss
-            base_loss_t += base_loss.detach() * bs
             aux_loss_sum_t += aux_loss.detach() * bs
         scaler.scale(loss).backward()
         if args.clip_value is not None:
