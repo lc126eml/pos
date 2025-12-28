@@ -55,6 +55,9 @@ def _timm_has_model(model_name: str) -> bool:
     except Exception:
         return False
     return False
+print("timm:", timm.__version__, flush=True)
+print("torch:", torch.__version__, flush=True)
+print([m for m in timm.list_models() if "dinov" in m], flush=True)
 
 _timm_model_name = "vit_small_patch16_dinov3"
 _is_kaggle_env = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
@@ -67,12 +70,13 @@ if not _timm_has_model(_timm_model_name):
     else:
         print(f"timm missing {_timm_model_name}; updating timm to latest...")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "timm"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-deps", "timm==1.0.22"])
         importlib.reload(timm)
     except Exception as exc:
         print(f"Failed to update timm: {exc}")
     if not _timm_has_model(_timm_model_name):
         print(f"timm still missing {_timm_model_name} after update.")
+        sys.exit(0)
 
 # =================================================================================
 # Step 2: Configuration
@@ -84,9 +88,12 @@ if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working")
     is_kaggle = True
     root_dir = "/kaggle/working"
     BASE_PATH = "/kaggle/input/imagenet100/"
-    print("kaggle")
+    print("kaggle", flush=True)
+    print(os.listdir("/kaggle/input"), flush=True)
+  
+
 else:
-    print("not kaggle")
+    print("not kaggle", flush=True)
 # elif os.path.exists('/home/sshuser'):
 #     root_dir = '/home/sshuser'
 #     BASE_PATH = f'{root_dir}/Data/imagenet100/'
@@ -104,12 +111,12 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
-    # batch_size=128, #rpe
-    batch_size=256, #rope
+    batch_size=128, #rpe
+    # batch_size=256, #rope
     # batch_size=392, 
     # batch_size=512, 
     # ViT models have a fixed input size
@@ -126,9 +133,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=50,
+    seed=58,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     rc_alpha=300.0,
@@ -139,8 +146,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path="/kaggle/input/imagenet-kernel-test/ckpt/vit_small_patch16_dinov3_last.pth",
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -155,7 +162,7 @@ args = SimpleNamespace(
 if args.resume_full_ckpt and args.resume_ckpt_path:
     resume_full_ckpt = args.resume_full_ckpt
     resume_ckpt_path = args.resume_ckpt_path
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu")
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
     ckpt_args = ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
@@ -182,8 +189,90 @@ if is_kaggle:
 else:
     print("not kaggle")
     sys.exit(0)
-last_ckpt_path = os.path.join(ckpt_output_dir, f'{MODEL_NAME}_last.pth')
+last_ckpt_path = os.path.join(ckpt_output_dir, f'last.pth')
 
+# %%
+# --- Device Configuration ---
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+use_amp = torch.cuda.is_available()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported()
+autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
+
+print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
+# sys.exit(0)
+# torch.backends.cudnn.deterministic=True
+np.random.seed(args.seed)
+random.seed(args.seed)
+torch.manual_seed(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+if torch.cuda.is_available() and len(args.img_sizes) == 1:
+    torch.backends.cudnn.benchmark = True
+pos_prefix = ""
+if args.pos_type is not None:
+    pos_prefix = f"{args.pos_type}_"
+
+abs_pos = ""
+if args.use_abs_pos_emb:
+    abs_pos = "_abs_pos"
+
+rot_pos = ""
+if args.use_rot_pos_emb:
+    rot_pos = "_rot_pos"
+
+patch_pos = ""
+if args.use_patch_position_loss:
+    patch_pos = "_patch_pos"
+
+subdir_name = (
+    f"{pos_prefix}{args.model_size}{abs_pos}{rot_pos}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}{patch_pos}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}_s{args.seed}"
+).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
+if not is_kaggle:
+    output_dir = os.path.join(output_dir, subdir_name)
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(ckpt_output_dir, exist_ok=True)
+
+log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file_path),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger()
+
+logger.info(f"Using device: {DEVICE}")
+logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
+logger.info(args)
+logger.info(output_dir)
+logger.info(subdir_name)
+
+# --- Acquire a file lock to ensure exclusive GPU usage ---
+# gpu_lock = None
+# if args.lock:
+#     if FileLock:
+#         lock_path = "/tmp/gpu.lock"
+#         gpu_lock = FileLock(lock_path)
+#         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+#         gpu_lock.acquire()
+#         logger.info("Lock acquired. It is safe to proceed.")
+#         # The lock will be automatically released when the script exits.
+#     else:
+#         logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+
+logger.info("Cleaning up memory...")
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+logger.info("Memory cleanup complete.")
+
+logger.info(args)
+#%%
 # List of all the partial training directories
 TRAIN_PATHS = [
     os.path.join(BASE_PATH, 'train.X1'),
@@ -195,15 +284,6 @@ TRAIN_PATHS = [
 VALID_PATH = os.path.join(BASE_PATH, 'val.X')
 LABEL_PATH = os.path.join(BASE_PATH, 'Labels.json')
 
-# --- Device Configuration ---
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-use_amp = torch.cuda.is_available()
-use_bf16 = use_amp and torch.cuda.is_bf16_supported()
-autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
-
-print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
-# sys.exit(0)
 
 #%%
 
@@ -1070,78 +1150,6 @@ class DynamicResolutionBatchSampler:
             yield [(idx, size) for idx in batch_indices]
 
 # %%
-# torch.backends.cudnn.deterministic=True
-np.random.seed(args.seed)
-random.seed(args.seed)
-torch.manual_seed(args.seed)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-if torch.cuda.is_available() and len(args.img_sizes) == 1:
-    torch.backends.cudnn.benchmark = True
-pos_prefix = ""
-if args.pos_type is not None:
-    pos_prefix = f"{args.pos_type}_"
-
-abs_pos = ""
-if args.use_abs_pos_emb:
-    abs_pos = "_abs_pos"
-
-rot_pos = ""
-if args.use_rot_pos_emb:
-    rot_pos = "_rot_pos"
-
-patch_pos = ""
-if args.use_patch_position_loss:
-    patch_pos = "_patch_pos"
-
-subdir_name = (
-    f"{pos_prefix}{args.model_size}{abs_pos}{rot_pos}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{patch_pos}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}_s{args.seed}"
-).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
-if not is_kaggle:
-    output_dir = os.path.join(output_dir, subdir_name)
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(ckpt_output_dir, exist_ok=True)
-
-log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file_path),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger()
-
-logger.info(f"Using device: {DEVICE}")
-logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
-logger.info(args)
-logger.info(output_dir)
-logger.info(subdir_name)
-
-# --- Acquire a file lock to ensure exclusive GPU usage ---
-# gpu_lock = None
-# if args.lock:
-#     if FileLock:
-#         lock_path = "/tmp/gpu.lock"
-#         gpu_lock = FileLock(lock_path)
-#         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
-#         gpu_lock.acquire()
-#         logger.info("Lock acquired. It is safe to proceed.")
-#         # The lock will be automatically released when the script exits.
-#     else:
-#         logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
-
-logger.info("Cleaning up memory...")
-gc.collect()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-logger.info("Memory cleanup complete.")
-
-logger.info(args)
-# %%
 import os
 import torch
 import torchvision.transforms as transforms
@@ -1584,7 +1592,7 @@ if args.train:
     step = 0
     best_acc = 0.0
     if args.resume_full_ckpt and args.resume_ckpt_path:
-        resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu")
+        resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
         model.load_state_dict(resume_ckpt["model"])
         optimizer.load_state_dict(resume_ckpt["optimizer"])
         if resume_ckpt.get("scheduler") is not None:
@@ -1840,7 +1848,7 @@ if args.val:
     if not args.train:
         if ckpt_path is None:
             ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
-        model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+        model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
     model.to(DEVICE)
     model.eval()
     for img_size in args.val_img_sizes:
