@@ -24,6 +24,8 @@ from torch.nn import functional as F
 import torchvision.transforms.functional as TF
 import sys
 import timm
+import subprocess
+import importlib
 from types import SimpleNamespace
 import gc
 import time
@@ -43,6 +45,35 @@ import logging
 #     if hasattr(torch, "set_float32_matmul_precision"):
 #         torch.set_float32_matmul_precision("high")
 # %%
+# Ensure timm provides the requested model; update if missing.
+def _timm_has_model(model_name: str) -> bool:
+    try:
+        if hasattr(timm, "list_models"):
+            return model_name in timm.list_models()
+        if hasattr(timm, "models") and hasattr(timm.models, "list_models"):
+            return model_name in timm.models.list_models()
+    except Exception:
+        return False
+    return False
+
+_timm_model_name = "vit_small_patch16_dinov3"
+_is_kaggle_env = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
+if not _timm_has_model(_timm_model_name):
+    if _is_kaggle_env:
+        print(
+            f"timm missing {_timm_model_name}; Kaggle kernel detected, "
+            "attempting update (may fail if internet is disabled)..."
+        )
+    else:
+        print(f"timm missing {_timm_model_name}; updating timm to latest...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "timm"])
+        importlib.reload(timm)
+    except Exception as exc:
+        print(f"Failed to update timm: {exc}")
+    if not _timm_has_model(_timm_model_name):
+        print(f"timm still missing {_timm_model_name} after update.")
+
 # =================================================================================
 # Step 2: Configuration
 # =================================================================================
@@ -97,7 +128,7 @@ args = SimpleNamespace(
     pretrained=None,
     seed=50,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     rc_alpha=300.0,
@@ -1048,9 +1079,25 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 if torch.cuda.is_available() and len(args.img_sizes) == 1:
     torch.backends.cudnn.benchmark = True
+pos_prefix = ""
+if args.pos_type is not None:
+    pos_prefix = f"{args.pos_type}_"
+
+abs_pos = ""
+if args.use_abs_pos_emb:
+    abs_pos = "_abs_pos"
+
+rot_pos = ""
+if args.use_rot_pos_emb:
+    rot_pos = "_rot_pos"
+
+patch_pos = ""
+if args.use_patch_position_loss:
+    patch_pos = "_patch_pos"
+
 subdir_name = (
-    f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
-    f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
+    f"{pos_prefix}{args.model_size}{abs_pos}{rot_pos}_overlap_{args.overlap}_"
+    f"rc_{args.use_rc_loss}{patch_pos}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}_s{args.seed}"
 ).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
 if not is_kaggle:
     output_dir = os.path.join(output_dir, subdir_name)
