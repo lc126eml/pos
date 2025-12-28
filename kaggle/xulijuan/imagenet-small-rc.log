@@ -1,0 +1,9 @@
+[{"stream_name":"stderr","time":1.00315848,"data":"  File \"/kaggle/src/script.py\", line 1054\n"}
+,{"stream_name":"stderr","time":1.00323169,"data":"    ).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')\n"}
+,{"stream_name":"stderr","time":1.003238828,"data":"    ^\n"}
+,{"stream_name":"stderr","time":1.003242592,"data":"SyntaxError: f-string: expecting '}'\n"}
+,{"stream_name":"stderr","time":5.8844609,"data":"/usr/local/lib/python3.11/dist-packages/traitlets/traitlets.py:2915: FutureWarning: --Exporter.preprocessors=[\"nbconvert.preprocessors.ExtractOutputPreprocessor\"] for containers is deprecated in traitlets 5.0. You can pass `--Exporter.preprocessors item` ... multiple times to add items to a list.\n"}
+,{"stream_name":"stderr","time":5.884498576,"data":"  warn(\n"}
+,{"stream_name":"stderr","time":5.932113206,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":7.327250838,"data":"[NbConvertApp] Writing 558943 bytes to __results__.html\n"}
+]

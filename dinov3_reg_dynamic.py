@@ -10,10 +10,9 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 from torch.utils.data import Dataset,TensorDataset, DataLoader
-from data.MultiScaleImageDataset import MultiScaleImageDataset, CustomImageDataset
-from data.DynamicResolutionBatchSampler import DynamicResolutionBatchSampler
+# from data.MultiScaleImageDataset import MultiScaleImageDataset, CustomImageDataset
+# from data.DynamicResolutionBatchSampler import DynamicResolutionBatchSampler
 
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 import csv
@@ -30,12 +29,12 @@ import gc
 import time
 import argparse
 import logging
-try:
-    from filelock import FileLock
-except ImportError:
-    FileLock = None
+# try:
+#     from filelock import FileLock
+# except ImportError:
+#     FileLock = None
 
-from core.utils import log_grads
+# from core.utils import log_grads
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
 # if torch.cuda.is_available():
 #     torch.backends.cuda.matmul.allow_tf32 = True
@@ -49,30 +48,38 @@ from core.utils import log_grads
 # =================================================================================
 
 # --- Dynamically set root directory ---
-if os.path.exists('/home/sshuser'):
-    root_dir = '/home/sshuser'
-    BASE_PATH = f'{root_dir}/Data/imagenet100/'
-elif os.path.exists('/lc'):
-    root_dir = '/lc/logs'
-    BASE_PATH = f'/lc/data/imagenet100/'
+is_kaggle = False
+if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"):
+    is_kaggle = True
+    root_dir = "/kaggle/working"
+    BASE_PATH = "/kaggle/input/imagenet100/"
+    print("kaggle")
 else:
-    root_dir = '/linux'
-    BASE_PATH = f'{root_dir}/Data/imagenet100/'
+    print("not kaggle")
+# elif os.path.exists('/home/sshuser'):
+#     root_dir = '/home/sshuser'
+#     BASE_PATH = f'{root_dir}/Data/imagenet100/'
+# elif os.path.exists('/lc'):
+#     root_dir = '/lc/logs'
+#     BASE_PATH = f'/lc/data/imagenet100/'
+# else:
+#     root_dir = '/linux'
+#     BASE_PATH = f'{root_dir}/Data/imagenet100/'
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=True,
+    use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
-    # batch_size=256, #rpe
-    # batch_size=320, #rope
-    batch_size=400, 
+    # batch_size=128, #rpe
+    batch_size=256, #rope
+    # batch_size=392, 
     # batch_size=512, 
     # ViT models have a fixed input size
     # img_sizes=[224, 192, 288],
@@ -80,7 +87,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=5e-4, #base
+    lr=7e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -88,28 +95,42 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=55,
+    seed=50,
     use_patch_position_loss=False,
     use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=250.0,
+    rc_alpha=300.0,
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
-    val=True,
+    val=False,
     ckpt_path=None,
     lock=True,
+    save_full_ckpt=True,
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
-    log_interval=50,
-    csv_interval=3,
-    save_ckpt=True,
+    log_interval=100,
+    csv_interval=1,
+    show_peak_gpu_mem=False,
+    save_ckpt=False,
     compile_model=False,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    resume_full_ckpt = args.resume_full_ckpt
+    resume_ckpt_path = args.resume_ckpt_path
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu")
+    ckpt_args = ckpt.get("args", None)
+    if ckpt_args is not None:
+        for k, v in vars(ckpt_args).items():
+            setattr(args, k, v)
+    args.resume_full_ckpt = resume_full_ckpt
+    args.resume_ckpt_path = resume_ckpt_path
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -122,9 +143,15 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.use_patch_position_loss=False
     args.use_rc_loss = False
 offset = 0
-MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
-output_dir = f"{args.root_dir}/output/imagenet{args.num_classes}redo_ablation3/{args.model_type}b{args.batch_size}s{args.seed}of{offset}dynamic{args.img_sizes}".replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
-ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
+print(args)
+MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
+if is_kaggle:
+    output_dir = args.root_dir
+    ckpt_output_dir = os.path.join(output_dir, "ckpt")
+else:
+    print("not kaggle")
+    sys.exit(0)
+last_ckpt_path = os.path.join(ckpt_output_dir, f'{MODEL_NAME}_last.pth')
 
 # List of all the partial training directories
 TRAIN_PATHS = [
@@ -163,6 +190,853 @@ if args.pos_type is not None:
 
 # %%
 # timm.list_models("vit_*_dinov2")
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Literal, Optional, Dict, Tuple
+
+LossType = Literal["mse", "smooth_l1", "l1"]
+
+class PatchRowColRegressionCriterionSimple(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
+        """
+        Predict row and column index of each patch via regression (single resolution).
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Number of patch rows (fixed)
+            grid_w (int): Number of patch columns (fixed)
+            normalize (bool): If True, normalize row/col targets to [0, 1]
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+
+        # Regression heads: scalar row / scalar col
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 1)   # scalar row index
+        )
+
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 1)   # scalar col index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        # Precompute row/col targets once (N = grid_h * grid_w)
+        rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
+        cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
+
+        if normalize:
+            rows_2d = rows_2d / (grid_h - 1)
+            cols_2d = cols_2d / (grid_w - 1)
+
+        # Flatten to 1D (N,)
+        row_targets = rows_2d.flatten()
+        col_targets = cols_2d.flatten()
+
+        # Register as buffers so they move with .to(device)
+        self.register_buffer("row_targets", row_targets)  # (N,)
+        self.register_buffer("col_targets", col_targets)  # (N,)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features, N = grid_h * grid_w
+
+        Returns:
+            avg_loss: scalar, average of row and column regression losses
+        """
+        B, N, D = feats.shape
+        assert N == self.grid_h * self.grid_w, f"Expected N = grid_h * grid_w = {self.grid_h * self.grid_w}, got N = {N}"
+
+        # (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Repeat targets for batch: (N,) -> (B*N,)
+        row_targets = self.row_targets.repeat(B)
+        col_targets = self.col_targets.repeat(B)
+
+        # Predict rows and columns: (B*N, 1) -> (B*N,)
+        row_pred = self.row_mlp(x).squeeze(-1)
+        col_pred = self.col_mlp(x).squeeze(-1)
+
+        loss_row = self.loss_fn(row_pred, row_targets)
+        loss_col = self.loss_fn(col_pred, col_targets)
+
+        return (loss_row + loss_col) / 2.0
+class PatchRowColRegressionCriterionFast(nn.Module):
+    # deprecated, mlp shared
+    def __init__(
+        self,
+        feat_dim: int,
+        grid_h: int,
+        grid_w: int,
+        normalize: bool = True,
+        loss_type: LossType = "smooth_l1",
+        huber_beta: Optional[float] = None,  # only used for smooth_l1; None => PyTorch default
+    ):
+        """
+        Predict row/col index of each patch via regression (single resolution).
+
+        Args:
+            feat_dim: feature dim D
+            grid_h, grid_w: patch grid size (fixed)
+            normalize: if True, targets are normalized to [0,1]
+            loss_type: one of {"mse","smooth_l1","l1"}
+            huber_beta: SmoothL1 transition point. If None, use PyTorch default.
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+        self.loss_type = loss_type
+        self.huber_beta = huber_beta
+
+        # One head, two outputs: (row, col)
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 2),
+        )
+        self._init_mlp()
+
+        # Precompute targets: (1, N, 2)
+        rows = torch.arange(self.grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, self.grid_w)
+        cols = torch.arange(self.grid_w, dtype=torch.float32).unsqueeze(0).repeat(self.grid_h, 1)
+
+        if self.normalize:
+            rows = rows / max(self.grid_h - 1, 1)
+            cols = cols / max(self.grid_w - 1, 1)
+
+        targets = torch.stack([rows.flatten(), cols.flatten()], dim=-1).unsqueeze(0)  # (1, N, 2)
+        self.register_buffer("targets", targets)
+
+        if loss_type == "mse":
+            self._loss = lambda pred, tgt: F.mse_loss(pred, tgt, reduction="mean")
+        elif loss_type == "l1":
+            self._loss = lambda pred, tgt: F.l1_loss(pred, tgt, reduction="mean")
+        elif loss_type == "smooth_l1":
+            if huber_beta is None:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean")
+            else:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean", beta=huber_beta)
+        else:
+            raise ValueError(f"Unsupported loss_type={self.loss_type}. Use 'mse', 'smooth_l1', or 'l1'.")
+
+    def _init_mlp(self):
+        # First linear: standard init
+        nn.init.xavier_uniform_(self.mlp[0].weight)
+        nn.init.zeros_(self.mlp[0].bias)
+
+        # Last linear: near-zero so it doesn't dominate early training
+        nn.init.xavier_uniform_(self.mlp[2].weight)
+        # nn.init.normal_(self.mlp[2].weight, mean=0.0, std=1e-3)
+        nn.init.zeros_(self.mlp[2].bias)
+
+        # Optional: start at center of [0,1] if normalize=True
+        # This is often stable for L1 / SmoothL1
+        if self.normalize:
+            self.mlp[2].bias.data.fill_(0.5)
+    def forward(self, feats: torch.Tensor) -> torch.Tensor:
+        """
+        feats: (B, N, D), N = grid_h * grid_w
+        returns: scalar loss
+        """
+        B, N, D = feats.shape
+        if N != self.grid_h * self.grid_w:
+            raise ValueError(f"Expected N={self.grid_h*self.grid_w}, got N={N}")
+
+        pred = self.mlp(feats)                # (B, N, 2)
+        tgt = self.targets.expand(B, -1, -1)  # view, no allocation
+
+        return self._loss(pred.float(), tgt.float())
+
+class PatchRowColRegressionCriterion(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w, normalize=True, huber_beta=None):
+        """
+        Predict row and column index of each patch via regression (single resolution).
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Number of patch rows (fixed)
+            grid_w (int): Number of patch columns (fixed)
+            normalize (bool): If True, normalize row/col targets to [0, 1]
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+
+        # Regression heads: scalar row / scalar col
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar row index
+        )
+
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar col index
+        )
+
+        if huber_beta is None:
+            self.loss_fn = nn.SmoothL1Loss()
+        else:
+            self.loss_fn = nn.SmoothL1Loss(beta=0.5/self.grid_h)
+
+        # Precompute row/col targets once (N = grid_h * grid_w)
+        rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
+        cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
+
+        if normalize:
+            rows_2d = rows_2d / (grid_h - 1)
+            cols_2d = cols_2d / (grid_w - 1)
+
+        # Flatten to 1D (N,)
+        row_targets = rows_2d.flatten()
+        col_targets = cols_2d.flatten()
+
+        # Register as buffers so they move with .to(device)
+        self.register_buffer("row_targets", row_targets)  # (N,)
+        self.register_buffer("col_targets", col_targets)  # (N,)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features, N = grid_h * grid_w
+
+        Returns:
+            avg_loss: scalar, average of row and column regression losses
+        """
+        B, N, D = feats.shape
+        assert N == self.grid_h * self.grid_w, f"Expected N = grid_h * grid_w = {self.grid_h * self.grid_w}, got N = {N}"
+
+        # (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Repeat targets for batch: (N,) -> (B*N,)
+        row_targets = self.row_targets.repeat(B)
+        col_targets = self.col_targets.repeat(B)
+
+        # Predict rows and columns: (B*N, 1) -> (B*N,)
+        row_pred = self.row_mlp(x).squeeze(-1)
+        col_pred = self.col_mlp(x).squeeze(-1)
+
+        loss_row = self.loss_fn(row_pred, row_targets)
+        loss_col = self.loss_fn(col_pred, col_targets)
+
+        return (loss_row + loss_col) / 2.0
+
+class PatchRowColRegressionCriterionDynamicFast(nn.Module):
+    def __init__(
+        self,
+        feat_dim: int,
+        max_grid_h: int,
+        max_grid_w: int,
+        normalize: bool = True,
+        loss_type: LossType = "smooth_l1",
+        huber_beta: Optional[float] = None,
+        cache_targets: bool = True,
+    ):
+        """
+        Fast dynamic-resolution row/col regression.
+
+        Args:
+            feat_dim: feature dim D
+            max_grid_h/w: upper bound of patch grid (used only for validation)
+            normalize: targets in [0,1] based on current hp/wp
+            loss_type: {"mse","smooth_l1","l1"}
+            huber_beta: SmoothL1 beta; None uses PyTorch default
+            cache_targets: cache target tensors per (hp,wp) to avoid recompute
+        """
+        super().__init__()
+        self.max_grid_h = int(max_grid_h)
+        self.max_grid_w = int(max_grid_w)
+        self.normalize = bool(normalize)
+        self.cache_targets = bool(cache_targets)
+
+        # Fused head: predict (row, col)
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 2),
+        )
+
+        # Pre-bind loss function to avoid forward-time branching
+        if loss_type == "mse":
+            self._loss = lambda pred, tgt: F.mse_loss(pred, tgt, reduction="mean")
+        elif loss_type == "l1":
+            self._loss = lambda pred, tgt: F.l1_loss(pred, tgt, reduction="mean")
+        elif loss_type == "smooth_l1":
+            if huber_beta is None:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean")
+            else:
+                self._loss = lambda pred, tgt: F.smooth_l1_loss(pred, tgt, reduction="mean", beta=huber_beta)
+        else:
+            raise ValueError(f"Unsupported loss_type={self.loss_type}. Use 'mse', 'smooth_l1', or 'l1'.")
+
+        # Python cache: {(hp,wp,device_str,dtype_str): targets(1,N,2)}
+        # Safe because targets are small and resolutions are from a limited set.
+        self._tgt_cache: Dict[Tuple[int, int, str, str], torch.Tensor] = {}
+
+    @torch.no_grad()
+    def _make_targets(self, hp: int, wp: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        """
+        Build targets of shape (1, N, 2) for current (hp,wp), on correct device/dtype.
+        Uses torch operations on the target device (GPU-friendly).
+        """
+        # row indices: (hp,1) broadcast to (hp,wp)
+        rows = torch.arange(hp, device=device, dtype=dtype).unsqueeze(1).expand(hp, wp)
+        cols = torch.arange(wp, device=device, dtype=dtype).unsqueeze(0).expand(hp, wp)
+
+        if self.normalize:
+            rows = rows / max(hp - 1, 1)
+            cols = cols / max(wp - 1, 1)
+
+        # (hp*wp,2) -> (1,N,2)
+        tgt = torch.stack((rows.reshape(-1), cols.reshape(-1)), dim=-1).unsqueeze(0)
+        return tgt  # (1, N, 2)
+
+    def _get_targets(self, hp: int, wp: int, feats: torch.Tensor) -> torch.Tensor:
+        """
+        Retrieve cached targets, or create and cache them.
+        """
+        device = feats.device
+        # Use feats.dtype so loss runs in same dtype under autocast
+        dtype = feats.dtype
+
+        key = (hp, wp, str(device), str(dtype))
+        if self.cache_targets:
+            tgt = self._tgt_cache.get(key, None)
+            if tgt is None:
+                tgt = self._make_targets(hp, wp, device=device, dtype=dtype)
+                self._tgt_cache[key] = tgt
+            return tgt
+        else:
+            return self._make_targets(hp, wp, device=device, dtype=dtype)
+
+    def forward(self, feats: torch.Tensor, hp: int, wp: int) -> torch.Tensor:
+        """
+        feats: (B, N, D), where N = hp*wp
+        hp/wp: ints (one resolution per batch)
+
+        returns: scalar loss
+        """
+        B, N, D = feats.shape
+
+        # Optional validation (remove for max speed once stable)
+        # if hp > self.max_grid_h or wp > self.max_grid_w:
+        #     raise ValueError(f"hp/wp=({hp},{wp}) exceed max=({self.max_grid_h},{self.max_grid_w})")
+        # if N != hp * wp:
+        #     raise ValueError(f"Expected N=hp*wp={hp*wp}, got N={N}")
+
+        pred = self.mlp(feats)                    # (B, N, 2)
+        tgt = self._get_targets(hp, wp, feats)    # (1, N, 2)
+        tgt = tgt.expand(B, -1, -1)               # (B, N, 2), view
+
+        return self._loss(pred, tgt)
+
+class PatchRowColRegressionCriterionDynamic(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
+        """
+        Predict row and column index of each patch via regression,
+        supporting dynamic training resolutions.
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Max number of patch rows (upper bound)
+            grid_w (int): Max number of patch columns (upper bound)
+            normalize (bool): If True, normalize row/col targets to [0, 1]
+                              based on the *current* hp/wp for each batch.
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.normalize = normalize
+
+        # MLP for row regression (scalar output)
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar row index
+        )
+
+        # MLP for column regression (scalar output)
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar col index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        # Precompute integer row/col indices (max grid) as floats
+        rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)  # (grid_h, grid_w)
+        cols = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)  # (grid_h, grid_w)
+
+        self.register_buffer("row_index_full", rows)  # (grid_h, grid_w)
+        self.register_buffer("col_index_full", cols)  # (grid_h, grid_w)
+
+    def forward(self, feats, hp=None, wp=None):
+        """
+        Args:
+            feats: (B, N, D) patch features, with N = hp * wp for this batch.
+            hp, wp: number of patch rows / columns used for this batch
+                    (single scalar each; one resolution per batch).
+
+        Returns:
+            avg_loss: scalar, average of row and column regression losses.
+        """
+        B, N, D = feats.shape
+
+        # Fallback to maximum grid if hp/wp not given
+        if hp is None:
+            hp = self.grid_h
+        if wp is None:
+            wp = self.grid_w
+
+        assert N == hp * wp, f"Expected N = hp * wp = {hp * wp}, got N = {N}"
+
+        # Flatten features: (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Slice the index grids to current resolution: (hp, wp)
+        row_idx_2d = self.row_index_full[:hp, :wp]  # [0..hp-1]
+        col_idx_2d = self.col_index_full[:hp, :wp]  # [0..wp-1]
+
+        if self.normalize:
+            # Normalize to [0, 1] based on current hp/wp
+            row_idx_2d = row_idx_2d / max(hp - 1, 1)
+            col_idx_2d = col_idx_2d / max(wp - 1, 1)
+
+        # Flatten to 1D and repeat for batch: (hp*wp,) -> (B*hp*wp,)
+        row_targets = row_idx_2d.flatten().repeat(B)
+        col_targets = col_idx_2d.flatten().repeat(B)
+
+        # Predict rows and columns: (B*N, 1) -> (B*N,)
+        row_pred = self.row_mlp(x).squeeze(-1)
+        col_pred = self.col_mlp(x).squeeze(-1)
+
+        # Regression losses
+        loss_row = self.loss_fn(row_pred, row_targets)
+        loss_col = self.loss_fn(col_pred, col_targets)
+
+        return (loss_row + loss_col) / 2.0
+
+class PatchRowColCriterionDynamic(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w):
+        """
+        Predict row and column of each patch independently.
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Number of patch rows
+            grid_w (int): Number of patch columns
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+
+        # MLP for row prediction
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, grid_h)
+        )
+
+        # MLP for column prediction
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, grid_w)
+        )
+
+        self.ce = nn.CrossEntropyLoss()
+
+        # Precompute row/col labels
+        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w)
+        cols = torch.arange(grid_w).unsqueeze(0).repeat(grid_h, 1)
+        self.register_buffer("row_labels", rows)
+        self.register_buffer("col_labels", cols)
+
+    def forward(self, feats, hp=None, wp=None):
+        """
+        Args:
+            feats: (B, N, D) patch features, N = grid_h * grid_w
+            wp, hp: (B,) number of patches in each row/column
+        Returns:
+            avg_loss: scalar, sum of row and column classification losses
+        """
+        B, N, D = feats.shape
+        # assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
+
+        x = feats.reshape(-1, D)  # (B*N, D)
+
+        if hp is None or wp is None:
+            hp = self.grid_h
+            wp = self.grid_w
+        # Repeat labels for batch
+        row_labels = self.row_labels[:hp, :wp].flatten().repeat(B)
+        col_labels = self.col_labels[:hp, :wp].flatten().repeat(B)
+
+        # Predict rows and columns
+        row_logits = self.row_mlp(x)
+        col_logits = self.col_mlp(x)
+
+        # Compute cross-entropy loss for rows and columns
+        loss_row = self.ce(row_logits, row_labels)
+        loss_col = self.ce(col_logits, col_labels)
+
+        return (loss_row + loss_col) / 2  # average
+
+class PatchRowColCriterion(nn.Module):
+    def __init__(self, feat_dim, grid_h, grid_w):
+        """
+        Predict row and column of each patch independently.
+
+        Args:
+            feat_dim (int): Dimension of patch features (D)
+            grid_h (int): Number of patch rows
+            grid_w (int): Number of patch columns
+        """
+        super().__init__()
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+
+        # MLP for row prediction
+        self.row_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, grid_h)
+        )
+
+        # MLP for column prediction
+        self.col_mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, grid_w)
+        )
+
+        self.ce = nn.CrossEntropyLoss()
+
+        # Precompute row/col labels
+        rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w).flatten()
+        cols = torch.arange(grid_w).repeat(grid_h)
+        self.register_buffer("row_labels", rows)
+        self.register_buffer("col_labels", cols)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features, N = grid_h * grid_w
+        Returns:
+            avg_loss: scalar, sum of row and column classification losses
+        """
+        B, N, D = feats.shape
+        assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
+
+        x = feats.reshape(-1, D)  # (B*N, D)
+
+        # Repeat labels for batch
+        row_labels = self.row_labels.repeat(B)
+        col_labels = self.col_labels.repeat(B)
+
+        # Predict rows and columns
+        row_logits = self.row_mlp(x)
+        col_logits = self.col_mlp(x)
+
+        # Compute cross-entropy loss for rows and columns
+        loss_row = self.ce(row_logits, row_labels)
+        loss_col = self.ce(col_logits, col_labels)
+
+        return (loss_row + loss_col) / 2  # average
+
+
+# if Use_Row_Col_Loss:
+#     grid_h, grid_w = model.patch_embed.grid_size
+#     rowcol_loss = PatchRowColCriterion(
+#         feat_dim=model.embed_dim,
+#         grid_h=grid_h,
+#         grid_w=grid_w
+#     ).to(DEVICE)
+#     print("✅ Row-Column loss initialized.")
+
+class PatchPositionCriterion(nn.Module):
+    def __init__(self, feat_dim, hidden_dim=256, num_classes=None):
+        """
+        Args:
+            feat_dim (int): Feature dimension of each patch (D)
+            hidden_dim (int): Hidden layer size for MLP
+            num_classes (int): Number of patches (grid_h * grid_w)
+        """
+        super().__init__()
+        self.num_classes = num_classes
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_classes)
+        )
+        self.ce = nn.CrossEntropyLoss()
+
+        # Precompute patch position labels once
+        self.register_buffer("patch_positions", torch.arange(num_classes))  # shape (num_patches,)
+        
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features
+        Returns:
+            avg_loss: scalar, mean cross-entropy over all patches
+        """
+        B, N, D = feats.shape
+        assert N == self.num_classes, f"Expected {self.num_classes} patches, got {N}"
+
+        # Flatten batch and patches: (B*N, D)
+        x = feats.reshape(-1, D)
+        # Repeat labels for all images in batch: (B*N,)
+        labels = self.patch_positions.repeat(B)
+        # Predict positions
+        logits = self.mlp(x)
+        # Compute CE loss
+        loss = self.ce(logits, labels)
+        return loss
+
+class PatchPositionRegressionCriterion(nn.Module):
+    def __init__(self, feat_dim, num_classes, normalize=True):
+        """
+        Predict patch position index via regression (single resolution).
+
+        Args:
+            feat_dim (int): Feature dimension of each patch (D)
+            num_classes (int): Number of patches (grid_h * grid_w)
+            normalize (bool): If True, normalize position targets to [0, 1]
+        """
+        super().__init__()
+        self.num_classes = num_classes
+        self.normalize = normalize
+
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar position index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        # Precompute patch position targets once
+        position_targets = torch.arange(num_classes, dtype=torch.float32)
+        if normalize:
+            position_targets = position_targets / max(num_classes - 1, 1)
+        self.register_buffer("position_targets", position_targets)  # (N,)
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features
+        Returns:
+            loss: scalar, SmoothL1 loss over all patches
+        """
+        B, N, D = feats.shape
+        assert N == self.num_classes, f"Expected {self.num_classes} patches, got {N}"
+
+        # Flatten batch and patches: (B*N, D)
+        x = feats.reshape(-1, D)
+        # Repeat targets for batch: (N,) -> (B*N,)
+        targets = self.position_targets.repeat(B)
+        # Predict positions: (B*N, 1) -> (B*N,)
+        pred = self.mlp(x).squeeze(-1)
+        # Compute regression loss
+        loss = self.loss_fn(pred, targets)
+        return loss
+
+class PatchPositionRegressionCriterionDynamic(nn.Module):
+    def __init__(self, feat_dim, max_patch_count, normalize=True):
+        """
+        Predict patch position index via regression, supporting dynamic resolutions.
+
+        Args:
+            feat_dim (int): Feature dimension of each patch (D)
+            max_patch_count (int): Max number of patches (upper bound)
+            normalize (bool): If True, normalize position targets to [0, 1]
+                              based on the *current* patch count for each batch.
+        """
+        super().__init__()
+        self.max_patch_count = max_patch_count
+        self.normalize = normalize
+
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)   # scalar position index
+        )
+
+        self.loss_fn = nn.SmoothL1Loss()
+
+        positions = torch.arange(max_patch_count, dtype=torch.float32)
+        self.register_buffer("position_index_full", positions) 
+
+    def forward(self, feats):
+        """
+        Args:
+            feats: (B, N, D) patch features.
+        Returns:
+            loss: scalar, SmoothL1 loss over all patches.
+        """
+        B, N, D = feats.shape
+        if N > self.max_patch_count:
+            raise ValueError(f"Expected N <= max_patch_count={self.max_patch_count}, got N={N}")
+
+        # Flatten features: (B*N, D)
+        x = feats.reshape(-1, D)
+
+        # Slice position indices to current patch count: (N,)
+        pos_idx = self.position_index_full[:N]
+
+        if self.normalize:
+            pos_idx = pos_idx / max(N - 1, 1)
+
+        # Repeat for batch: (N,) -> (B*N,)
+        targets = pos_idx.repeat(B)
+
+        # Predict positions: (B*N, 1) -> (B*N,)
+        pred = self.mlp(x).squeeze(-1)
+
+        loss = self.loss_fn(pred, targets)
+        return loss
+        
+# if Use_Patch_Position_Loss:
+#     position_loss = PatchPositionCriterion(
+#         feat_dim=model.embed_dim,
+#         num_classes=model.patch_embed.num_patches
+#     ).to(DEVICE)
+
+
+from torch.utils.data import Dataset
+from PIL import Image
+
+class MultiScaleImageDataset(Dataset):
+    def __init__(self, samples, size_to_transform):
+        """
+        samples: list of (path, target)
+        size_to_transform: dict[int, torchvision.transforms.Compose]
+        """
+        self.samples = samples
+        self.size_to_transform = size_to_transform
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, key):
+        # key comes from the batch sampler: (idx, size)
+        idx, size = key
+        path, target = self.samples[idx]
+
+        with open(path, "rb") as f:
+            img = Image.open(f).convert("RGB")
+
+        transform = self.size_to_transform[size]
+        img = transform(img)
+
+        return img, target
+        
+class CustomImageDataset(Dataset):
+    def __init__(self, samples, transform=None):
+        self.samples = samples
+        self.transform = transform
+
+    def set_transform(self, transform):
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path, target = self.samples[idx]
+        with open(path, 'rb') as f:
+            sample = Image.open(f).convert('RGB')
+        if self.transform:
+            sample = self.transform(sample)
+        return sample, target
+    
+import math
+import random
+
+class DynamicResolutionBatchSampler:
+    """
+    Yields batches of (idx, size) with dynamic batch size so that
+    batch_size * size^2 ≈ base_batch_size * base_img_size^2.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        image_sizes,
+        base_batch_size,
+        base_img_size,
+        shuffle: bool = True,
+        drop_last: bool = True,
+        seed: int = 0,
+    ):
+        self.dataset_len = len(dataset)
+        self.image_sizes = list(image_sizes)
+        self.base_batch_size = base_batch_size
+        self.base_img_size = base_img_size
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.seed = seed
+        self.epoch = 0
+
+        # pixel budget based on reference configuration
+        self.pixel_budget = base_batch_size * (base_img_size ** 2)
+
+        # for __len__ (approximate)
+        avg_size_sq = sum(s * s for s in self.image_sizes) / len(self.image_sizes)
+        self.avg_batch_size = self.pixel_budget / avg_size_sq
+
+    def __len__(self):
+        # approximate number of batches per epoch
+        return math.ceil(self.dataset_len / self.avg_batch_size)
+
+    def set_epoch(self, epoch: int):
+        self.epoch = epoch
+
+    def __iter__(self):
+        rng = random.Random(self.seed + self.epoch)
+
+        indices = list(range(self.dataset_len))
+        if self.shuffle:
+            rng.shuffle(indices)
+
+        ptr = 0
+        n = len(indices)
+
+        while ptr < n:
+            # 1) choose resolution for this batch
+            size = rng.choice(self.image_sizes)
+
+            # 2) compute batch size from pixel budget
+            pixels_per_sample = size * size
+            if pixels_per_sample > 0:
+                batch_size = max(1, self.pixel_budget // pixels_per_sample)
+            else:
+                batch_size = self.base_batch_size
+
+            # 3) adjust for remaining samples
+            remaining = n - ptr
+            if remaining < batch_size:
+                if self.drop_last:
+                    break
+                else:
+                    batch_size = remaining
+
+            batch_indices = indices[ptr: ptr + batch_size]
+            ptr += batch_size
+
+            # 4) yield (idx, size) pairs
+            yield [(idx, size) for idx in batch_indices]
 
 # %%
 # torch.backends.cudnn.deterministic=True
@@ -178,7 +1052,8 @@ subdir_name = (
     f"{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}{f'_abs_pos' if args.use_abs_pos_emb else ""}{f'_rot_pos' if args.use_rot_pos_emb else ""}_overlap_{args.overlap}_"
     f"rc_{args.use_rc_loss}{'_patch_pos' if args.use_patch_position_loss else ''}_alpha_{int(args.rc_alpha)}lr{int(args.lr/1e-5)}"
 ).replace(',', '_').replace('[', '_').replace(']', '_').replace(' ', '')
-output_dir = os.path.join(output_dir, subdir_name)
+if not is_kaggle:
+    output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 
@@ -200,17 +1075,17 @@ logger.info(output_dir)
 logger.info(subdir_name)
 
 # --- Acquire a file lock to ensure exclusive GPU usage ---
-gpu_lock = None
-if args.lock:
-    if FileLock:
-        lock_path = "/tmp/gpu.lock"
-        gpu_lock = FileLock(lock_path)
-        logger.info(f"Attempting to acquire lock on '{lock_path}'...")
-        gpu_lock.acquire()
-        logger.info("Lock acquired. It is safe to proceed.")
-        # The lock will be automatically released when the script exits.
-    else:
-        logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+# gpu_lock = None
+# if args.lock:
+#     if FileLock:
+#         lock_path = "/tmp/gpu.lock"
+#         gpu_lock = FileLock(lock_path)
+#         logger.info(f"Attempting to acquire lock on '{lock_path}'...")
+#         gpu_lock.acquire()
+#         logger.info("Lock acquired. It is safe to proceed.")
+#         # The lock will be automatically released when the script exits.
+#     else:
+#         logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
 
 logger.info("Cleaning up memory...")
 gc.collect()
@@ -448,23 +1323,23 @@ model = timm.create_model(
 
 # %%
 logger.info(f'model.patch_embed.proj{model.patch_embed.proj}')
-if args.overlap > 0:
-    # Customize patch embedding for overlap (e.g., patch_size=15, stride=14)
-    original_patch_size = model.patch_embed.proj.kernel_size[0]
-    new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
-    stride = original_patch_size
-    original_grid_size = args.img_sizes[0] // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_sizes[0] + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+# if args.overlap > 0:
+#     # Customize patch embedding for overlap (e.g., patch_size=15, stride=14)
+#     original_patch_size = model.patch_embed.proj.kernel_size[0]
+#     new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
+#     stride = original_patch_size
+#     original_grid_size = args.img_sizes[0] // stride  # 16 for 224//14
+#     padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_sizes[0] + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
-    # Override the PatchEmbed projection (Conv2d layer)
-    in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
-    embed_dim = model.patch_embed.proj.out_channels  # e.g., 768 for base
-    model.patch_embed.proj = nn.Conv2d(
-        in_chans, embed_dim,
-        kernel_size=(new_patch_size, new_patch_size),
-        stride=(stride, stride),
-        padding=padding  # Updated to ensure full coverage and original grid size
-    ).to(DEVICE)
+#     # Override the PatchEmbed projection (Conv2d layer)
+#     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
+#     embed_dim = model.patch_embed.proj.out_channels  # e.g., 768 for base
+#     model.patch_embed.proj = nn.Conv2d(
+#         in_chans, embed_dim,
+#         kernel_size=(new_patch_size, new_patch_size),
+#         stride=(stride, stride),
+#         padding=padding  # Updated to ensure full coverage and original grid size
+#     ).to(DEVICE)
     
     # Recompute grid size and num_patches
     # grid_size_h = ((args.img_size + 2 * padding - new_patch_size) // stride) + 1
@@ -507,7 +1382,7 @@ if args.use_rc_loss:
     if len(args.img_sizes)==1:
         grid_h, grid_w = model.patch_embed.grid_size
         dynamic = False
-        from core.patch_pos import PatchRowColRegressionCriterion
+        # from core.patch_pos import PatchRowColRegressionCriterion
         rowcol_loss = PatchRowColRegressionCriterion(
             feat_dim=model.embed_dim,
             grid_h=grid_h,
@@ -517,7 +1392,7 @@ if args.use_rc_loss:
         ).to(DEVICE)
     else:
         grid_h = grid_w = max(args.img_sizes)//args.patch_size
-        from core.patch_pos import PatchRowColRegressionCriterionDynamic
+        # from core.patch_pos import PatchRowColRegressionCriterionDynamic
         rowcol_loss = PatchRowColRegressionCriterionDynamic(
             feat_dim=model.embed_dim,
             grid_h=grid_h,
@@ -529,7 +1404,7 @@ if args.use_rc_loss:
     param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
 if args.use_patch_position_loss:
     if len(args.img_sizes)==1:
-        from core.patch_pos import PatchPositionRegressionCriterion
+        # from core.patch_pos import PatchPositionRegressionCriterion
         position_loss = PatchPositionRegressionCriterion(
             feat_dim=model.embed_dim,
             num_classes=model.patch_embed.num_patches
@@ -537,7 +1412,7 @@ if args.use_patch_position_loss:
     else:
         max_grid = max(args.img_sizes)//args.patch_size
         max_patch_count = max_grid * max_grid
-        from core.patch_pos import PatchPositionRegressionCriterionDynamic
+        # from core.patch_pos import PatchPositionRegressionCriterionDynamic
         position_loss = PatchPositionRegressionCriterionDynamic(
             feat_dim=model.embed_dim,
             max_patch_count=max_patch_count
@@ -657,6 +1532,26 @@ ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
     scaler = torch.amp.GradScaler(enabled=use_amp)
+    resume_ckpt = None
+    start_epoch = 0
+    step = 0
+    best_acc = 0.0
+    if args.resume_full_ckpt and args.resume_ckpt_path:
+        resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu")
+        model.load_state_dict(resume_ckpt["model"])
+        optimizer.load_state_dict(resume_ckpt["optimizer"])
+        if resume_ckpt.get("scheduler") is not None:
+            scheduler.load_state_dict(resume_ckpt["scheduler"])
+        if resume_ckpt.get("scaler") is not None:
+            scaler.load_state_dict(resume_ckpt["scaler"])
+        if args.use_rc_loss and resume_ckpt.get("rowcol_loss") is not None:
+            rowcol_loss.load_state_dict(resume_ckpt["rowcol_loss"])
+        if args.use_patch_position_loss and resume_ckpt.get("position_loss") is not None:
+            position_loss.load_state_dict(resume_ckpt["position_loss"])
+        start_epoch = resume_ckpt.get("epoch", 0)
+        step = resume_ckpt.get("step", 0)
+        best_acc = resume_ckpt.get("best_acc", 0.0)
+        logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch={start_epoch}, step={step}")
     # =================================================================================
     # Step 5: Training and Validation Loop
     # =================================================================================
@@ -681,12 +1576,13 @@ if args.train:
             'epoch': [],
             'step': [],
         }
-    step = 0
-    best_acc = 0.0
+    if resume_ckpt is not None and resume_ckpt.get("training_history") is not None:
+        training_history = resume_ckpt["training_history"]
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []
-    for epoch in range(args.epochs):
+    train_start_time = time.time()
+    for epoch in range(start_epoch, args.epochs):
         # --- Training Phase ---
         model.train()
         # epoch_train_start = time.perf_counter()
@@ -703,15 +1599,16 @@ if args.train:
         # train_correct = 0
         train_total = 0
         # aux_loss_sum = 0.0
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]")
         # train_pbar = train_loader
         if batch_sampler is not None:
             batch_sampler.set_epoch(epoch)
         
         # FP16: Use autocast for the forward pass
-        for inputs, labels in train_pbar:
+        for inputs, labels in train_loader:
             inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
+            if args.show_peak_gpu_mem and torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
             
             optimizer.zero_grad(set_to_none=True)
             aux_loss = None
@@ -770,11 +1667,16 @@ if args.train:
                 # now pay the sync cost, but only occasionally
                 avg_loss = (running_loss_t / train_total).float().item()
                 avg_acc = (train_correct_t / train_total).float().item()
+                peak_mb = None
+                if args.show_peak_gpu_mem and torch.cuda.is_available():
+                    peak_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+                msg = f"Epoch {epoch+1}/{args.epochs} step {step+1}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
                 if aux_loss is not None:
                     avg_aux = (aux_loss_sum_t / train_total).float().item()
-                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f} aux={avg_aux:.4f}")
-                else:
-                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f}")
+                    msg += f" aux={avg_aux:.4f}"
+                if peak_mb is not None:
+                    msg += f" peak_mem={peak_mb:.0f}MB"
+                logger.info(msg)
 
             step += 1
 
@@ -825,6 +1727,26 @@ if args.train:
         training_history['step'].append(step+1)
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        if args.save_full_ckpt:
+            ckpt = {
+                "epoch": epoch + 1,
+                "step": step,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "scaler": scaler.state_dict() if scaler is not None else None,
+                "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+                "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
+                "training_history": training_history,
+                "args": args,
+                "best_acc": best_acc,
+            }
+            torch.save(ckpt, last_ckpt_path)
+            logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
+
+        if (time.time() - train_start_time) >= (11 * 3600):
+            logger.info("Stopping training: total running time exceeded 11 hours.")
+            break
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
@@ -910,9 +1832,9 @@ gc.collect()
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
-if gpu_lock and gpu_lock.is_locked:
-    logger.info("Manually releasing lock.")
-    gpu_lock.release()
+# if gpu_lock and gpu_lock.is_locked:
+#     logger.info("Manually releasing lock.")
+#     gpu_lock.release()
 # %%
 # import matplotlib.pyplot as plt
 # import pandas as pd
