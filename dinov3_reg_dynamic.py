@@ -62,6 +62,8 @@ print([m for m in timm.list_models() if "dinov" in m], flush=True)
 _timm_model_name = "vit_small_patch16_dinov3"
 _is_kaggle_env = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
 if not _timm_has_model(_timm_model_name):
+    print(f"timm missing {_timm_model_name}; exit...", flush=True)
+    sys.exit(0)
     if _is_kaggle_env:
         print(
             f"timm missing {_timm_model_name}; Kaggle kernel detected, "
@@ -70,7 +72,15 @@ if not _timm_has_model(_timm_model_name):
     else:
         print(f"timm missing {_timm_model_name}; updating timm to latest...")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-deps", "timm==1.0.22"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-deps", "timm==1.0.20"])
+        # subprocess.check_call([
+        #     sys.executable,
+        #     "-m",
+        #     "pip",
+        #     "install",
+        #     "--no-deps",
+        #     "git+https://github.com/huggingface/pytorch-image-models",
+        # ])
         importlib.reload(timm)
     except Exception as exc:
         print(f"Failed to update timm: {exc}")
@@ -83,8 +93,8 @@ if not _timm_has_model(_timm_model_name):
 # =================================================================================
 
 # --- Dynamically set root directory ---
-is_kaggle = False
-if os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"):
+is_kaggle = _is_kaggle_env
+if _is_kaggle_env:
     is_kaggle = True
     root_dir = "/kaggle/working"
     BASE_PATH = "/kaggle/input/imagenet100/"
@@ -109,9 +119,9 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
@@ -133,9 +143,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=58,
+    seed=59,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     rc_alpha=300.0,
@@ -147,7 +157,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path="/kaggle/input/imagenet-kernel-test/ckpt/vit_small_patch16_dinov3_last.pth",
+    resume_ckpt_path="/kaggle/input/imagenet-small-rope2/ckpt/last.pth",
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -159,11 +169,12 @@ args = SimpleNamespace(
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
+resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
     resume_full_ckpt = args.resume_full_ckpt
     resume_ckpt_path = args.resume_ckpt_path
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
-    ckpt_args = ckpt.get("args", None)
+    resume_ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_args = resume_ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
             setattr(args, k, v)
@@ -1587,12 +1598,12 @@ ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
     scaler = torch.amp.GradScaler(enabled=use_amp)
-    resume_ckpt = None
     start_epoch = 0
     step = 0
     best_acc = 0.0
     if args.resume_full_ckpt and args.resume_ckpt_path:
-        resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
+        # resume_ckpt = ckpt
+        # torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
         model.load_state_dict(resume_ckpt["model"])
         optimizer.load_state_dict(resume_ckpt["optimizer"])
         if resume_ckpt.get("scheduler") is not None:
@@ -1799,7 +1810,7 @@ if args.train:
             torch.save(ckpt, last_ckpt_path)
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
-        if (time.time() - train_start_time) >= (11 * 3600):
+        if (time.time() - train_start_time) >= (11.5 * 3600):
             logger.info("Stopping training: total running time exceeded 11 hours.")
             break
         # gc.collect()
@@ -1882,10 +1893,10 @@ if args.val:
         val_df.to_csv(os.path.join(output_dir, f'{subdir_name}_eval.csv'), index=False)
         logger.info(f"{img_size=}: {epoch_val_acc=}")
 
-del model
-gc.collect()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
+# del model
+# gc.collect()
+# if torch.cuda.is_available():
+#     torch.cuda.empty_cache()
 
 # if gpu_lock and gpu_lock.is_locked:
 #     logger.info("Manually releasing lock.")
