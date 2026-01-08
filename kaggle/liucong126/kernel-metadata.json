@@ -1,0 +1,15 @@
+{
+  "id": "liucong126/ImageNet-small-rc2",
+  "title": "ImageNet small rc2",
+  "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": ["ambityga/imagenet100"],
+  "competition_sources": [],
+  "kernel_sources": ["liucong126/imagenet-small-rc"],
+  "model_sources": []
+}
