@@ -27,7 +27,8 @@ kaggle kernels delete -y
 # qq
 409274141@qq.com 11
 $env:KAGGLE_API_TOKEN = "KGAT_8279c1e528a3052d8681816cbe30c3d4"
-qqmail4092/imagenet-base-abs3
+qqmail4092/imagenet-base-abs50
+qqmail4092/imagenet-base-abs51
 
 # wyh ohyeah00 16
 1715071962@qq.com
@@ -67,7 +68,8 @@ $env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
 2131286169@qq.com
 163972xjr
 $env:KAGGLE_API_TOKEN = "KGAT_30f3751a2fad03f84ebfdf6e81d6898a"
-asdsad0000/imagenet-base-rot
+asdsad0000/imagenet-base-rot50
+asdsad0000/imagenet-base-rot51
 
 # xulin5522 15
 2450682067@qq.com	xulin1207@

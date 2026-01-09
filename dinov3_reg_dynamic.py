@@ -23,7 +23,6 @@ from PIL import Image
 from torch.nn import functional as F
 import torchvision.transforms.functional as TF
 import sys
-import timm
 import subprocess
 import importlib
 from types import SimpleNamespace
@@ -55,14 +54,25 @@ def _timm_has_model(model_name: str) -> bool:
     except Exception:
         return False
     return False
+
+from importlib.metadata import version, PackageNotFoundError
+ver = version("timm").split('.')[-1]
+print(ver)
+if int(ver) < 20:
+    # !pip uninstall -y timm
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
+    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    sys.path.insert(0, LOCAL_TIMM)
+
+import timm
 print("timm:", timm.__version__, flush=True)
 print("torch:", torch.__version__, flush=True)
 # print([m for m in timm.list_models() if "dinov" in m], flush=True)
 
-_timm_model_name = "vit_small_patch16_dinov3"
-if not _timm_has_model(_timm_model_name):
-    print(f"timm missing {_timm_model_name} ...", flush=True)
-    sys.exit(0)
+# _timm_model_name = "vit_small_patch16_dinov3"
+# if not _timm_has_model(_timm_model_name):
+#     print(f"timm missing {_timm_model_name} ...", flush=True)
+    # sys.exit(0)
 #     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
         
 #     LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
@@ -105,14 +115,14 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_abs_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=100,
     patch_size = 16,
-    grad_accum_steps=1,
+    grad_accum_steps=2,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
-    batch_size=128, #rpe
+    batch_size=64, #rpe
     # batch_size=256, #rope
     # batch_size=392, 
     # batch_size=512, 
