@@ -86,19 +86,19 @@ args = SimpleNamespace(
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
     log_interval=100,
-    depth_eval_mode="scale_invariant",  # "metric" or "scale_invariant"
+    depth_eval_mode="metric",  # "metric" or "scale_invariant"
     depth_norm="median",  # "mean" or "median" (scale-invariant alignment)
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
     eval_crop_mode=None,  # "nyu" to apply Eigen crop
     eval_dataset="hypersim",  # "hypersim" or "nyu"
-    eval_depth_min=0.1,
+    eval_depth_min=1e-3,
     eval_depth_max=20.0,
     use_sliding_window=False,
     sw_window_size=None,
     sw_overlap=0.25,
     debug_dataset=False,
-    output_dir=os.path.join(root_dir, "depth_alpha"),
+    output_dir=os.path.join(root_dir, "depth"),
     csv_interval=5,
     prefetch_factor=2,
     compile_model=False,
@@ -164,18 +164,21 @@ output_dir = args.output_dir
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
-    f"{'_rot_pos' if args.use_rot_pos_emb else ''}_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
+    f"{'_rot_pos' if args.use_rot_pos_emb else ''}"
+    f"_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
+    f"_{args.depth_eval_mode}_{args.depth_norm}"
 )
 if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
-output_dir = os.path.join(args.output_dir, subdir_name)
+run_tag = time.strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(args.output_dir, subdir_name, run_tag)
 ckpt_output_dir = os.path.join(output_dir, "ckpt")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
 if args.resume_full_ckpt and args.resume_ckpt_path is None:
-    args.resume_ckpt_path = last_ckpt_path
+    raise ValueError("resume_full_ckpt=True requires resume_ckpt_path to be set.")
 
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
@@ -384,7 +387,7 @@ def _compute_scale_align_pred(gt, pred, mask, mode):
     raise ValueError(f"Unsupported depth_norm='{mode}'. Use 'mean' or 'median'.")
 
 
-def compute_depth_metrics(pred, target, mask=None):
+def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False):
     """
     Computes depth estimation metrics.
     This optimized version performs all calculations on the GPU and transfers
@@ -398,10 +401,10 @@ def compute_depth_metrics(pred, target, mask=None):
         raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
 
     # Create a mask for valid target pixels (finite, in range)
-    valid_mask = torch.isfinite(target)
     dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
     dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-    valid_mask = valid_mask & (target > 0) & (target >= dmin) & (target <= dmax)
+    valid_mask = torch.isfinite(target)
+    valid_mask = valid_mask & (target > 0)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()
 
@@ -409,7 +412,7 @@ def compute_depth_metrics(pred, target, mask=None):
     denom = valid_mask_f.sum(dim=(1, 2, 3))
     valid_img = denom > 0
     if not valid_img.any():
-        return {}
+        return ({}, 0) if return_count else {}
     denom = denom.clamp_min(1)
 
     if args.depth_eval_mode == "scale_invariant":
@@ -424,8 +427,8 @@ def compute_depth_metrics(pred, target, mask=None):
     target_cmp = target_cmp.clamp(min=dmin, max=dmax)
 
     diff = pred_cmp - target_cmp
-    pred_c = pred_cmp.clamp_min(1e-8)
-    target_c = target_cmp.clamp_min(1e-8)
+    pred_c = pred_cmp
+    target_c = target_cmp
     log_diff = torch.log(pred_c) - torch.log(target_c)
     ratio = torch.maximum(pred_c / target_c, target_c / pred_c)
 
@@ -433,24 +436,21 @@ def compute_depth_metrics(pred, target, mask=None):
         return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom
 
     abs_rel = masked_mean_per_image(torch.abs(diff) / target_c)
-    sq_rel = masked_mean_per_image((diff ** 2) / target_c)
     rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
-    rmse_log = torch.sqrt(masked_mean_per_image(log_diff ** 2))
     a1 = masked_mean_per_image((ratio < 1.25).float())
     a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
     a3 = masked_mean_per_image((ratio < 1.25 ** 3).float())
 
     metrics = {
         'abs_rel': abs_rel[valid_img].mean(),
-        'sq_rel': sq_rel[valid_img].mean(),
         'rmse': rmse[valid_img].mean(),
-        'rmse_log': rmse_log[valid_img].mean(),
         'a1': a1[valid_img].mean(),
         'a2': a2[valid_img].mean(),
         'a3': a3[valid_img].mean(),
     }
 
-    return {k: v.item() for k, v in metrics.items()}
+    out = {k: v.item() for k, v in metrics.items()}
+    return (out, int(valid_img.sum().item())) if return_count else out
 
 
 def _extract_meta(metas, idx):
@@ -775,7 +775,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
     model.eval()
     decoder.eval()
     val_loss = 0.0
-    val_metrics = {'abs_rel': 0, 'sq_rel': 0, 'rmse': 0, 'rmse_log': 0, 'a1': 0, 'a2': 0, 'a3': 0}
+    val_metrics = {'abs_rel': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
     steps = 0
     batch_count = 0
 
@@ -798,17 +798,41 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
                     val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # v_loss, _ = criterion(val_pred_depths, gt_depths)
             # val_loss += v_loss.item()
-            for b in range(val_inputs.size(0)):
-                meta_b = _extract_meta(metas, b)
-                pred_b, gt_b = _crop_to_valid_region(
-                    val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
-                )
-                batch_metrics = compute_depth_metrics(pred_b, gt_b)
-                if not batch_metrics:
-                    continue
-                for k in val_metrics:
-                    val_metrics[k] += batch_metrics.get(k, 0)
-                steps += 1
+            can_batch = (
+                (not args.use_sliding_window)
+                and (args.eval_crop_mode is None)
+                and isinstance(metas, dict)
+                and ("pad_h" in metas) and ("pad_w" in metas)
+            )
+            if can_batch:
+                pad_h = metas["pad_h"]
+                pad_w = metas["pad_w"]
+                if torch.is_tensor(pad_h):
+                    pad_h_ok = bool((pad_h == 0).all())
+                    pad_w_ok = bool((pad_w == 0).all())
+                else:
+                    pad_h_ok = all(v == 0 for v in pad_h)
+                    pad_w_ok = all(v == 0 for v in pad_w)
+                if pad_h_ok and pad_w_ok:
+                    batch_metrics, count = compute_depth_metrics(val_pred_depths, gt_depths, return_count=True)
+                    if batch_metrics:
+                        for k in val_metrics:
+                            val_metrics[k] += batch_metrics.get(k, 0)
+                        steps += count
+                else:
+                    can_batch = False
+            if not can_batch:
+                for b in range(val_inputs.size(0)):
+                    meta_b = _extract_meta(metas, b)
+                    pred_b, gt_b = _crop_to_valid_region(
+                        val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
+                    )
+                    batch_metrics = compute_depth_metrics(pred_b, gt_b)
+                    if not batch_metrics:
+                        continue
+                    for k in val_metrics:
+                        val_metrics[k] += batch_metrics.get(k, 0)
+                    steps += 1
             batch_count += 1
             if max_steps and batch_count >= max_steps:
                 break

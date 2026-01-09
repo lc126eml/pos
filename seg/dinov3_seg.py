@@ -72,6 +72,7 @@ args = SimpleNamespace(
     use_ms_flip_eval=False,  # False or True
     ms_scales=(0.75, 1.0, 1.25, 1.5),  # e.g. (0.75, 1.0, 1.25, 1.5)
     eval_crop_mode="crop_or_pad",  # "crop_or_pad" (best practice), "pad", or "crop"
+    final_ms_flip_eval=True,
     # lr=3e-4,
     # lr=8e-4,
     lr=7e-4,
@@ -889,7 +890,7 @@ if args.train:
     logger.info("🏁 Training complete.")
     logger.info(f"Best Accuracy: {best_acc:.4f}")
     logger.info(output_dir)
-    if not args.use_ms_flip_eval:
+    if args.final_ms_flip_eval and not args.use_ms_flip_eval:
         logger.info("Running final multi-scale + flip evaluation...")
         model.eval()
         decoder.eval()
