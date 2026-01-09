@@ -62,9 +62,10 @@ args = SimpleNamespace(
     use_abs_pos_emb=False,
     use_rot_pos_emb=True,
     model_size='base',
-    img_sizes=[224],
-    batch_size=80,
-    grad_accum_steps=1,
+    train_sizes=[(240, 320)],  # list of (H, W)
+    eval_size=(384, 512),      # (H, W) eval at native size
+    batch_size=40,
+    grad_accum_steps=2,
     # batch_size=6,
     patch_size=16,
     lr=5e-4,
@@ -80,7 +81,7 @@ args = SimpleNamespace(
     use_rc_loss=True,
     rc_alpha=20.0,
     # warmup_steps_for_aux=100,
-    workers=5,
+    workers=8,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -120,7 +121,8 @@ if args.eval_dataset == "nyu" and args.eval_depth_max == 20.0:
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 NUM_CLASSES = 1
 BATCH_SIZE = args.batch_size
-IMG_SIZE = args.img_sizes[0]
+TRAIN_SIZE = tuple(args.train_sizes[0])
+EVAL_SIZE = tuple(args.eval_size)
 EPOCHS = args.epochs
 HAS_POS = args.has_pos
 OVERLAP = args.overlap
@@ -136,7 +138,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.allow_tf32 = True
     if hasattr(torch, "set_float32_matmul_precision"):
         torch.set_float32_matmul_precision("high")
-    if len(args.img_sizes) == 1:
+    if len(args.train_sizes) == 1:
         torch.backends.cudnn.benchmark = True
 
 use_amp = torch.cuda.is_available()
@@ -168,6 +170,7 @@ subdir_name = (
     f"{'_rot_pos' if args.use_rot_pos_emb else ''}"
     f"_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
     f"_{args.depth_eval_mode}_{args.depth_norm}"
+    f"_h{TRAIN_SIZE[0]}w{TRAIN_SIZE[1]}"
 )
 if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
@@ -218,18 +221,18 @@ try:
     train_dataset = HyperSim_Simple(
         split='train',
         ROOT=f'{args.data_root}/hypersim_processed/train',
-        resolution=IMG_SIZE,
+        resolution=(TRAIN_SIZE[1], TRAIN_SIZE[0]),
         num_views=1,
         pair_transform=TrainDepthAug(
-            target_size=(IMG_SIZE, IMG_SIZE),
-            scale_jitter=(0.95, 1.05) if args.use_sliding_window else (0.85, 1.15),
+            target_size=TRAIN_SIZE,
+            scale_jitter=(0.90, 1.01) if args.use_sliding_window else (0.85, 1.00),
             normalize=True,
         ),
     )
     valid_dataset = HyperSim_Simple(
         split='test',
         ROOT=f'{args.data_root}/hypersim_processed/test',
-        resolution=IMG_SIZE,
+        resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
         num_views=1,
         seed=777,
         pair_transform=(
@@ -239,7 +242,7 @@ try:
             )
             if args.use_sliding_window
             else EvalDepthPreprocess(
-                target_size=(IMG_SIZE, IMG_SIZE),
+                target_size=EVAL_SIZE,
                 target_by="height",
                 ensure_multiple_of=args.patch_size,
                 normalize=True,
@@ -338,7 +341,7 @@ def setup_model(img_size, device):
     
     return model, decoder, feature_layers
 
-model, decoder, feature_layers = setup_model(IMG_SIZE, DEVICE)
+model, decoder, feature_layers = setup_model(TRAIN_SIZE, DEVICE)
 if args.compile_model:
     try:
         model = torch.compile(model)
@@ -499,7 +502,7 @@ training_parameters = list(model.parameters()) + list(decoder.parameters())
 param_groups = []
 lr_aux = getattr(args, "lr_aux", args.lr)
 if args.use_rc_loss:
-    if len(args.img_sizes)==1:
+    if len(args.train_sizes) == 1:
         grid_h, grid_w = model.patch_embed.grid_size
         dynamic = False
         from core.patch_pos import PatchRowColRegressionCriterion
@@ -511,7 +514,8 @@ if args.use_rc_loss:
             # huber_beta=args.huber_beta,
         ).to(DEVICE)
     else:
-        grid_h = grid_w = max(args.img_sizes)//args.patch_size
+        max_side = max(max(h, w) for (h, w) in args.train_sizes)
+        grid_h = grid_w = max_side // args.patch_size
         from core.patch_pos import PatchRowColRegressionCriterionDynamic
         rowcol_loss = PatchRowColRegressionCriterionDynamic(
             feat_dim=model.embed_dim,
@@ -788,7 +792,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
             gt_depths = gt_depths.to(DEVICE, non_blocking=True)
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                 if args.use_sliding_window:
-                    window_size = args.sw_window_size or (IMG_SIZE, IMG_SIZE)
+                    window_size = args.sw_window_size or EVAL_SIZE
                     val_pred_depths = sliding_window_predict(
                         model,
                         decoder,
@@ -875,10 +879,13 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
 # 'valid_loss': [], 
 if not isinstance(locals().get("training_history", None), dict):
     training_history = {
-        'train_loss': [], 'base_loss': [], 'aux_loss': [],
+        'train_loss': [],
         'valid_abs_rel': [], 'valid_l1': [], 'valid_rmse': [], 'valid_a1': [],
         'epoch': []
     }
+if Use_Row_Col_Loss:
+    training_history['base_loss'] = []
+    training_history['aux_loss'] = []
 best_val_abs_rel = float('inf')
 
 logger.info("Starting training...")
@@ -892,7 +899,10 @@ for epoch in range(start_epoch, EPOCHS):
     )
 
     logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
-    logger.info(f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | base_loss: {base_loss:.4f}")
+    if Use_Row_Col_Loss:
+        logger.info(f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | base_loss: {base_loss:.4f}")
+    else:
+        logger.info(f"  Train Loss: {avg_train_loss:.4f}")
     logger.info(
         f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
         f"Valid L1: {avg_val_metrics['l1']:.4f} | "
@@ -901,8 +911,9 @@ for epoch in range(start_epoch, EPOCHS):
     )
     #   Valid Loss: {avg_val_loss:.4f} |
     training_history['train_loss'].append(avg_train_loss)
-    training_history['base_loss'].append(base_loss)
-    training_history['aux_loss'].append(avg_aux_loss)
+    if Use_Row_Col_Loss:
+        training_history['base_loss'].append(base_loss)
+        training_history['aux_loss'].append(avg_aux_loss)
     # training_history['train_abs_rel'].append(avg_train_metrics['abs_rel'])
     # training_history['train_rmse'].append(avg_train_metrics['rmse'])
     # training_history['train_a1'].append(avg_train_metrics['a1'])
