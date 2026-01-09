@@ -88,7 +88,7 @@ class MonocularDepthLoss(nn.Module):
         grad_w: float = 0.5,
         ssim_w: float = 0.2,
         l_inf_w: float = 0.0,
-        lambda_var: float = 0.0,   # metric-friendly: avoid pushing scale-invariance
+        lambda_var: float = 1.0,   # standard SILog variance term (mean_sq - mean^2)
         valid_mask: bool = True,
         eps: float = 1e-8,
         # normalization
@@ -136,12 +136,14 @@ class MonocularDepthLoss(nn.Module):
         pred_depth = _ensure_4d(pred_depth)
         gt_depth = _ensure_4d(gt_depth)
 
+        finite = torch.isfinite(gt_depth)
         if valid_mask is None and self.use_default_valid_mask:
-            valid_mask = (gt_depth > self.eps).float()
+            valid_mask = (finite & (gt_depth > self.eps)).float()
         elif valid_mask is not None:
             valid_mask = _ensure_4d(valid_mask).float()
+            valid_mask = valid_mask * finite.float()
         else:
-            valid_mask = torch.ones_like(gt_depth, dtype=gt_depth.dtype, device=gt_depth.device)
+            valid_mask = finite.float()
 
         # fp32 for AMP/bf16 stability
         pred = pred_depth.float()
@@ -266,15 +268,19 @@ class MonocularDepthLoss(nn.Module):
             p_lo, p_hi = self.ssim_percentiles
             pred01_list = []
             gt01_list = []
+            log_r = torch.log(torch.tensor(self.ssim_log_range, device=pred_l.device, dtype=pred_l.dtype))
             for b in range(pred_l.shape[0]):
                 mb = ssim_mask[b, 0] > 0.5
                 vals = gt_l[b, 0][mb]
-                if vals.numel() == 0:
-                    min_l = torch.tensor(0.0, device=pred_l.device, dtype=pred_l.dtype)
-                    max_l = torch.tensor(1.0, device=pred_l.device, dtype=pred_l.dtype)
+                if vals.numel() < 16:
+                    min_l = -log_r
+                    max_l = log_r
                 else:
                     min_l = torch.quantile(vals, p_lo / 100.0)
                     max_l = torch.quantile(vals, p_hi / 100.0)
+                    if (max_l - min_l) < self.eps:
+                        min_l = -log_r
+                        max_l = log_r
                 denom = (max_l - min_l).clamp_min(self.eps)
                 pred01_list.append(torch.clamp((pred_l[b:b+1] - min_l) / denom, 0.0, 1.0))
                 gt01_list.append(torch.clamp((gt_l[b:b+1] - min_l) / denom, 0.0, 1.0))

@@ -45,7 +45,7 @@ data_root_default = BASE_PATH
 # from utils import wait_for_python_gpu_processes
 
 from depth.hypersim_simple_dataset import HyperSim_Simple
-from depth.aug import TrainDepthAug, EvalDepthPreprocess
+from depth.aug import TrainDepthAug, EvalDepthPreprocess, EvalDepthPreprocessNoResize
 
 from core.priority_lock import PriorityLock
 
@@ -94,6 +94,9 @@ args = SimpleNamespace(
     eval_dataset="hypersim",  # "hypersim" or "nyu"
     eval_depth_min=0.1,
     eval_depth_max=20.0,
+    use_sliding_window=False,
+    sw_window_size=None,
+    sw_overlap=0.25,
     debug_dataset=False,
     output_dir=os.path.join(root_dir, "depth_alpha"),
     csv_interval=5,
@@ -215,6 +218,7 @@ try:
         num_views=1,
         pair_transform=TrainDepthAug(
             target_size=(IMG_SIZE, IMG_SIZE),
+            scale_jitter=(0.95, 1.05) if args.use_sliding_window else (0.85, 1.15),
             normalize=True,
         ),
     )
@@ -224,11 +228,18 @@ try:
         resolution=IMG_SIZE,
         num_views=1,
         seed=777,
-        pair_transform=EvalDepthPreprocess(
-            target_size=(IMG_SIZE, IMG_SIZE),
-            target_by="height",
-            ensure_multiple_of=args.patch_size,
-            normalize=True,
+        pair_transform=(
+            EvalDepthPreprocessNoResize(
+                ensure_multiple_of=args.patch_size,
+                normalize=True,
+            )
+            if args.use_sliding_window
+            else EvalDepthPreprocess(
+                target_size=(IMG_SIZE, IMG_SIZE),
+                target_by="height",
+                ensure_multiple_of=args.patch_size,
+                normalize=True,
+            )
         ),
     )
     train_loader = DataLoader(
@@ -386,12 +397,11 @@ def compute_depth_metrics(pred, target, mask=None):
     if pred.dim() != 4 or target.dim() != 4:
         raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
 
-    # Create a mask for valid pixels (finite, positive depth)
-    valid_mask = (target > 0) & (pred > 0) & torch.isfinite(pred) & torch.isfinite(target)
-    if args.eval_depth_min is not None or args.eval_depth_max is not None:
-        dmin = args.eval_depth_min if args.eval_depth_min is not None else -float("inf")
-        dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-        valid_mask = valid_mask & (target >= dmin) & (target <= dmax)
+    # Create a mask for valid target pixels (finite, in range)
+    valid_mask = torch.isfinite(target)
+    dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
+    dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
+    valid_mask = valid_mask & (target > 0) & (target >= dmin) & (target <= dmax)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()
 
@@ -410,11 +420,8 @@ def compute_depth_metrics(pred, target, mask=None):
         pred_cmp = pred
         target_cmp = target
 
-    if args.eval_depth_min is not None or args.eval_depth_max is not None:
-        dmin = args.eval_depth_min if args.eval_depth_min is not None else -float("inf")
-        dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-        pred_cmp = pred_cmp.clamp(min=dmin, max=dmax)
-        target_cmp = target_cmp.clamp(min=dmin, max=dmax)
+    pred_cmp = pred_cmp.clamp(min=dmin, max=dmax)
+    target_cmp = target_cmp.clamp(min=dmin, max=dmax)
 
     diff = pred_cmp - target_cmp
     pred_c = pred_cmp.clamp_min(1e-8)
@@ -570,6 +577,13 @@ if depth_eval_mode == "scale_invariant":
 else:
     scale_mode = "none"
 
+if depth_eval_mode == "metric" and scale_mode != "none":
+    logger.warning("Metric training should use scale_mode='none'; overriding.")
+    scale_mode = "none"
+if depth_eval_mode == "scale_invariant" and scale_mode == "none":
+    logger.warning("Scale-invariant training needs gt_mean or gt_median; defaulting to gt_median.")
+    scale_mode = "gt_median"
+
 if depth_eval_mode == "metric":
     silog_w = 0.0
     l1_w = 1.0
@@ -658,6 +672,36 @@ def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
         pred_depths = decoder(features, grid_hw=grid_hw, out_hw=inputs.shape[-2:])
     return pred_depths, features
 
+
+def sliding_window_predict(model, decoder, inputs, feature_layers, window_size, overlap):
+    if isinstance(window_size, int):
+        win_h = win_w = window_size
+    else:
+        win_h, win_w = window_size
+    stride_h = max(1, int(win_h * (1.0 - overlap)))
+    stride_w = max(1, int(win_w * (1.0 - overlap)))
+    b, _, h, w = inputs.shape
+    out = torch.zeros((b, 1, h, w), device=inputs.device, dtype=inputs.dtype)
+    weight = torch.zeros((b, 1, h, w), device=inputs.device, dtype=inputs.dtype)
+
+    for bi in range(b):
+        for top in range(0, h, stride_h):
+            for left in range(0, w, stride_w):
+                bottom = min(top + win_h, h)
+                right = min(left + win_w, w)
+                patch = inputs[bi:bi + 1, :, top:bottom, left:right]
+                pad_h = win_h - (bottom - top)
+                pad_w = win_w - (right - left)
+                if pad_h > 0 or pad_w > 0:
+                    patch = F.pad(patch, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+                pred_patch, _ = predict_depth(model, decoder, patch, feature_layers)
+                pred_patch = pred_patch[..., :bottom - top, :right - left]
+                out[bi:bi + 1, :, top:bottom, left:right] += pred_patch
+                weight[bi:bi + 1, :, top:bottom, left:right] += 1.0
+
+    out = out / weight.clamp_min(1e-6)
+    return out
+
 def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, total_epochs):
     """Trains the model for one epoch."""
     model.train()
@@ -740,7 +784,18 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
             val_inputs = val_inputs.to(DEVICE, non_blocking=True)
             gt_depths = gt_depths.to(DEVICE, non_blocking=True)
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
-                val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
+                if args.use_sliding_window:
+                    window_size = args.sw_window_size or (IMG_SIZE, IMG_SIZE)
+                    val_pred_depths = sliding_window_predict(
+                        model,
+                        decoder,
+                        val_inputs,
+                        feature_layers,
+                        window_size=window_size,
+                        overlap=args.sw_overlap,
+                    )
+                else:
+                    val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # v_loss, _ = criterion(val_pred_depths, gt_depths)
             # val_loss += v_loss.item()
             for b in range(val_inputs.size(0)):

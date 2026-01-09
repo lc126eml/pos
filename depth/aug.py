@@ -76,8 +76,8 @@ def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
         mean_v = mean_v * 3
     if len(std_v) == 1:
         std_v = std_v * 3
-    mean_t = torch.tensor(mean_v, dtype=img_t.dtype).view(3, 1, 1)
-    std_t = torch.tensor(std_v, dtype=img_t.dtype).view(3, 1, 1)
+    mean_t = torch.tensor(mean_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
+    std_t = torch.tensor(std_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
     return (img_t - mean_t) / std_t
 
 
@@ -289,6 +289,48 @@ def eval_preprocess_depth_keep_ar(
     return img_t, d_rs.contiguous().float(), meta
 
 
+def eval_preprocess_depth_no_resize(
+    image: ImageLike,
+    depth: DepthLike,
+    *,
+    ensure_multiple_of: Optional[int] = None,
+    normalize: bool = True,
+    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
+    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
+    """
+    Validation/Test preprocessing without resizing:
+      - Convert to tensor, keep original resolution
+      - Optional padding to ensure multiple-of for network stride
+    """
+    pil = _to_pil_rgb(image)
+    d = _to_depth_1chw(depth)
+
+    W0, H0 = pil.size
+    img_t = _pil_to_tensor01(pil)
+
+    pad_h = 0
+    pad_w = 0
+    if ensure_multiple_of is not None and ensure_multiple_of > 1:
+        pad_h = (ensure_multiple_of - (H0 % ensure_multiple_of)) % ensure_multiple_of
+        pad_w = (ensure_multiple_of - (W0 % ensure_multiple_of)) % ensure_multiple_of
+        if pad_h or pad_w:
+            img_t = TF.pad(img_t, padding=(0, 0, pad_w, pad_h), fill=0)
+            d = F.pad(d, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+
+    if normalize:
+        img_t = _normalize_img(img_t, mean, std)
+
+    meta = {
+        "orig_h": float(H0), "orig_w": float(W0),
+        "resized_h": float(H0), "resized_w": float(W0),
+        "scale_h": 1.0, "scale_w": 1.0,
+        "pad_h": float(pad_h), "pad_w": float(pad_w),
+        "padded_h": float(H0 + pad_h), "padded_w": float(W0 + pad_w),
+    }
+    return img_t, d.contiguous().float(), meta
+
+
 class TrainDepthAug:
     def __init__(
         self,
@@ -390,6 +432,42 @@ class EvalDepthPreprocess:
             depth,
             self.target_size,
             target_by=self.target_by,
+            ensure_multiple_of=self.ensure_multiple_of,
+            normalize=False,
+        )
+        if self.normalize:
+            mean_t = self._mean_t.to(dtype=img_t.dtype)
+            std_t = self._std_t.to(dtype=img_t.dtype)
+            img_t = (img_t - mean_t) / std_t
+        return img_t, depth_t, meta
+
+
+class EvalDepthPreprocessNoResize:
+    def __init__(
+        self,
+        *,
+        ensure_multiple_of: Optional[int] = None,
+        normalize: bool = True,
+        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
+        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+    ) -> None:
+        self.ensure_multiple_of = ensure_multiple_of
+        self.normalize = normalize
+        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
+        if len(mean_v) == 1:
+            mean_v = mean_v * 3
+        if len(std_v) == 1:
+            std_v = std_v * 3
+        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
+        self._std_t = torch.tensor(std_v).view(3, 1, 1)
+
+    def __call__(
+        self, image: ImageLike, depth: DepthLike
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
+        img_t, depth_t, meta = eval_preprocess_depth_no_resize(
+            image,
+            depth,
             ensure_multiple_of=self.ensure_multiple_of,
             normalize=False,
         )
