@@ -149,6 +149,18 @@ args = SimpleNamespace(
     rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
     workers=5,
+    randaugment=True,
+    randaugment_n=2,
+    randaugment_m=9,
+    random_erasing=True,
+    re_prob=0.25,
+    use_mixup=True,
+    mixup_alpha=0.2,
+    cutmix_alpha=1.0,
+    mixup_prob=1.0,
+    mixup_switch_prob=0.5,
+    mixup_mode="batch",
+    label_smoothing=0.1,
     train=True,
     val=False,
     ckpt_path=None,
@@ -210,6 +222,15 @@ use_bf16 = use_amp and torch.cuda.is_bf16_supported()
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
+# Speed tweaks (P100-friendly)
+if torch.cuda.is_available():
+    if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+        torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
+    if len(args.img_sizes) == 1:
+        torch.backends.cudnn.benchmark = True
 # sys.exit(0)
 # torch.backends.cudnn.deterministic=True
 np.random.seed(args.seed)
@@ -1229,12 +1250,19 @@ img_std  = [0.229, 0.224, 0.225]
 
 
 def make_train_transform(size: int):
-    return T.Compose([
+    t_list = [
         T.RandomResizedCrop(size),
         T.RandomHorizontalFlip(),
+    ]
+    if args.randaugment:
+        t_list.append(T.RandAugment(num_ops=args.randaugment_n, magnitude=args.randaugment_m))
+    t_list.extend([
         T.ToTensor(),
         T.Normalize(mean=img_mean, std=img_std),
     ])
+    if args.random_erasing:
+        t_list.append(T.RandomErasing(p=args.re_prob))
+    return T.Compose(t_list)
 
 size_to_transform = {
     s: make_train_transform(s) for s in args.img_sizes
@@ -1267,7 +1295,7 @@ if len(args.img_sizes) == 1:
         num_workers=args.workers,
         pin_memory=True,
         persistent_workers=(args.workers > 0),
-        # **prefetch_kwargs,
+        **prefetch_kwargs,
     )
 else:
     train_dataset = MultiScaleImageDataset(
@@ -1289,7 +1317,7 @@ else:
         num_workers=args.workers,           # now workers do the transforms
         pin_memory=True,
         persistent_workers=(args.workers > 0),
-        # **prefetch_kwargs,
+        **prefetch_kwargs,
     )
 logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
 valid_loader = DataLoader(
@@ -1298,8 +1326,8 @@ valid_loader = DataLoader(
     shuffle=False,
     num_workers=args.workers,
     pin_memory=True,
-    persistent_workers=False,
-    # **prefetch_kwargs,
+    persistent_workers=(args.workers > 0),
+    **prefetch_kwargs,
 )
 steps_per_epoch = len(train_loader)
 accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
@@ -1510,7 +1538,22 @@ param_groups.append({
     "weight_decay": 0.0,
 })
 # --- Loss Function & Optimizer ---
-criterion = nn.CrossEntropyLoss()
+mixup_fn = None
+if args.use_mixup:
+    from timm.data.mixup import Mixup
+    from timm.loss import SoftTargetCrossEntropy
+    mixup_fn = Mixup(
+        mixup_alpha=args.mixup_alpha,
+        cutmix_alpha=args.cutmix_alpha,
+        prob=args.mixup_prob,
+        switch_prob=args.mixup_switch_prob,
+        mode=args.mixup_mode,
+        label_smoothing=args.label_smoothing,
+        num_classes=args.num_classes,
+    )
+    criterion = SoftTargetCrossEntropy()
+else:
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 if args.composite_lr:
     # optimizer = torch.optim.AdamW(training_parameters, lr=args.lr, weight_decay=args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1678,6 +1721,9 @@ if args.train:
             bs = inputs.size(0)
             if args.show_peak_gpu_mem and torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
+
+            if mixup_fn is not None:
+                inputs, labels = mixup_fn(inputs, labels)
             
             aux_loss = None
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
@@ -1728,15 +1774,16 @@ if args.train:
             running_loss_t += loss.detach() * bs
             train_total += bs
 
-            with torch.no_grad():
-                pred = outputs.detach().argmax(dim=1)
-                train_correct_t += (pred == labels).sum()
+            if mixup_fn is None:
+                with torch.no_grad():
+                    pred = outputs.detach().argmax(dim=1)
+                    train_correct_t += (pred == labels).sum()
 
             # only log every N steps (minimize sync + formatting)
             if (step + 1) % log_interval == 0:
                 # now pay the sync cost, but only occasionally
                 avg_loss = (running_loss_t / train_total).float().item()
-                avg_acc = (train_correct_t / train_total).float().item()
+                avg_acc = (train_correct_t / train_total).float().item() if mixup_fn is None else 0.0
                 peak_mb = None
                 if args.show_peak_gpu_mem and torch.cuda.is_available():
                     peak_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
@@ -1773,7 +1820,7 @@ if args.train:
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
 
-        epoch_train_acc  = (train_correct_t / train_total).item()
+        epoch_train_acc  = (train_correct_t / train_total).item() if mixup_fn is None else 0.0
         epoch_train_loss = (running_loss_t / train_total).item()
         logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
         logger.info(f"\nStep {step} Summary:")
