@@ -2,6 +2,7 @@ import gc
 import os
 import torch
 import torch.nn as nn
+from functools import partial
 from types import SimpleNamespace
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -12,11 +13,7 @@ import random
 import warnings
 import timm  # Imported for DINOv2
 from torch.nn import functional as F
-import torchvision.transforms.functional as TF
 import logging
-import cv2
-import h5py
-from scipy import ndimage
 import warnings
 from typing import List, Tuple, Union
 try:
@@ -30,6 +27,9 @@ if os.path.exists('/home/sshuser'):
 elif os.path.exists('/lc'):
     root_dir = '/lc/logs'
     BASE_PATH = f'/lc/data/imagenet100/'
+elif os.path.exists("/home/liucong"):
+    root_dir = '/home/liucong/codes/pos/logs'
+    BASE_PATH = f'/home/liucong/data/3d'
 else:
     root_dir = '/linux'
     BASE_PATH = f'{root_dir}/Data/imagenet100/'
@@ -41,13 +41,13 @@ sys.path.insert(0, f'/lc/code/pos')
 # from utils import wait_for_python_gpu_processes
 
 from hypersim_simple_dataset import HyperSim_Simple
-from transforms import SeqColorJitter
-import torchvision.transforms as tvf
+from aug import train_aug_depth_ar_resize_random_crop, eval_preprocess_depth_keep_ar
 
 warnings.filterwarnings('ignore')
 
 args = SimpleNamespace(
-    data_root="/lc/data/3D",
+    # data_root="/lc/data/3D",
+    data_root="/home/liucong/data/3d",
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
@@ -168,18 +168,6 @@ logger.info(args)
 # =================================================================================
 # Step 2: Dataset and DataLoader
 # =================================================================================
-def collate_fn(batch):
-    images = []
-    depths = []
-    for sample in batch:
-        view = sample[0]
-        img_tensor = view['img']
-        depth = view['depthmap']
-        depth_tensor = torch.from_numpy(np.ascontiguousarray(depth)).unsqueeze(0)
-        images.append(img_tensor)
-        depths.append(depth_tensor)
-    return torch.stack(images), torch.stack(depths)
-
 logger.info("Creating datasets...")
 try:
     train_dataset = HyperSim_Simple(
@@ -187,7 +175,11 @@ try:
         ROOT=f'{args.data_root}/hypersim_processed/train',
         resolution=IMG_SIZE,
         num_views=1,
-        useImgnet=True,
+        pair_transform=partial(
+            train_aug_depth_ar_resize_random_crop,
+            target_size=(IMG_SIZE, IMG_SIZE),
+            normalize=True,
+        ),
     )
     valid_dataset = HyperSim_Simple(
         split='test',
@@ -195,21 +187,25 @@ try:
         resolution=IMG_SIZE,
         num_views=1,
         seed=777,
-        useImgnet=True,
+        pair_transform=partial(
+            eval_preprocess_depth_keep_ar,
+            target_size=(IMG_SIZE, IMG_SIZE),
+            target_by="height",
+            ensure_multiple_of=args.patch_size,
+            normalize=True,
+        ),
     )
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=True,
         persistent_workers=(args.workers > 0), 
         # prefetch_factor=args.prefetch_factor,
-        collate_fn=collate_fn
     )
     valid_loader = DataLoader(
         valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=5,
         pin_memory=torch.cuda.is_available(), drop_last=False,
         persistent_workers=True, 
         # prefetch_factor=args.prefetch_factor,
-        collate_fn=collate_fn
     )
     steps_per_epoch = len(train_loader)
     logger.info(f"✅ DataLoaders created successfully.")
