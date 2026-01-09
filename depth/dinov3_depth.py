@@ -60,7 +60,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     img_sizes=[224],
     batch_size=80,
@@ -70,7 +70,8 @@ args = SimpleNamespace(
     lr=5e-4,
     lr_aux=1e-5,
     eta_min=1e-7,
-    epochs=100,
+    epochs=120,
+    break_at_epoch=80,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
@@ -436,6 +437,7 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
         return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom
 
     abs_rel = masked_mean_per_image(torch.abs(diff) / target_c)
+    l1 = masked_mean_per_image(torch.abs(diff))
     rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
     a1 = masked_mean_per_image((ratio < 1.25).float())
     a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
@@ -443,6 +445,7 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
 
     metrics = {
         'abs_rel': abs_rel[valid_img].mean(),
+        'l1': l1[valid_img].mean(),
         'rmse': rmse[valid_img].mean(),
         'a1': a1[valid_img].mean(),
         'a2': a2[valid_img].mean(),
@@ -587,10 +590,10 @@ if depth_eval_mode == "scale_invariant" and scale_mode == "none":
 if depth_eval_mode == "metric":
     silog_w = 0.0
     l1_w = 1.0
-    grad_w = 0.5
-    ssim_w = 0.2
+    grad_w = 0.1
+    ssim_w = 0.1
     lambda_var = 0.0
-    grad_use_log = True
+    grad_use_log = False
 else:
     silog_w = 1.0
     l1_w = 0.0
@@ -775,7 +778,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
     model.eval()
     decoder.eval()
     val_loss = 0.0
-    val_metrics = {'abs_rel': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
+    val_metrics = {'abs_rel': 0, 'l1': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
     steps = 0
     batch_count = 0
 
@@ -873,7 +876,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
 if not isinstance(locals().get("training_history", None), dict):
     training_history = {
         'train_loss': [], 'base_loss': [], 'aux_loss': [],
-        'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
+        'valid_abs_rel': [], 'valid_l1': [], 'valid_rmse': [], 'valid_a1': [],
         'epoch': []
     }
 best_val_abs_rel = float('inf')
@@ -890,7 +893,12 @@ for epoch in range(start_epoch, EPOCHS):
 
     logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
     logger.info(f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | base_loss: {base_loss:.4f}")
-    logger.info(f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | Valid RMSE: {avg_val_metrics['rmse']:.4f} | Valid a1: {avg_val_metrics['a1']:.4f}\n")
+    logger.info(
+        f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
+        f"Valid L1: {avg_val_metrics['l1']:.4f} | "
+        f"Valid RMSE: {avg_val_metrics['rmse']:.4f} | "
+        f"Valid a1: {avg_val_metrics['a1']:.4f}\n"
+    )
     #   Valid Loss: {avg_val_loss:.4f} |
     training_history['train_loss'].append(avg_train_loss)
     training_history['base_loss'].append(base_loss)
@@ -899,6 +907,7 @@ for epoch in range(start_epoch, EPOCHS):
     # training_history['train_rmse'].append(avg_train_metrics['rmse'])
     # training_history['train_a1'].append(avg_train_metrics['a1'])
     training_history['valid_abs_rel'].append(avg_val_metrics['abs_rel'])
+    training_history['valid_l1'].append(avg_val_metrics['l1'])
     training_history['valid_rmse'].append(avg_val_metrics['rmse'])
     training_history['valid_a1'].append(avg_val_metrics['a1'])
     training_history['epoch'].append(epoch + 1)
@@ -931,8 +940,9 @@ for epoch in range(start_epoch, EPOCHS):
                 f"{args.total_run_time_sec:.0f}s."
             )
             break
-    # if epoch == 3:
-    #     break
+    if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
+        logger.info(f"Stopping training: reached break_at_epoch={args.break_at_epoch}.")
+        break
 
 logger.info("Training complete.")
 
