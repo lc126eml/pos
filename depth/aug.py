@@ -69,6 +69,18 @@ def _pil_to_tensor01(pil_img: Image.Image) -> torch.Tensor:
     return x.permute(2, 0, 1).contiguous()
 
 
+def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
+    mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+    std_v = std if isinstance(std, (list, tuple)) else [float(std)]
+    if len(mean_v) == 1:
+        mean_v = mean_v * 3
+    if len(std_v) == 1:
+        std_v = std_v * 3
+    mean_t = torch.tensor(mean_v, dtype=img_t.dtype).view(3, 1, 1)
+    std_t = torch.tensor(std_v, dtype=img_t.dtype).view(3, 1, 1)
+    return (img_t - mean_t) / std_t
+
+
 def _resize_depth_with_mask(depth_1chw: torch.Tensor, size_hw: Tuple[int, int]) -> torch.Tensor:
     """
     Resize depth with bilinear interpolation while preserving invalid regions.
@@ -161,8 +173,6 @@ def train_aug_depth_ar_resize_random_crop(
         d = torch.flip(d, dims=[2])  # W dimension
 
     # Color jitter (RGB only)
-    if color_jitter is None:
-        color_jitter = dict(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05)
     if (
         color_jitter is not None
         and any(v > 0 for v in color_jitter.values())
@@ -197,9 +207,7 @@ def train_aug_depth_ar_resize_random_crop(
                 img_t = (img_t + torch.randn_like(img_t) * std).clamp(0.0, 1.0)
 
     if normalize:
-        mean_t = torch.tensor(mean, dtype=img_t.dtype).view(3, 1, 1)
-        std_t = torch.tensor(std, dtype=img_t.dtype).view(3, 1, 1)
-        img_t = (img_t - mean_t) / std_t
+        img_t = _normalize_img(img_t, mean, std)
 
     return img_t, d.contiguous().float()
 
@@ -277,7 +285,116 @@ def eval_preprocess_depth_keep_ar(
     }
     img_t = _pil_to_tensor01(pil_rs)
     if normalize:
-        mean_t = torch.tensor(mean, dtype=img_t.dtype).view(3, 1, 1)
-        std_t = torch.tensor(std, dtype=img_t.dtype).view(3, 1, 1)
-        img_t = (img_t - mean_t) / std_t
+        img_t = _normalize_img(img_t, mean, std)
     return img_t, d_rs.contiguous().float(), meta
+
+
+class TrainDepthAug:
+    def __init__(
+        self,
+        target_size: Tuple[int, int],
+        *,
+        hflip_prob: float = 0.5,
+        scale_jitter: Optional[Tuple[float, float]] = (0.85, 1.15),
+        color_jitter: Optional[Dict[str, float]] = None,
+        color_jitter_prob: float = 0.8,
+        gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
+        grayscale_prob: float = 0.05,
+        blur_prob: float = 0.05,
+        blur_kernel: Tuple[int, int] = (5, 5),
+        blur_sigma: Tuple[float, float] = (0.1, 1.0),
+        noise_std: Optional[Tuple[float, float]] = (0.0, 0.01),
+        normalize: bool = True,
+        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
+        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+        ensure_multiple_of: Optional[int] = None,
+    ) -> None:
+        self.target_size = target_size
+        self.hflip_prob = hflip_prob
+        self.scale_jitter = scale_jitter
+        if color_jitter is None:
+            color_jitter = dict(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05)
+        self.color_jitter = dict(color_jitter)
+        self.color_jitter_prob = color_jitter_prob
+        self.gamma_jitter = gamma_jitter
+        self.grayscale_prob = grayscale_prob
+        self.blur_prob = blur_prob
+        self.blur_kernel = blur_kernel
+        self.blur_sigma = blur_sigma
+        self.noise_std = noise_std
+        self.normalize = normalize
+        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
+        if len(mean_v) == 1:
+            mean_v = mean_v * 3
+        if len(std_v) == 1:
+            std_v = std_v * 3
+        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
+        self._std_t = torch.tensor(std_v).view(3, 1, 1)
+        self.ensure_multiple_of = ensure_multiple_of
+
+    def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor]:
+        img_t, depth_t = train_aug_depth_ar_resize_random_crop(
+            image,
+            depth,
+            self.target_size,
+            hflip_prob=self.hflip_prob,
+            scale_jitter=self.scale_jitter,
+            color_jitter=self.color_jitter,
+            color_jitter_prob=self.color_jitter_prob,
+            gamma_jitter=self.gamma_jitter,
+            grayscale_prob=self.grayscale_prob,
+            blur_prob=self.blur_prob,
+            blur_kernel=self.blur_kernel,
+            blur_sigma=self.blur_sigma,
+            noise_std=self.noise_std,
+            normalize=False,
+            ensure_multiple_of=self.ensure_multiple_of,
+        )
+        if self.normalize:
+            mean_t = self._mean_t.to(dtype=img_t.dtype)
+            std_t = self._std_t.to(dtype=img_t.dtype)
+            img_t = (img_t - mean_t) / std_t
+        return img_t, depth_t
+
+
+class EvalDepthPreprocess:
+    def __init__(
+        self,
+        target_size: Tuple[int, int],
+        *,
+        target_by: str = "height",
+        ensure_multiple_of: Optional[int] = 32,
+        normalize: bool = True,
+        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
+        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+    ) -> None:
+        self.target_size = target_size
+        self.target_by = target_by
+        self.ensure_multiple_of = ensure_multiple_of
+        self.normalize = normalize
+        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
+        if len(mean_v) == 1:
+            mean_v = mean_v * 3
+        if len(std_v) == 1:
+            std_v = std_v * 3
+        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
+        self._std_t = torch.tensor(std_v).view(3, 1, 1)
+
+    def __call__(
+        self, image: ImageLike, depth: DepthLike
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
+        img_t, depth_t, meta = eval_preprocess_depth_keep_ar(
+            image,
+            depth,
+            self.target_size,
+            target_by=self.target_by,
+            ensure_multiple_of=self.ensure_multiple_of,
+            normalize=False,
+        )
+        if self.normalize:
+            mean_t = self._mean_t.to(dtype=img_t.dtype)
+            std_t = self._std_t.to(dtype=img_t.dtype)
+            img_t = (img_t - mean_t) / std_t
+        return img_t, depth_t, meta

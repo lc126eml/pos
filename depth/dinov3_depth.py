@@ -1,25 +1,29 @@
 import gc
+import math
 import os
+import sys
+import time
 import torch
 import torch.nn as nn
-from functools import partial
 from types import SimpleNamespace
-import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import random
-import warnings
-import timm  # Imported for DINOv2
 from torch.nn import functional as F
 import logging
-import warnings
 from typing import List, Tuple, Union
-try:
-    from filelock import FileLock
-except ImportError:
-    FileLock = None
+
+LOCAL_TIMM = os.environ.get("LOCAL_TIMM_DIR", "/home/liucong/codes/pos/timm/pytorch-image-models-main")
+if os.path.isdir(LOCAL_TIMM):
+    sys.path.insert(0, LOCAL_TIMM)
+
+import timm
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 if os.path.exists('/home/sshuser'):
     root_dir = '/home/sshuser'
@@ -33,42 +37,51 @@ elif os.path.exists("/home/liucong"):
 else:
     root_dir = '/linux'
     BASE_PATH = f'{root_dir}/Data/imagenet100/'
-# Add a3R project to path
-import sys
-sys.path.insert(0, f'/lc/code/pos')
+# root_dir = os.environ.get("OUTPUT_ROOT", os.path.join(REPO_ROOT, "outputs"))
+data_root_default = BASE_PATH
+# os.environ.get("DATA_ROOT", os.path.join(REPO_ROOT, "data"))
 # sys.path.insert(0, '/lc/code/3D/a3R/src')
 
 # from utils import wait_for_python_gpu_processes
 
-from hypersim_simple_dataset import HyperSim_Simple
-from aug import train_aug_depth_ar_resize_random_crop, eval_preprocess_depth_keep_ar
+from depth.hypersim_simple_dataset import HyperSim_Simple
+from depth.aug import TrainDepthAug, EvalDepthPreprocess
 
-warnings.filterwarnings('ignore')
+from core.priority_lock import PriorityLock
+
+# print("timm:", timm.__version__, flush=True)
+# try:
+#     dino_models = [m for m in timm.list_models() if "dino" in m.lower()]
+#     print("timm models containing 'dino':", dino_models, flush=True)
+# except Exception as exc:
+#     print(f"timm list_models failed: {exc}", flush=True)
 
 args = SimpleNamespace(
-    # data_root="/lc/data/3D",
-    data_root="/home/liucong/data/3d",
+    data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     img_sizes=[224],
-    batch_size=256,
+    batch_size=80,
+    grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
     lr=5e-4,
     lr_aux=1e-5,
+    eta_min=0.0,
     epochs=80,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
     seed=55,
     val_steps=None,
-    use_rc_loss=False,
+    use_rc_loss=True,
     rc_alpha=20.0,
     # warmup_steps_for_aux=100,
     workers=5,
-    warmup_steps=20,
+    composite_lr=True,
+    warmup_steps=3000,
     clip_value=1.0,
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
@@ -77,18 +90,28 @@ args = SimpleNamespace(
     depth_norm="median",  # "mean" or "median" (scale-invariant alignment)
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
+    eval_crop_mode=None,  # "nyu" to apply Eigen crop
+    eval_dataset="hypersim",  # "hypersim" or "nyu"
+    eval_depth_min=0.1,
+    eval_depth_max=20.0,
     debug_dataset=False,
-    output_dir=f'{root_dir}/output/depth_alpha',
+    output_dir=os.path.join(root_dir, "depth_alpha"),
     csv_interval=5,
-    # prefetch_factor=2,
+    prefetch_factor=2,
     compile_model=False,
+    save_full_ckpt=True,
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
+    total_run_time_sec=None,
 )
 
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
     args.use_rc_loss = False
-print(args)
+if args.eval_dataset == "nyu" and args.eval_depth_max == 20.0:
+    args.eval_depth_max = 10.0
+# print(args)
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 NUM_CLASSES = 1
@@ -104,7 +127,13 @@ RC_ALPHA = args.rc_alpha
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# torch.backends.cudnn.benchmark = True
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
+    if len(args.img_sizes) == 1:
+        torch.backends.cudnn.benchmark = True
 
 use_amp = torch.cuda.is_available()
 use_bf16 = use_amp and torch.cuda.is_bf16_supported()
@@ -116,6 +145,15 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
+
+def _seed_worker(worker_id):
+    worker_seed = SEED + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
+
+data_rng = torch.Generator()
+data_rng.manual_seed(SEED)
 
 # --- Setup Logging ---
 output_dir = args.output_dir
@@ -129,9 +167,12 @@ if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
 output_dir = os.path.join(args.output_dir, subdir_name)
-ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
+ckpt_output_dir = os.path.join(output_dir, "ckpt")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
+last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
+if args.resume_full_ckpt and args.resume_ckpt_path is None:
+    args.resume_ckpt_path = last_ckpt_path
 
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
@@ -151,19 +192,16 @@ logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
 # wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
-# --- Acquire a file lock to ensure exclusive GPU usage ---
-if args.lock:
-    if FileLock:
-        lock_path = "/tmp/gpu.lock"
-        gpu_lock = FileLock(lock_path)
-        logger.info(f"Attempting to acquire lock on '{lock_path}'...")
-        gpu_lock.acquire()
-        logger.info("Lock acquired. It is safe to proceed.")
-        # The lock will be automatically released when the script exits.
-    else:
-        logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+# --- Acquire a file lock to ensure exclusive GPU usage ---        
+lock_path = "/tmp/gpu.lock"
+lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
+gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
+print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
+gpu_lock.acquire()
+print("Lock acquired. It is safe to proceed.")
 
-logger.info(args)
+logger.info(output_dir)
+# logger.info(args)
 # %%
 # =================================================================================
 # Step 2: Dataset and DataLoader
@@ -175,8 +213,7 @@ try:
         ROOT=f'{args.data_root}/hypersim_processed/train',
         resolution=IMG_SIZE,
         num_views=1,
-        pair_transform=partial(
-            train_aug_depth_ar_resize_random_crop,
+        pair_transform=TrainDepthAug(
             target_size=(IMG_SIZE, IMG_SIZE),
             normalize=True,
         ),
@@ -187,8 +224,7 @@ try:
         resolution=IMG_SIZE,
         num_views=1,
         seed=777,
-        pair_transform=partial(
-            eval_preprocess_depth_keep_ar,
+        pair_transform=EvalDepthPreprocess(
             target_size=(IMG_SIZE, IMG_SIZE),
             target_by="height",
             ensure_multiple_of=args.patch_size,
@@ -199,15 +235,21 @@ try:
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=True,
         persistent_workers=(args.workers > 0), 
-        # prefetch_factor=args.prefetch_factor,
+        worker_init_fn=_seed_worker,
+        generator=data_rng,
+        prefetch_factor=2,
     )
     valid_loader = DataLoader(
-        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=5,
+        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=False,
         persistent_workers=True, 
-        # prefetch_factor=args.prefetch_factor,
+        worker_init_fn=_seed_worker,
+        generator=data_rng,
+        prefetch_factor=2,
     )
     steps_per_epoch = len(train_loader)
+    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
     logger.info(f"✅ DataLoaders created successfully.")
     logger.info(f"   - Training samples: {len(train_dataset)}, Batches per epoch: {len(train_loader)}")
     logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: {len(valid_loader)}")
@@ -215,13 +257,13 @@ try:
     if args.debug_dataset:
         # Test sample loading and display stats
         logger.info("\n🔍 Dataset validation:")
-        batch_imgs, batch_depths = next(iter(train_loader))
+        batch_imgs, batch_depths, _ = next(iter(train_loader))
         logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
         logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
         logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
 
         logger.info("\n🔍 Valid Dataset validation:")
-        batch_imgs, batch_depths = next(iter(valid_loader))
+        batch_imgs, batch_depths, _ = next(iter(valid_loader))
         logger.info(f"   - Batch shapes: images {batch_imgs.shape}, depths {batch_depths.shape}")
         logger.info(f"   - Depth range: {batch_depths.min().item():.2f}m to {batch_depths.max().item():.2f}m")
         logger.info(f"   - Image stats: mean={batch_imgs.mean():.3f}, std={batch_imgs.std():.3f}")
@@ -346,6 +388,10 @@ def compute_depth_metrics(pred, target, mask=None):
 
     # Create a mask for valid pixels (finite, positive depth)
     valid_mask = (target > 0) & (pred > 0) & torch.isfinite(pred) & torch.isfinite(target)
+    if args.eval_depth_min is not None or args.eval_depth_max is not None:
+        dmin = args.eval_depth_min if args.eval_depth_min is not None else -float("inf")
+        dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
+        valid_mask = valid_mask & (target >= dmin) & (target <= dmax)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()
 
@@ -363,6 +409,12 @@ def compute_depth_metrics(pred, target, mask=None):
     else:
         pred_cmp = pred
         target_cmp = target
+
+    if args.eval_depth_min is not None or args.eval_depth_max is not None:
+        dmin = args.eval_depth_min if args.eval_depth_min is not None else -float("inf")
+        dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
+        pred_cmp = pred_cmp.clamp(min=dmin, max=dmax)
+        target_cmp = target_cmp.clamp(min=dmin, max=dmax)
 
     diff = pred_cmp - target_cmp
     pred_c = pred_cmp.clamp_min(1e-8)
@@ -392,6 +444,46 @@ def compute_depth_metrics(pred, target, mask=None):
     }
 
     return {k: v.item() for k, v in metrics.items()}
+
+
+def _extract_meta(metas, idx):
+    if metas is None:
+        return None
+    if isinstance(metas, dict):
+        out = {}
+        for k, v in metas.items():
+            if torch.is_tensor(v):
+                out[k] = float(v[idx].item())
+            else:
+                out[k] = float(v[idx])
+        return out
+    return None
+
+
+def _crop_to_valid_region(pred, target, meta):
+    if meta is None:
+        return pred, target
+    rh = int(round(meta.get("resized_h", target.shape[-2])))
+    rw = int(round(meta.get("resized_w", target.shape[-1])))
+    rh = max(1, min(rh, target.shape[-2]))
+    rw = max(1, min(rw, target.shape[-1]))
+    pred = pred[..., :rh, :rw]
+    target = target[..., :rh, :rw]
+    if args.eval_crop_mode == "nyu":
+        top, bottom, left, right = 45, 471, 41, 601
+        scale_h = float(meta.get("scale_h", 1.0))
+        scale_w = float(meta.get("scale_w", 1.0))
+        t = int(round(top * scale_h))
+        b = int(round(bottom * scale_h))
+        l = int(round(left * scale_w))
+        r = int(round(right * scale_w))
+        t = max(0, min(t, target.shape[-2] - 1))
+        b = max(t + 1, min(b, target.shape[-2]))
+        l = max(0, min(l, target.shape[-1] - 1))
+        r = max(l + 1, min(r, target.shape[-1]))
+        pred = pred[..., t:b, l:r]
+        target = target[..., t:b, l:r]
+    return pred, target
 
 training_parameters = list(model.parameters()) + list(decoder.parameters())
 param_groups = []
@@ -509,9 +601,31 @@ criterion = MonocularDepthLoss(
 
 # criterion = MonocularDepthLossSimple()
 optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-# optimizer = optim.AdamW(list(model.parameters()) + list(decoder.parameters()), lr=args.lr)
-total_steps = EPOCHS * steps_per_epoch
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+total_steps = EPOCHS * optimizer_steps_per_epoch
+if args.composite_lr:
+    warmup_steps = min(args.warmup_steps, max(1, total_steps - 1))
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-7 / args.lr,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=1e-8,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup, cosine],
+        milestones=[warmup_steps],
+    )
+else:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps,
+        eta_min=args.eta_min,
+    )
 logger.info("✅ Loss, Optimizer, and Scheduler are ready.")
 
 # %%
@@ -554,12 +668,13 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
     total_samples = 0
     log_interval = getattr(args, "log_interval", 50)
     pbar = tqdm(loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
-    
-    for i, (inputs, gt_depths) in enumerate(pbar):
+
+    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    optimizer.zero_grad(set_to_none=True)
+    for i, (inputs, gt_depths, _) in enumerate(pbar):
         inputs = inputs.to(DEVICE, non_blocking=True)
         gt_depths = gt_depths.to(DEVICE, non_blocking=True)
         bs = inputs.size(0)
-        optimizer.zero_grad(set_to_none=True)
         aux_loss = None
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
@@ -579,17 +694,19 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
             loss = base_loss + args.rc_alpha * aux_loss
             base_loss_t += base_loss.detach() * bs
             aux_loss_sum_t += aux_loss.detach() * bs
-        scaler.scale(loss).backward()
-        if args.clip_value is not None:
-            scaler.unscale_(optimizer)
-            # log_grads(logger, model, rowcol_loss=rowcol_loss if args.use_rc_loss else None,
-    #   every=331, step=step)
-            
-            torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
-        
-        scaler.step(optimizer)
-        scaler.update()
-        scheduler.step()
+
+        loss_scaled = loss / accum_steps
+        scaler.scale(loss_scaled).backward()
+
+        do_step = ((i + 1) % accum_steps == 0) or (i + 1 == len(loader))
+        if do_step:
+            if args.clip_value is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
         
         running_loss_t += loss.detach() * bs
         total_samples += bs            
@@ -616,20 +733,29 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
     val_loss = 0.0
     val_metrics = {'abs_rel': 0, 'sq_rel': 0, 'rmse': 0, 'rmse_log': 0, 'a1': 0, 'a2': 0, 'a3': 0}
     steps = 0
+    batch_count = 0
 
     with torch.inference_mode():
-        for val_inputs, gt_depths in loader:
+        for val_inputs, gt_depths, metas in loader:
             val_inputs = val_inputs.to(DEVICE, non_blocking=True)
             gt_depths = gt_depths.to(DEVICE, non_blocking=True)
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                 val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # v_loss, _ = criterion(val_pred_depths, gt_depths)
             # val_loss += v_loss.item()
-            batch_metrics = compute_depth_metrics(val_pred_depths, gt_depths)
-            for k in val_metrics:
-                val_metrics[k] += batch_metrics.get(k, 0)
-            steps += 1
-            if max_steps and steps >= max_steps:
+            for b in range(val_inputs.size(0)):
+                meta_b = _extract_meta(metas, b)
+                pred_b, gt_b = _crop_to_valid_region(
+                    val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
+                )
+                batch_metrics = compute_depth_metrics(pred_b, gt_b)
+                if not batch_metrics:
+                    continue
+                for k in val_metrics:
+                    val_metrics[k] += batch_metrics.get(k, 0)
+                steps += 1
+            batch_count += 1
+            if max_steps and batch_count >= max_steps:
                 break
     # val_loss / len(loader)
     denom = max(steps, 1)
@@ -644,16 +770,37 @@ def save_checkpoint(model, decoder, output_dir, suffix):
 
 scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_amp)
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
+train_start_time = time.time()
+start_epoch = 0
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    if os.path.exists(args.resume_ckpt_path):
+        ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(ckpt.get("model", {}), strict=False)
+        decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
+        if "optimizer" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        if "scheduler" in ckpt and ckpt["scheduler"] is not None:
+            scheduler.load_state_dict(ckpt["scheduler"])
+        if "scaler" in ckpt and ckpt["scaler"] is not None:
+            scaler.load_state_dict(ckpt["scaler"])
+        if Use_Row_Col_Loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
+            rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
+        start_epoch = int(ckpt.get("epoch", 0))
+        logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
+        training_history = ckpt.get("training_history", None)
+    else:
+        logger.warning(f"Resume checkpoint not found: '{args.resume_ckpt_path}'")
 # 'valid_loss': [], 
-training_history = {
-    'train_loss': [], 'base_loss': [], 'aux_loss': [],
-    'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
-    'epoch': []
-}
+if not isinstance(locals().get("training_history", None), dict):
+    training_history = {
+        'train_loss': [], 'base_loss': [], 'aux_loss': [],
+        'valid_abs_rel': [], 'valid_rmse': [], 'valid_a1': [],
+        'epoch': []
+    }
 best_val_abs_rel = float('inf')
 
 logger.info("Starting training...")
-for epoch in range(EPOCHS):
+for epoch in range(start_epoch, EPOCHS):
     avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
         model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
     )
@@ -683,6 +830,28 @@ for epoch in range(EPOCHS):
         history_df = pd.DataFrame(training_history)
         history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
         # save_checkpoint(model, decoder, ckpt_output_dir, "best")
+    if args.save_full_ckpt:
+        ckpt = {
+            "epoch": epoch + 1,
+            "model": model.state_dict(),
+            "decoder": decoder.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            "scaler": scaler.state_dict() if scaler is not None else None,
+            "rowcol_loss": rowcol_loss.state_dict() if Use_Row_Col_Loss else None,
+            "training_history": training_history,
+            "args": args,
+        }
+        torch.save(ckpt, last_ckpt_path)
+        logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
+    if args.total_run_time_sec is not None:
+        elapsed = time.time() - train_start_time
+        if elapsed >= args.total_run_time_sec:
+            logger.info(
+                f"Stopping training: elapsed {elapsed:.0f}s reached limit "
+                f"{args.total_run_time_sec:.0f}s."
+            )
+            break
     # if epoch == 3:
     #     break
 

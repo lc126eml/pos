@@ -5,9 +5,7 @@ import cv2
 import random
 from PIL import Image
 from torch.utils.data import Dataset
-from functools import partial
-
-from aug import train_aug_depth_ar_resize_random_crop, eval_preprocess_depth_keep_ar
+from aug import TrainDepthAug, EvalDepthPreprocess
 def imread_cv2(path, options=cv2.IMREAD_COLOR):
     """Open an image or a depthmap with opencv-python."""
     if path.endswith((".exr", "EXR")):
@@ -47,14 +45,12 @@ class HyperSim_Simple(Dataset):
         if pair_transform is None:
             target_size = (self.resolution[1], self.resolution[0]) if isinstance(self.resolution, (list, tuple)) else (self.resolution, self.resolution)
             if self.is_train:
-                self.pair_transform = partial(
-                    train_aug_depth_ar_resize_random_crop,
+                self.pair_transform = TrainDepthAug(
                     target_size=target_size,
                     normalize=True,
                 )
             else:
-                self.pair_transform = partial(
-                    eval_preprocess_depth_keep_ar,
+                self.pair_transform = EvalDepthPreprocess(
                     target_size=target_size,
                     target_by="height",
                     ensure_multiple_of=32,
@@ -103,10 +99,23 @@ class HyperSim_Simple(Dataset):
 
         out = self.pair_transform(pil_img, depthmap)
         if isinstance(out, tuple) and len(out) == 3:
-            img_t, depth_t, _ = out
+            img_t, depth_t, meta = out
         else:
             img_t, depth_t = out
-        return img_t, depth_t
+            h, w = depth_t.shape[-2], depth_t.shape[-1]
+            meta = {
+                "orig_h": float(h),
+                "orig_w": float(w),
+                "resized_h": float(h),
+                "resized_w": float(w),
+                "scale_h": 1.0,
+                "scale_w": 1.0,
+                "pad_h": 0.0,
+                "pad_w": 0.0,
+                "padded_h": float(h),
+                "padded_w": float(w),
+            }
+        return img_t, depth_t, meta
 
 
 if __name__ == '__main__':
@@ -117,7 +126,7 @@ if __name__ == '__main__':
     )
     print(f"Found {len(dataset)} total frames.")
 
-    img_t, depth_t = dataset[0]
+    img_t, depth_t, _ = dataset[0]
     print("\nSample shapes:")
     print("Image shape:", img_t.shape)
     print("Depthmap shape:", depth_t.shape)
