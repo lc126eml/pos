@@ -66,9 +66,9 @@ class PPMliteFCNHead(nn.Module):
 
         self.classifier = nn.Conv2d(mid_channels, num_classes, kernel_size=1)
 
-    def forward(self, x_tokens: torch.Tensor) -> torch.Tensor:
+    def forward(self, x_tokens: torch.Tensor, *, grid_size=None, out_size=None) -> torch.Tensor:
         B, N, C = x_tokens.shape
-        Hp, Wp = self.grid_size
+        Hp, Wp = grid_size if grid_size is not None else self.grid_size
         assert N == Hp * Wp, f"Expected N={Hp*Wp} tokens, got N={N}"
 
         # (B, N, C) -> (B, C, Hp, Wp)
@@ -88,7 +88,8 @@ class PPMliteFCNHead(nn.Module):
         logits = self.classifier(x)
 
         # Upsample to image resolution
-        logits = F.interpolate(logits, size=self.out_size, mode="bilinear", align_corners=False)
+        out_size = out_size if out_size is not None else self.out_size
+        logits = F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
         return logits
 
 
@@ -115,14 +116,15 @@ class FCNSegHead(nn.Module):
             nn.Conv2d(mid_channels, num_classes, kernel_size=1),
         )
 
-    def forward(self, x_tokens):
+    def forward(self, x_tokens, *, grid_size=None, out_size=None):
         B, N, C = x_tokens.shape
-        H, W = self.grid_size
+        H, W = grid_size if grid_size is not None else self.grid_size
         assert N == H * W, f"Token count N={N} != H*W={H*W}"
 
         x = x_tokens.transpose(1, 2).contiguous().view(B, C, H, W)
         logits = self.proj(x)
-        logits = F.interpolate(logits, size=self.out_size, mode='bilinear', align_corners=False)
+        out_size = out_size if out_size is not None else self.out_size
+        logits = F.interpolate(logits, size=out_size, mode='bilinear', align_corners=False)
         return logits
 class LinearSegHead(nn.Module):
     def __init__(self, embed_dim, num_classes, grid_size, out_size, dropout=0.1):
@@ -132,16 +134,17 @@ class LinearSegHead(nn.Module):
         self.dropout = nn.Dropout2d(dropout)
         self.cls = nn.Conv2d(embed_dim, num_classes, kernel_size=1)
 
-    def forward(self, x_tokens):
+    def forward(self, x_tokens, *, grid_size=None, out_size=None):
         # x_tokens: (B, N, C), N = H*W
         B, N, C = x_tokens.shape
-        H, W = self.grid_size
+        H, W = grid_size if grid_size is not None else self.grid_size
         assert N == H * W, f"Token count N={N} != H*W={H*W}"
 
         x = x_tokens.transpose(1, 2).contiguous().view(B, C, H, W)  # (B, C, H, W)
         x = self.dropout(x)
         logits = self.cls(x)  # (B, num_classes, H, W)
-        logits = F.interpolate(logits, size=self.out_size, mode='bilinear', align_corners=False)
+        out_size = out_size if out_size is not None else self.out_size
+        logits = F.interpolate(logits, size=out_size, mode='bilinear', align_corners=False)
         return logits
 
 # =================================================================================
