@@ -70,7 +70,7 @@ args = SimpleNamespace(
     lr=5e-4,
     lr_aux=1e-5,
     eta_min=1e-7,
-    epochs=80,
+    epochs=100,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
@@ -85,7 +85,7 @@ args = SimpleNamespace(
     clip_value=1.0,
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
-    log_interval=100,
+    log_interval=300,
     depth_eval_mode="metric",  # "metric" or "scale_invariant"
     depth_norm="median",  # "mean" or "median" (scale-invariant alignment)
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
@@ -975,6 +975,25 @@ if not history_df.empty:
 
 logger.info(output_dir)
 logger.info(subdir_name)
+
+if args.depth_eval_mode == "metric":
+    logger.info("Running final scale-invariant evaluation...")
+    prev_mode = args.depth_eval_mode
+    args.depth_eval_mode = "scale_invariant"
+    _, final_si = validate(
+        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
+    )
+    args.depth_eval_mode = prev_mode
+    if final_si:
+        logger.info(
+            f"Final SI AbsRel: {final_si['abs_rel']:.4f} | "
+            f"Final SI RMSE: {final_si['rmse']:.4f} | "
+            f"Final SI a1: {final_si['a1']:.4f}"
+        )
+        training_history["final_si_abs_rel"] = final_si["abs_rel"]
+        training_history["final_si_rmse"] = final_si["rmse"]
+        training_history["final_si_a1"] = final_si["a1"]
+        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
 del model, decoder
 gc.collect()
