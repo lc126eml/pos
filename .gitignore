@@ -13,3 +13,4 @@ __pycache__
 **/bak/
 **/upload/*
 **/timm/*
+**/*.log

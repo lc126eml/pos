@@ -1,6 +1,6 @@
 {
-  "id": "asdsad0000/ImageNet-rc",
-  "title": "ImageNet rc",
+  "id": "liucong126/ImageNet-base-rot50",
+  "title": "ImageNet base rot50",
   "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -8,7 +8,7 @@
   "enable_gpu": "true",
   "enable_tpu": "false",
   "enable_internet": "true",
-  "dataset_sources": ["ambityga/imagenet100"],
+  "dataset_sources": ["ambityga/imagenet100", "liucong12601/timm-repos"],
   "competition_sources": [],
   "kernel_sources": [],
   "model_sources": []

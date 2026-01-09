@@ -23,11 +23,11 @@ kaggle kernels push -p .
 
 kaggle kernels status qqmail4092/ImageNet-Kernel-Test
 kaggle kernels output qqmail4092/ImageNet-Kernel-Test
-
+kaggle kernels delete -y 
 # qq
 409274141@qq.com 11
 $env:KAGGLE_API_TOKEN = "KGAT_8279c1e528a3052d8681816cbe30c3d4"
-
+qqmail4092/imagenet-base-abs3
 
 # wyh ohyeah00 16
 1715071962@qq.com
@@ -39,8 +39,6 @@ $env:KAGGLE_API_TOKEN = "KGAT_699a672f46d4175c65864ab41a30e386"
 Tang123456
 $env:KAGGLE_API_TOKEN = "KGAT_e332dd5a4cea7cc83a93b4dcb2bcbde0"
 
-wenyangtang/imagenet-small-rope2
-Resumed full checkpoint from '/kaggle/input/imagenet-small-rope2/ckpt/last.pth' at epoch=81, step=82296
 
 # yuanhahah 12
 152366228@qq.com
@@ -50,6 +48,8 @@ $env:KAGGLE_API_TOKEN = "KGAT_c6553e4bd3a205b5832004becc6fd7d3"
 # liucong126 13
 liucong126eml@126.com
 $env:KAGGLE_API_TOKEN = "KGAT_7b695d586d6c1a4775f1e4b384639801"
+liucong126/imagenet-base-rc50
+liucong126/imagenet-base-rc51
 
 # sinayliu 0
 liucongy@sina.com
@@ -67,6 +67,7 @@ $env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
 2131286169@qq.com
 163972xjr
 $env:KAGGLE_API_TOKEN = "KGAT_30f3751a2fad03f84ebfdf6e81d6898a"
+asdsad0000/imagenet-base-rot
 
 # xulin5522 15
 2450682067@qq.com	xulin1207@

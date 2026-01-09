@@ -57,37 +57,23 @@ def _timm_has_model(model_name: str) -> bool:
     return False
 print("timm:", timm.__version__, flush=True)
 print("torch:", torch.__version__, flush=True)
-print([m for m in timm.list_models() if "dinov" in m], flush=True)
+# print([m for m in timm.list_models() if "dinov" in m], flush=True)
 
 _timm_model_name = "vit_small_patch16_dinov3"
-_is_kaggle_env = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
 if not _timm_has_model(_timm_model_name):
-    print(f"timm missing {_timm_model_name}; exit...", flush=True)
+    print(f"timm missing {_timm_model_name} ...", flush=True)
     sys.exit(0)
-    if _is_kaggle_env:
-        print(
-            f"timm missing {_timm_model_name}; Kaggle kernel detected, "
-            "attempting update (may fail if internet is disabled)..."
-        )
-    else:
-        print(f"timm missing {_timm_model_name}; updating timm to latest...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-deps", "timm==1.0.20"])
-        # subprocess.check_call([
-        #     sys.executable,
-        #     "-m",
-        #     "pip",
-        #     "install",
-        #     "--no-deps",
-        #     "git+https://github.com/huggingface/pytorch-image-models",
-        # ])
-        importlib.reload(timm)
-    except Exception as exc:
-        print(f"Failed to update timm: {exc}")
-    if not _timm_has_model(_timm_model_name):
-        print(f"timm still missing {_timm_model_name} after update.")
-        sys.exit(0)
+#     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
+        
+#     LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+#     if os.path.isdir(LOCAL_TIMM):
+#         sys.path.insert(0, LOCAL_TIMM)
+#     import timm
+# print("timm:", timm.__version__, flush=True)
+# print("torch:", torch.__version__, flush=True)
+# print([m for m in timm.list_models() if "dinov" in m], flush=True)
 
+_is_kaggle_env = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
 # =================================================================================
 # Step 2: Configuration
 # =================================================================================
@@ -119,11 +105,12 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=True,
-    use_rot_pos_emb=False,
-    model_size='small',
+    use_abs_pos_emb=False,
+    use_rot_pos_emb=True,
+    model_size='base',
     num_classes=100,
     patch_size = 16,
+    grad_accum_steps=1,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     batch_size=128, #rpe
     # batch_size=256, #rope
@@ -143,12 +130,13 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=59,
+    seed=50,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    rc_alpha=300.0,
+    # rc_alpha=300.0,
+    rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
     workers=5,
     train=True,
@@ -156,16 +144,17 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
+    resume_full_ckpt=False,
     resume_ckpt_path="/kaggle/input/imagenet-small-rope2/ckpt/last.pth",
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
     log_interval=100,
     csv_interval=1,
-    show_peak_gpu_mem=False,
+    show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
+    total_run_time_sec=None, #41000
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -192,7 +181,7 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.use_patch_position_loss=False
     args.use_rc_loss = False
 offset = 0
-print(args)
+# print(args)
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 if is_kaggle:
     output_dir = args.root_dir
@@ -282,7 +271,7 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
 logger.info("Memory cleanup complete.")
 
-logger.info(args)
+# logger.info(args)
 #%%
 # List of all the partial training directories
 TRAIN_PATHS = [
@@ -1303,8 +1292,11 @@ valid_loader = DataLoader(
     # **prefetch_kwargs,
 )
 steps_per_epoch = len(train_loader)
+accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
 logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
 logger.info(f"{steps_per_epoch=}, val_steps: {len(valid_loader)}")
+logger.info(f"Effective batch size: {args.batch_size * accum_steps}")
 
 # %%
 # %% [code]
@@ -1528,7 +1520,7 @@ if args.composite_lr:
             seen.add(pid)
     print("duplicate params in groups:", dups)
 
-    total_steps = args.epochs * steps_per_epoch
+    total_steps = args.epochs * optimizer_steps_per_epoch
     # warmup_steps = 100 #int(0.01 * total_steps)
 
     warmup = torch.optim.lr_scheduler.LinearLR(
@@ -1557,7 +1549,7 @@ else:
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
     # logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
 
-    total_steps = args.epochs * steps_per_epoch
+    total_steps = args.epochs * optimizer_steps_per_epoch
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=args.eta_min)
     logger.info("✅ Step-based LR Scheduler is ready.")
 
@@ -1670,13 +1662,13 @@ if args.train:
             batch_sampler.set_epoch(epoch)
         
         # FP16: Use autocast for the forward pass
-        for inputs, labels in train_loader:
+        optimizer.zero_grad(set_to_none=True)
+        for step_in_epoch, (inputs, labels) in enumerate(train_loader):
             inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
             if args.show_peak_gpu_mem and torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
             
-            optimizer.zero_grad(set_to_none=True)
             aux_loss = None
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
                 feats = model.forward_features(inputs)
@@ -1706,20 +1698,22 @@ if args.train:
                     aux_loss_sum_t += aux_loss.detach() * bs
                     loss = loss + args.rc_alpha * aux_loss
             
-            # FP16: Scale, backward, and step
-            scaler.scale(loss).backward()
+            # FP16: Scale, backward, and step (with grad accumulation)
+            loss_scaled = loss / accum_steps
+            scaler.scale(loss_scaled).backward()
 
-            if args.clip_value is not None:
-                scaler.unscale_(optimizer)
-                # log_grads(logger, model, rowcol_loss=rowcol_loss if args.use_rc_loss else None,
-        #   every=331, step=step)
-                
-                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+            do_step = ((step_in_epoch + 1) % accum_steps == 0) or (step_in_epoch + 1 == len(train_loader))
+            if do_step:
+                if args.clip_value is not None:
+                    scaler.unscale_(optimizer)
+                    # log_grads(logger, model, rowcol_loss=rowcol_loss if args.use_rc_loss else None,
+            #   every=331, step=step)
+                    torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
 
-            scaler.step(optimizer)
-            scaler.update()
-
-            scheduler.step()
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
 
             running_loss_t += loss.detach() * bs
             train_total += bs
@@ -1810,7 +1804,13 @@ if args.train:
             torch.save(ckpt, last_ckpt_path)
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
-        if (time.time() - train_start_time) >= (11.5 * 3600):
+        if args.total_run_time_sec is not None:
+            if (time.time() - train_start_time) >= args.total_run_time_sec:
+                logger.info(
+                    f"Stopping training: elapsed time exceeded {args.total_run_time_sec:.0f}s."
+                )
+                break
+        elif (time.time() - train_start_time) >= (11.5 * 3600):
             logger.info("Stopping training: total running time exceeded 11 hours.")
             break
         # gc.collect()
