@@ -1,6 +1,6 @@
 {
-  "id": "xulin5522/imagenet-small-abs",
-  "title": "imagenet small abs",
+  "id": "xulin5522/imagenet-base-abs28",
+  "title": "imagenet base abs28",
   "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -8,8 +8,8 @@
   "enable_gpu": "true",
   "enable_tpu": "false",
   "enable_internet": "true",
-  "dataset_sources": ["ambityga/imagenet100"],
+  "dataset_sources": ["ambityga/imagenet100", "liucong12601/timm-repos"],
   "competition_sources": [],
-  "kernel_sources": ["yuanhahah/imagenet-small-abs2"],
+  "kernel_sources": [],
   "model_sources": []
 }
