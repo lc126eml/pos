@@ -3,6 +3,10 @@ import math
 import os
 import sys
 import time
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 import torch
 import torch.nn as nn
 from types import SimpleNamespace
@@ -15,15 +19,14 @@ from torch.nn import functional as F
 import logging
 from typing import List, Tuple, Union
 
+from depth.depth_loss import compute_scale_and_shift
+from depth.depth_anything.dpt import DPTHead as DepthAnythingDPTHead
+
 LOCAL_TIMM = os.environ.get("LOCAL_TIMM_DIR", "/home/liucong/codes/pos/timm/pytorch-image-models-main")
 if os.path.isdir(LOCAL_TIMM):
     sys.path.insert(0, LOCAL_TIMM)
 
 import timm
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
 
 if os.path.exists('/home/sshuser'):
     root_dir = '/home/sshuser'
@@ -70,7 +73,7 @@ args = SimpleNamespace(
     # batch_size=6,
     patch_size=16,
     lr=5e-4,
-    lr_aux=1e-5,
+    # lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
     break_at_epoch=80,
@@ -90,10 +93,11 @@ args = SimpleNamespace(
     debug_loss_stats=True,
     debug_loss_interval=600,
     lock=True,
-    depth_decoder="lite4",  # "simple" or "lite4"
+    depth_decoder="dpt",  # "simple", "lite4", or "dpt"
     log_interval=300,
-    depth_eval_mode="metric",  # "metric" or "scale_invariant"
-    depth_norm="median",  # "mean" or "median" (scale-invariant alignment)
+    depth_eval_mode="relative",  # "relative" (default) or "metric"
+    silog_w=0.1,
+    depth_norm="median",  # kept for logging/compat
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
     eval_crop_mode=None,  # "nyu" to apply Eigen crop
@@ -113,7 +117,6 @@ args = SimpleNamespace(
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr50_metric_median_h240w320/20260110_075622/ckpt/last.pth",
     total_run_time_sec=None,
 )
-
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
@@ -174,6 +177,7 @@ subdir_name = (
     f"{'_rot_pos' if args.use_rot_pos_emb else ''}"
     f"_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
     f"_{args.depth_eval_mode}_{args.depth_norm}"
+    f"_dec_{args.depth_decoder}"
     f"_h{TRAIN_SIZE[0]}w{TRAIN_SIZE[1]}"
 )
 if args.use_rc_loss:
@@ -323,8 +327,22 @@ def setup_model(img_size, device):
         ).to(device)
     elif decoder_type == "simple":
         decoder = SimpleDepthDecoderV2(embed_dim=model.embed_dim).to(device)
+    elif decoder_type == "dpt":
+        if DepthAnythingDPTHead is None:
+            raise ValueError("DPT decoder requested but DepthAnything DPTHead could not be imported.")
+        patch_size = model.patch_embed.patch_size
+        if isinstance(patch_size, tuple):
+            patch_size = patch_size[0]
+        decoder = DepthAnythingDPTHead(
+            in_channels=model.embed_dim,
+            features=256,
+            out_channels=[256, 512, 1024, 1024],
+            use_bn=False,
+            use_clstoken=False,
+            patch_size=int(patch_size),
+        ).to(device)
     else:
-        raise ValueError(f"Unsupported depth_decoder='{decoder_type}'. Use 'simple' or 'lite4'.")
+        raise ValueError(f"Unsupported depth_decoder='{decoder_type}'. Use 'simple', 'lite4', or 'dpt'.")
 
     
     # Sanity check
@@ -398,7 +416,7 @@ def _compute_scale_align_pred(gt, pred, mask, mode):
     raise ValueError(f"Unsupported depth_norm='{mode}'. Use 'mean' or 'median'.")
 
 
-def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False):
+def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False, mode: str | None = None):
     """
     Computes depth estimation metrics.
     This optimized version performs all calculations on the GPU and transfers
@@ -411,11 +429,13 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
     if pred.dim() != 4 or target.dim() != 4:
         raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
 
-    # Create a mask for valid target pixels (finite, in range)
+    # Create a mask for valid target pixels (finite, in range) and optionally intersect with given mask
     dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
     dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-    valid_mask = torch.isfinite(target)
-    valid_mask = valid_mask & (target > 0)
+    eps = 1e-8
+    thresh = max(dmin, eps)
+    valid_mask = torch.isfinite(target) & torch.isfinite(pred)
+    valid_mask = valid_mask & (target > thresh) & (target <= dmax)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()
 
@@ -426,21 +446,22 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
         return ({}, 0) if return_count else {}
     denom = denom.clamp_min(1)
 
-    if args.depth_eval_mode == "scale_invariant":
-        scale = _compute_scale_align_pred(target, pred, valid_mask_f, args.depth_norm)
-        pred_cmp = pred * scale
+    eval_mode = mode if mode is not None else args.depth_eval_mode
+    if eval_mode in ("relative", "scale_invariant"):
+        # scale-and-shift align prediction to target (MiDaS-style; alias for scale_invariant here)
+        scale, shift = compute_scale_and_shift(pred[:, 0], target[:, 0], valid_mask_f[:, 0])
+        pred_cmp = scale.view(-1, 1, 1, 1) * pred + shift.view(-1, 1, 1, 1)
         target_cmp = target
     else:
         pred_cmp = pred
         target_cmp = target
 
-    pred_cmp = pred_cmp.clamp(min=dmin, max=dmax)
-    target_cmp = target_cmp.clamp(min=dmin, max=dmax)
+    pred_cmp = pred_cmp.clamp(min=thresh, max=dmax)
+    target_cmp = target_cmp.clamp(min=thresh, max=dmax)
 
     diff = pred_cmp - target_cmp
     pred_c = pred_cmp
     target_c = target_cmp
-    log_diff = torch.log(pred_c) - torch.log(target_c)
     ratio = torch.maximum(pred_c / target_c, target_c / pred_c)
 
     def masked_mean_per_image(x):
@@ -482,13 +503,16 @@ def _extract_meta(metas, idx):
 
 def _crop_to_valid_region(pred, target, meta):
     if meta is None:
-        return pred, target
+        mask = torch.ones_like(target, dtype=torch.bool)
+        return pred, target, mask
     rh = int(round(meta.get("resized_h", target.shape[-2])))
     rw = int(round(meta.get("resized_w", target.shape[-1])))
     rh = max(1, min(rh, target.shape[-2]))
     rw = max(1, min(rw, target.shape[-1]))
     pred = pred[..., :rh, :rw]
     target = target[..., :rh, :rw]
+    mask = torch.zeros_like(target, dtype=torch.bool)
+    mask[..., :rh, :rw] = True
     if args.eval_crop_mode == "nyu":
         top, bottom, left, right = 45, 471, 41, 601
         scale_h = float(meta.get("scale_h", 1.0))
@@ -503,7 +527,8 @@ def _crop_to_valid_region(pred, target, meta):
         r = max(l + 1, min(r, target.shape[-1]))
         pred = pred[..., t:b, l:r]
         target = target[..., t:b, l:r]
-    return pred, target
+        mask = mask[..., t:b, l:r]
+    return pred, target, mask
 
 training_parameters = list(model.parameters()) + list(decoder.parameters())
 param_groups = []
@@ -572,58 +597,30 @@ param_groups.append({
     "weight_decay": 0.0,
 })
 
-from depth.depth_loss import MonocularDepthLoss
-depth_norm_mode = getattr(args, "depth_norm", "mean")
-depth_eval_mode = getattr(args, "depth_eval_mode", "scale_invariant")
-if depth_eval_mode not in ("metric", "scale_invariant"):
-    raise ValueError(f"Unsupported depth_eval_mode='{depth_eval_mode}'. Use 'metric' or 'scale_invariant'.")
-if depth_eval_mode == "metric":
-    ssim_norm_mode = "per_image"
-else:
-    ssim_norm_mode = "per_image"
-if depth_eval_mode == "scale_invariant":
-    if depth_norm_mode == "mean":
-        scale_mode = "gt_mean"
-    elif depth_norm_mode == "median":
-        scale_mode = "gt_median"
-    else:
-        raise ValueError(f"Unsupported depth_norm='{depth_norm_mode}'. Use 'mean' or 'median'.")
-else:
-    scale_mode = "none"
+from depth.depth_loss import MonocularDepthHybridLoss
+depth_eval_mode = getattr(args, "depth_eval_mode", "relative")
+if depth_eval_mode not in ("relative", "metric", "scale_invariant"):
+    raise ValueError(f"Unsupported depth_eval_mode='{depth_eval_mode}'. Use 'relative' or 'metric'.")
+# alias support
+metric_loss = depth_eval_mode == "metric"
+relative_loss = depth_eval_mode in ("relative", "scale_invariant")
 
-if depth_eval_mode == "metric" and scale_mode != "none":
-    logger.warning("Metric training should use scale_mode='none'; overriding.")
-    scale_mode = "none"
-if depth_eval_mode == "scale_invariant" and scale_mode == "none":
-    logger.warning("Scale-invariant training needs gt_mean or gt_median; defaulting to gt_median.")
-    scale_mode = "gt_median"
-
-if depth_eval_mode == "metric":
-    silog_w = 0.0
-    l1_w = 1.0
-    grad_w = 0.1
-    ssim_w = 0.1
-    lambda_var = 0.0
-    grad_use_log = False
-else:
-    silog_w = 1.0
-    l1_w = 0.0
-    grad_w = 0.5
-    ssim_w = 0.2
-    lambda_var = 1.0
-    grad_use_log = True
-
-criterion = MonocularDepthLoss(
-    silog_w=silog_w,
+# Relative depth is the default: MiDaS-style alignment + grad/L1; SiLog off.
+# Metric mode adds SiLog on raw predictions to anchor absolute scale.
+l1_w = 1.0
+grad_w = 0.5
+silog_w = args.silog_w
+# 0.0 if relative_loss else 0.1
+silog_on_aligned = False  # keep metric SiLog on raw prediction
+criterion = MonocularDepthHybridLoss(
     l1_w=l1_w,
     grad_w=grad_w,
-    ssim_w=ssim_w,
-    lambda_var=lambda_var,
-    scale_mode=scale_mode,   # internal per-image normalization
-    ssim_log_range=4.0,     # SSIM compares within ~[1/4, 4] multiplicative band
-    grad_use_log=grad_use_log,
-    ssim_norm_mode=ssim_norm_mode,
-    ssim_percentiles=getattr(args, "ssim_percentiles", (5.0, 95.0)),
+    silog_w=silog_w,
+    silog_beta=0.15,
+    scales=4,
+    reduction="batch-based",
+    eps=1e-8,
+    silog_on_aligned=silog_on_aligned,
 )
 
 
@@ -672,9 +669,21 @@ def _infer_grid_hw(model, inputs):
         ph = pw = patch_size
     return (inputs.shape[-2] // ph, inputs.shape[-1] // pw)
 
+def _prep_dpt_features(features, grid_hw):
+    """Prepare token features for DepthAnything DPT head: strip CLS if present, wrap as tuple."""
+    gh, gw = grid_hw
+    tokens_needed = gh * gw
+    prepped = []
+    for f in features:
+        if f.shape[1] == tokens_needed + 1:
+            f = f[:, 1:, :]
+        prepped.append((f, None))
+    return prepped
+
 def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
     if grid_hw is None:
         grid_hw = _infer_grid_hw(model, inputs)
+    h, w = inputs.shape[-2], inputs.shape[-1]
     if args.depth_decoder == "lite4":
         features = model.forward_intermediates(
             inputs,
@@ -684,6 +693,26 @@ def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
             output_fmt="NLC",
         )
         pred_depths = decoder(features, grid_hw=grid_hw, out_hw=inputs.shape[-2:])
+    elif args.depth_decoder == "dpt":
+        patch_size = model.patch_embed.patch_size
+        if isinstance(patch_size, tuple):
+            patch_size = patch_size[0]
+        if (h % patch_size != 0) or (w % patch_size != 0):
+            raise ValueError(
+                f"Input size {(h, w)} must be divisible by patch_size={patch_size} for DPT decoder."
+            )
+        patch_h, patch_w = h // patch_size, w // patch_size
+        features = model.forward_intermediates(
+            inputs,
+            indices=feature_layers,
+            norm=False,
+            intermediates_only=True,
+            output_fmt="NLC",
+        )
+        dpt_feats = _prep_dpt_features(features, (patch_h, patch_w))
+        pred_depths = decoder(dpt_feats, patch_h=patch_h, patch_w=patch_w)
+        if pred_depths.dim() == 3:
+            pred_depths = pred_depths.unsqueeze(1)
     else:
         features = model.forward_features(inputs)
         pred_depths = decoder(features, grid_hw=grid_hw, out_hw=inputs.shape[-2:])
@@ -740,7 +769,7 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
             valid = (gt_depths > 0) & torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
-            base_loss, loss_dict = criterion(pred_depths, gt_depths, valid_mask=valid)
+            base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
             loss = base_loss
 
         if args.debug_loss_stats and ((i + 1) % args.debug_loss_interval == 0):
@@ -766,8 +795,8 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
             # if epoch == 0:
             #     alpha_t = args.rc_alpha * min(1.0, (i + 1) / args.warmup_steps_for_aux)
             loss = base_loss + args.rc_alpha * aux_loss
-            base_loss_t += base_loss.detach() * bs
             aux_loss_sum_t += aux_loss.detach() * bs
+        base_loss_t += base_loss.detach() * bs
 
         loss_scaled = loss / accum_steps
         scaler.scale(loss_scaled).backward()
@@ -844,7 +873,9 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
                     pad_h_ok = all(v == 0 for v in pad_h)
                     pad_w_ok = all(v == 0 for v in pad_w)
                 if pad_h_ok and pad_w_ok:
-                    batch_metrics, count = compute_depth_metrics(val_pred_depths, gt_depths, return_count=True)
+                    batch_metrics, count = compute_depth_metrics(
+                        val_pred_depths, gt_depths, return_count=True, mode=args.depth_eval_mode
+                    )
                     if batch_metrics:
                         for k in val_metrics:
                             val_metrics[k] += batch_metrics.get(k, 0) * count
@@ -854,10 +885,10 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
             if not can_batch:
                 for b in range(val_inputs.size(0)):
                     meta_b = _extract_meta(metas, b)
-                    pred_b, gt_b = _crop_to_valid_region(
+                    pred_b, gt_b, mask_b = _crop_to_valid_region(
                         val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
                     )
-                    batch_metrics = compute_depth_metrics(pred_b, gt_b)
+                    batch_metrics = compute_depth_metrics(pred_b, gt_b, mask=mask_b, mode=args.depth_eval_mode)
                     if not batch_metrics:
                         continue
                     for k in val_metrics:
@@ -1049,9 +1080,9 @@ training_history.setdefault('final_full_abs_rel', None)
 training_history.setdefault('final_full_l1', None)
 training_history.setdefault('final_full_rmse', None)
 training_history.setdefault('final_full_a1', None)
-training_history.setdefault('final_full_si_abs_rel', None)
-training_history.setdefault('final_full_si_rmse', None)
-training_history.setdefault('final_full_si_a1', None)
+training_history.setdefault('final_full_rel_abs_rel', None)
+training_history.setdefault('final_full_rel_rmse', None)
+training_history.setdefault('final_full_rel_a1', None)
 logger.info("Running final full-resolution evaluation...")
 final_valid_dataset = HyperSim_Simple(
     split='test',
@@ -1086,22 +1117,22 @@ if final_full:
     training_history["final_full_a1"] = final_full["a1"]
     pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
-if args.depth_eval_mode == "metric":
-    logger.info("Running final scale-invariant evaluation...")
-    prev_mode = args.depth_eval_mode
-    args.depth_eval_mode = "scale_invariant"
-    _, final_si = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
-    args.depth_eval_mode = prev_mode
-    if final_si:
-        logger.info(
-            f"Final SI AbsRel: {final_si['abs_rel']:.4f} | "
-            f"Final SI RMSE: {final_si['rmse']:.4f} | "
-            f"Final SI a1: {final_si['a1']:.4f}"
-        )
-        training_history["final_full_si_abs_rel"] = final_si["abs_rel"]
-        training_history["final_full_si_rmse"] = final_si["rmse"]
-        training_history["final_full_si_a1"] = final_si["a1"]
-        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+# if args.depth_eval_mode == "metric":
+logger.info("Running final relative (scale+shift aligned) evaluation...")
+prev_mode = args.depth_eval_mode
+args.depth_eval_mode = "relative"
+_, final_rel = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
+args.depth_eval_mode = prev_mode
+if final_rel:
+    logger.info(
+        f"Final Rel AbsRel: {final_rel['abs_rel']:.4f} | "
+        f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
+        f"Final Rel a1: {final_rel['a1']:.4f}"
+    )
+    training_history["final_full_rel_abs_rel"] = final_rel["abs_rel"]
+    training_history["final_full_rel_rmse"] = final_rel["rmse"]
+    training_history["final_full_rel_a1"] = final_rel["a1"]
+    pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
 del model, decoder
 gc.collect()

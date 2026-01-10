@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.cuda.amp as amp
 
 
 def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
@@ -11,291 +12,181 @@ def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
     raise ValueError(f"Expected (B,H,W) or (B,1,H,W); got {tuple(x.shape)}")
 
 
-def _masked_mean(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    # x, mask: (B,1,H,W)
-    denom = mask.sum(dim=(2, 3), keepdim=True).clamp_min(eps)
-    return (x * mask).sum(dim=(2, 3), keepdim=True) / denom
+def _default_mask(gt: torch.Tensor, eps: float) -> torch.Tensor:
+    return (torch.isfinite(gt) & (gt > eps)).float()
 
 
-def _masked_median_per_image(x: torch.Tensor, mask: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
+    # Solves least-squares for s,t in s*pred + t against target
+    a_00 = torch.sum(mask * prediction * prediction, (1, 2))
+    a_01 = torch.sum(mask * prediction, (1, 2))
+    a_11 = torch.sum(mask, (1, 2))
+
+    b_0 = torch.sum(mask * prediction * target, (1, 2))
+    b_1 = torch.sum(mask * target, (1, 2))
+
+    x_0 = torch.zeros_like(b_0)
+    x_1 = torch.zeros_like(b_1)
+
+    det = a_00 * a_11 - a_01 * a_01
+    valid = det > 0
+
+    x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
+    x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
+
+    # Identity transform for invalid cases to avoid collapsing predictions to zero.
+    x_0[~valid] = 1.0
+    x_1[~valid] = 0.0
+
+    return x_0, x_1
+
+
+def _reduction_batch(image_loss: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
+    denom = torch.sum(M)
+    if denom == 0:
+        return image_loss.new_zeros(())
+    return torch.sum(image_loss) / denom
+
+
+def _gradient_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+                   reduction=_reduction_batch) -> torch.Tensor:
+    M = torch.sum(mask, (1, 2))
+    diff = (prediction - target) * mask
+
+    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
+    mask_x = mask[:, :, 1:] * mask[:, :, :-1]
+    grad_x = grad_x * mask_x
+
+    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
+    mask_y = mask[:, 1:, :] * mask[:, :-1, :]
+    grad_y = grad_y * mask_y
+
+    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
+    return reduction(image_loss, M)
+
+
+def _l1_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+            reduction=_reduction_batch) -> torch.Tensor:
+    M = torch.sum(mask, (1, 2))
+    res = torch.abs(prediction - target)
+    image_loss = torch.sum(mask * res, (1, 2))
+    return reduction(image_loss, M)
+
+
+class SILogLoss(nn.Module):
+    """SILog loss (pixel-wise)."""
+    def __init__(self, beta: float = 0.15, correction: int = 1, per_image: bool = True):
+        super().__init__()
+        self.beta = float(beta)
+        self.correction = int(correction)
+        self.per_image = bool(per_image)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
+        pred = _ensure_4d(pred).float()
+        target = _ensure_4d(target).float()
+        mask = _ensure_4d(mask).float()
+
+        with amp.autocast(enabled=False):
+            alpha = 1e-7
+            pred = torch.clamp(pred, min=alpha)
+            target = torch.clamp(target, min=alpha)
+
+            g = torch.log(pred) - torch.log(target)
+            if self.per_image:
+                B = g.shape[0]
+                g_flat = g.reshape(B, -1)
+                m_flat = mask.reshape(B, -1)
+                mask_sum = m_flat.sum(dim=1)
+                valid_img = mask_sum > 0
+
+                mask_sum_safe = mask_sum.clamp_min(1.0)
+                mean = (g_flat * m_flat).sum(dim=1) / mask_sum_safe
+                denom_var = (mask_sum_safe - float(self.correction)).clamp_min(1.0)
+                var = ((g_flat - mean[:, None]) ** 2 * m_flat).sum(dim=1) / denom_var
+                Dg = var + self.beta * mean.pow(2)
+                loss_per_img = 10.0 * torch.sqrt(Dg)
+                return loss_per_img[valid_img].mean() if valid_img.any() else pred.new_zeros(())
+
+            denom = mask.sum().clamp_min(1.0)
+            mean = (g * mask).sum() / denom
+            denom_var = (denom - float(self.correction)).clamp_min(1.0)
+            var = ((g - mean) ** 2 * mask).sum() / denom_var
+            Dg = var + self.beta * mean.pow(2)
+            return 10.0 * torch.sqrt(Dg)
+
+
+class MonocularDepthHybridLoss(nn.Module):
     """
-    Robust but slower. Returns (B,1,1,1).
-    Implemented with a per-sample loop; typically acceptable for depth batches.
-    """
-    B = x.shape[0]
-    out = []
-    for b in range(B):
-        xb = x[b, 0]  # (H,W)
-        mb = mask[b, 0] > 0.5
-        vals = xb[mb]
-        if vals.numel() == 0:
-            out.append(torch.tensor(1.0, device=x.device, dtype=x.dtype))
-        else:
-            out.append(vals.median())
-    out = torch.stack(out, dim=0).view(B, 1, 1, 1).clamp_min(eps)
-    return out
-
-
-def _erode_mask(mask: torch.Tensor, k: int = 3) -> torch.Tensor:
-    if k <= 1:
-        return mask
-    inv = 1.0 - mask
-    inv_dil = F.max_pool2d(inv, kernel_size=k, stride=1, padding=k // 2)
-    eroded = 1.0 - inv_dil
-    return (eroded > 0.5).float()
-
-
-def ssim_distance_map_unit01(pred01: torch.Tensor, tgt01: torch.Tensor, window: int = 3) -> torch.Tensor:
-    """
-    SSIM distance map in [0,1], assumes inputs are in [0,1].
-    Reflection padding reduces border artifacts.
-    """
-    C1 = (0.01) ** 2
-    C2 = (0.03) ** 2
-
-    pad = window // 2
-    pred = F.pad(pred01, (pad, pad, pad, pad), mode="reflect")
-    tgt  = F.pad(tgt01,  (pad, pad, pad, pad), mode="reflect")
-
-    mu_p = F.avg_pool2d(pred, window, stride=1, padding=0)
-    mu_t = F.avg_pool2d(tgt,  window, stride=1, padding=0)
-
-    sigma_p  = F.avg_pool2d(pred * pred, window, stride=1, padding=0) - mu_p * mu_p
-    sigma_t  = F.avg_pool2d(tgt  * tgt,  window, stride=1, padding=0) - mu_t * mu_t
-    sigma_pt = F.avg_pool2d(pred * tgt,  window, stride=1, padding=0) - mu_p * mu_t
-
-    ssim = ((2 * mu_p * mu_t + C1) * (2 * sigma_pt + C2)) / (
-        (mu_p * mu_p + mu_t * mu_t + C1) * (sigma_p + sigma_t + C2)
-    )
-    return torch.clamp((1.0 - ssim) * 0.5, 0.0, 1.0)
-
-
-class MonocularDepthLoss(nn.Module):
-    """
-    Composite depth loss with INTERNAL normalization suitable for unnormalized metric depth.
-
-    Key idea:
-      - Normalize both pred and GT by a per-image GT-derived scale so typical magnitude ~ 1.
-      - Use that normalized depth for L1 / grad / SSIM for stable optimization.
-      - SILog can be used on normalized depths as well (often redundant but fine).
-
-    If you want strict metric scale supervision, use scale_mode='dataset' and provide dataset_scale.
+    Hybrid monocular depth loss:
+      - Scale-and-shift invariant L1 on aligned prediction (MiDaS-style)
+      - Multi-scale gradient loss on aligned prediction (MiDaS-style)
+      - Optional SILog on aligned prediction (ZoeDepth/AdaBins-style)
     """
     def __init__(
         self,
-        silog_w: float = 0.0,
         l1_w: float = 1.0,
         grad_w: float = 0.5,
-        ssim_w: float = 0.2,
-        l_inf_w: float = 0.0,
-        lambda_var: float = 1.0,   # standard SILog variance term (mean_sq - mean^2)
-        valid_mask: bool = True,
+        silog_w: float = 0.0,
+        silog_beta: float = 0.15,
+        scales: int = 4,
+        reduction: str = "batch-based",
         eps: float = 1e-8,
-        # normalization
-        scale_mode: str = "gt_mean",   # 'gt_mean' | 'gt_median' | 'dataset' | 'none'
-        dataset_scale: float | None = None,
-        scale_detach: bool = True,     # stop-grad through scale to avoid cheating
-        # gradient loss domain
-        grad_use_log: bool = False,
-        # SSIM settings
-        ssim_norm_mode: str = "per_image",  # "per_image"
-        ssim_min: float | None = None,
-        ssim_max: float | None = None,
-        ssim_percentiles: tuple[float, float] = (5.0, 95.0),
-        ssim_window: int = 3,
-        ssim_erode_mask: bool = True,
-        ssim_log_range: float = 4.0,   # map log-depth in [1/r, r] to [0,1]; default r=4
+        silog_on_aligned: bool = False,
     ):
         super().__init__()
-        self.silog_w = float(silog_w)
         self.l1_w = float(l1_w)
         self.grad_w = float(grad_w)
-        self.ssim_w = float(ssim_w)
-        self.l_inf_w = float(l_inf_w)
-        self.lambda_var = float(lambda_var)
-        self.use_default_valid_mask = bool(valid_mask)
+        self.silog_w = float(silog_w)
+        self.scales = int(scales)
         self.eps = float(eps)
+        self.silog_on_aligned = bool(silog_on_aligned)
 
-        self.scale_mode = str(scale_mode)
-        self.dataset_scale = dataset_scale
-        self.scale_detach = bool(scale_detach)
-        self.grad_use_log = bool(grad_use_log)
-        self.ssim_norm_mode = str(ssim_norm_mode)
-        self.ssim_min = ssim_min
-        self.ssim_max = ssim_max
-        self.ssim_percentiles = ssim_percentiles
-
-        self.ssim_window = int(ssim_window)
-        self.ssim_erode_mask = bool(ssim_erode_mask)
-        self.ssim_log_range = float(ssim_log_range)
-
-        if self.scale_mode == "dataset" and (self.dataset_scale is None or self.dataset_scale <= 0):
-            raise ValueError("scale_mode='dataset' requires dataset_scale > 0")
-
-    def forward(self, pred_depth, gt_depth, valid_mask=None):
-        pred_depth = _ensure_4d(pred_depth)
-        gt_depth = _ensure_4d(gt_depth)
-
-        finite = torch.isfinite(gt_depth)
-        if valid_mask is None and self.use_default_valid_mask:
-            valid_mask = (finite & (gt_depth > self.eps)).float()
-        elif valid_mask is not None:
-            valid_mask = _ensure_4d(valid_mask).float()
-            valid_mask = valid_mask * finite.float()
+        if reduction == "batch-based":
+            self._reduction = _reduction_batch
         else:
-            valid_mask = finite.float()
+            raise ValueError("Only 'batch-based' reduction is supported.")
 
-        # fp32 for AMP/bf16 stability
-        pred = pred_depth.float()
-        gt = gt_depth.float()
-        mask = valid_mask.float()
+        self._silog = SILogLoss(beta=silog_beta)
 
-        # --- normalization (core) ---
-        scale = self._compute_scale(gt, mask)  # (B,1,1,1)
-        if self.scale_detach:
-            scale = scale.detach()
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None,
+                interpolate: bool = True):
+        prediction = _ensure_4d(prediction)
+        target = _ensure_4d(target)
 
-        pred_n = pred / scale
-        gt_n   = gt   / scale
+        if interpolate and prediction.shape[-2:] != target.shape[-2:]:
+            prediction = F.interpolate(prediction, target.shape[-2:], mode="bilinear", align_corners=True)
 
-        loss_dict = {}
-        total = pred_n.new_zeros(())
+        if mask is None:
+            mask = _default_mask(target, self.eps)
+        else:
+            mask = _ensure_4d(mask).float()
 
-        if self.silog_w > 0:
-            silog = self._silog_loss(pred_n, gt_n, mask)
-            total = total + self.silog_w * silog
-            loss_dict["silog"] = float(silog.detach().item())
+        # squeeze channel for scale/shift (B,H,W)
+        pred_hw = prediction[:, 0]
+        tgt_hw = target[:, 0]
+        m_hw = mask[:, 0]
 
+        scale, shift = compute_scale_and_shift(pred_hw, tgt_hw, m_hw)
+        pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
+
+        total = pred_aligned.new_zeros(())
         if self.l1_w > 0:
-            l1 = self._l1_loss(pred_n, gt_n, mask)
-            total = total + self.l1_w * l1
-            loss_dict["l1"] = float(l1.detach().item())
+            total = total + self.l1_w * _l1_loss(pred_aligned[:, 0], target[:, 0], m_hw, self._reduction)
 
         if self.grad_w > 0:
-            if self.grad_use_log:
-                pred_g = torch.log(torch.clamp(pred_n, min=self.eps))
-                gt_g = torch.log(torch.clamp(gt_n, min=self.eps))
-            else:
-                pred_g = pred_n
-                gt_g = gt_n
-            grad = self._gradient_loss(pred_g, gt_g, mask)
-            total = total + self.grad_w * grad
-            loss_dict["grad"] = float(grad.detach().item())
+            grad_total = pred_aligned.new_zeros(())
+            for scale_i in range(self.scales):
+                step = 2 ** scale_i
+                grad_total = grad_total + _gradient_loss(
+                    pred_aligned[:, 0, ::step, ::step],
+                    target[:, 0, ::step, ::step],
+                    m_hw[:, ::step, ::step],
+                    reduction=self._reduction,
+                )
+            total = total + self.grad_w * grad_total
 
-        if self.ssim_w > 0:
-            ssim_l = self._ssim_loss(pred_n, gt_n, mask)
-            total = total + self.ssim_w * ssim_l
-            loss_dict["ssim"] = float(ssim_l.detach().item())
+        if self.silog_w > 0:
+            silog_pred = pred_aligned if self.silog_on_aligned else prediction
+            total = total + self.silog_w * self._silog(silog_pred, target, mask)
 
-        if self.l_inf_w > 0:
-            linf = self._l_inf_loss(pred_n, gt_n, mask)
-            total = total + self.l_inf_w * linf
-            loss_dict["l_inf"] = float(linf.detach().item())
-
-        # helpful for debugging
-        loss_dict["scale_mean"] = float(scale.mean().detach().item())
-
-        return total, loss_dict
-
-    def _compute_scale(self, gt: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        if self.scale_mode == "none":
-            return torch.ones((gt.shape[0], 1, 1, 1), device=gt.device, dtype=gt.dtype)
-
-        if self.scale_mode == "dataset":
-            return torch.full((gt.shape[0], 1, 1, 1), float(self.dataset_scale),
-                              device=gt.device, dtype=gt.dtype).clamp_min(self.eps)
-
-        if self.scale_mode == "gt_mean":
-            s = _masked_mean(gt, mask, eps=self.eps)
-            return s.clamp_min(self.eps)
-
-        if self.scale_mode == "gt_median":
-            s = _masked_median_per_image(gt, mask, eps=self.eps)
-            return s.clamp_min(self.eps)
-
-        raise ValueError(f"Unknown scale_mode: {self.scale_mode}")
-
-    def _silog_loss(self, pred, gt, mask):
-        pred_c = torch.clamp(pred, min=self.eps)
-        gt_c   = torch.clamp(gt,   min=self.eps)
-
-        log_diff = (torch.log(pred_c) - torch.log(gt_c)) * mask
-        valid = mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(self.eps)
-
-        mean_sq = (log_diff * log_diff).sum(dim=(1, 2, 3), keepdim=True) / valid
-        mean    = log_diff.sum(dim=(1, 2, 3), keepdim=True) / valid
-
-        var = mean_sq - self.lambda_var * (mean * mean)
-        silog = torch.sqrt(torch.clamp(var, min=self.eps))
-        return silog.mean()
-
-    def _l1_loss(self, pred, gt, mask):
-        valid = mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(self.eps)
-        l1 = (torch.abs(pred - gt) * mask).sum(dim=(1, 2, 3), keepdim=True) / valid
-        return l1.mean()
-
-    def _gradient_loss(self, pred, gt, mask):
-        pred_gx = pred[:, :, :, 1:] - pred[:, :, :, :-1]
-        pred_gy = pred[:, :, 1:, :] - pred[:, :, :-1, :]
-        gt_gx   = gt[:,   :, :, 1:] - gt[:,   :, :, :-1]
-        gt_gy   = gt[:,   :, 1:, :] - gt[:,   :, :-1, :]
-
-        mx = mask[:, :, :, 1:] * mask[:, :, :, :-1]
-        my = mask[:, :, 1:, :] * mask[:, :, :-1, :]
-
-        vx = mx.sum(dim=(1, 2, 3), keepdim=True).clamp_min(self.eps)
-        vy = my.sum(dim=(1, 2, 3), keepdim=True).clamp_min(self.eps)
-
-        lx = (torch.abs(pred_gx - gt_gx) * mx).sum(dim=(1, 2, 3), keepdim=True) / vx
-        ly = (torch.abs(pred_gy - gt_gy) * my).sum(dim=(1, 2, 3), keepdim=True) / vy
-        return (lx + ly).mean()
-
-    def _ssim_loss(self, pred_n, gt_n, mask):
-        """
-        SSIM on normalized depths, with log mapping around 1:
-          - pred_n/gt_n are already scaled so typical magnitude ~ 1
-          - apply log, then map a fixed multiplicative window [1/r, r] to [0,1]
-        """
-        ssim_mask = _erode_mask(mask, k=self.ssim_window) if self.ssim_erode_mask else mask
-
-        pred_c = torch.clamp(pred_n, min=self.eps)
-        gt_c   = torch.clamp(gt_n,   min=self.eps)
-
-        pred_l = torch.log(pred_c)
-        gt_l   = torch.log(gt_c)
-
-        if self.ssim_norm_mode == "per_image":
-            p_lo, p_hi = self.ssim_percentiles
-            pred01_list = []
-            gt01_list = []
-            log_r = torch.log(torch.tensor(self.ssim_log_range, device=pred_l.device, dtype=pred_l.dtype))
-            for b in range(pred_l.shape[0]):
-                mb = ssim_mask[b, 0] > 0.5
-                vals = gt_l[b, 0][mb]
-                if vals.numel() < 16:
-                    min_l = -log_r
-                    max_l = log_r
-                else:
-                    min_l = torch.quantile(vals, p_lo / 100.0)
-                    max_l = torch.quantile(vals, p_hi / 100.0)
-                    if (max_l - min_l) < self.eps:
-                        min_l = -log_r
-                        max_l = log_r
-                denom = (max_l - min_l).clamp_min(self.eps)
-                pred01_list.append(torch.clamp((pred_l[b:b+1] - min_l) / denom, 0.0, 1.0))
-                gt01_list.append(torch.clamp((gt_l[b:b+1] - min_l) / denom, 0.0, 1.0))
-            pred01 = torch.cat(pred01_list, dim=0)
-            gt01 = torch.cat(gt01_list, dim=0)
-        else:
-            raise ValueError(f"Unsupported ssim_norm_mode='{self.ssim_norm_mode}'.")
-
-        dist = ssim_distance_map_unit01(pred01, gt01, window=self.ssim_window)
-
-        valid = ssim_mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(self.eps)
-        loss = (dist * ssim_mask).sum(dim=(1, 2, 3), keepdim=True) / valid
-        return loss.mean()
-
-    def _l_inf_loss(self, pred, gt, mask):
-        diff = torch.abs(pred - gt) * mask
-        max_per = diff.flatten(1).amax(dim=1)
-        return max_per.mean()
+        return total
