@@ -61,7 +61,7 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=True,
-    model_size='base',
+    model_size='small',
     train_sizes=[(240, 320)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
@@ -84,9 +84,11 @@ args = SimpleNamespace(
     # warmup_steps_for_aux=100,
     workers=8,
     composite_lr=True,
-    warmup_steps=5000,
+    warmup_steps=3000,
     warmup_ratio=None,
     clip_value=1.0,
+    debug_loss_stats=False,
+    debug_loss_interval=200,
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
     log_interval=300,
@@ -97,7 +99,7 @@ args = SimpleNamespace(
     eval_crop_mode=None,  # "nyu" to apply Eigen crop
     eval_dataset="hypersim",  # "hypersim" or "nyu"
     eval_depth_min=1e-3,
-    eval_depth_max=20.0,
+    eval_depth_max=None,
     use_sliding_window=False,
     sw_window_size=None,
     sw_overlap=0.25,
@@ -107,7 +109,7 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
+    resume_full_ckpt=False,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr50_metric_median_h240w320/20260110_075622/ckpt/last.pth",
     total_run_time_sec=None,
 )
@@ -116,7 +118,7 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
     args.use_rc_loss = False
-if args.eval_dataset == "nyu" and args.eval_depth_max == 20.0:
+if args.eval_dataset == "nyu" and args.eval_depth_max is None:
     args.eval_depth_max = 10.0
 # print(args)
 
@@ -204,14 +206,15 @@ logger.info(f"Using mixed precision: {'disabled' if not use_amp else ('bfloat16'
 logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
-# wait_for_python_gpu_processes(poll_interval_minutes=5, logger=logger)
-# --- Acquire a file lock to ensure exclusive GPU usage ---        
-lock_path = "/tmp/gpu.lock"
-lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
-gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
-print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
-gpu_lock.acquire()
-print("Lock acquired. It is safe to proceed.")
+
+if args.lock:
+    # --- Acquire a file lock to ensure exclusive GPU usage ---        
+    lock_path = "/tmp/gpu.lock"
+    lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
+    gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
+    print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
+    gpu_lock.acquire()
+    print("Lock acquired. It is safe to proceed.")
 
 logger.info(output_dir)
 # logger.info(args)
@@ -739,6 +742,19 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
             valid = (gt_depths > 0) & torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
             base_loss, loss_dict = criterion(pred_depths, gt_depths, valid_mask=valid)
             loss = base_loss
+
+        if args.debug_loss_stats and ((i + 1) % args.debug_loss_interval == 0):
+            with torch.no_grad():
+                vm = valid.float()
+                denom = vm.sum().clamp_min(1)
+                gt_mean = (gt_depths * vm).sum() / denom
+                pred_mean = (pred_depths * vm).sum() / denom
+                gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
+                pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
+            logger.info(
+                f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
+                f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
+            )
         
         if Use_Row_Col_Loss:
             last_feat = features[-1] if isinstance(features, (list, tuple)) else features
@@ -1053,6 +1069,6 @@ gc.collect()
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
     
-if args.lock and gpu_lock and gpu_lock.is_locked:
+if args.lock and gpu_lock:
     logger.info("Manually releasing lock.")
     gpu_lock.release()

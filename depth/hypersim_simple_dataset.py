@@ -95,7 +95,7 @@ class HyperSim_Simple(Dataset):
         pil_img = Image.fromarray(rgb_image)
         depthmap = np.load(depthpath)
         depthmap[~np.isfinite(depthmap)] = 0.0
-        depthmap = depthmap.astype(np.float32)/100.0
+        depthmap = depthmap.astype(np.float32)
 
         out = self.pair_transform(pil_img, depthmap)
         if isinstance(out, tuple) and len(out) == 3:
