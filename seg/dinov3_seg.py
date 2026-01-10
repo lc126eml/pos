@@ -94,6 +94,8 @@ args = SimpleNamespace(
     rc_alpha=30.0,
     # dice_weight=0.0,
     workers=5,
+    color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
+    color_jitter_prob=0.1,
     train=True,
     val=False,
     ckpt_path=None,
@@ -251,6 +253,8 @@ train_dataset = SegmentationDataset(
     TRAIN_ANNOTATION_PATH,
     pair_transform=TrainSegAug(
         target_size=(args.train_img_size, args.train_img_size),
+        color_jitter=args.color_jitter,
+        color_jitter_prob=args.color_jitter_prob,
         normalize=True,
     ),
 )

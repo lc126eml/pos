@@ -104,7 +104,7 @@ def train_aug_seg_resize_random_crop(
         newH = int(round(H0 * base))
         newW = int(round(W0 * base))
 
-    pil = pil.resize((newW, newH), resample=Image.BILINEAR)
+    pil = pil.resize((newW, newH), resample=Image.BICUBIC)
     m = m.resize((newW, newH), resample=Image.NEAREST)
 
     top = 0 if newH == Ht else random.randint(0, newH - Ht)
@@ -156,12 +156,17 @@ def eval_preprocess_seg_keep_ar(
 
     newH = int(round(H0 * scale))
     newW = int(round(W0 * scale))
-    pil = pil.resize((newW, newH), resample=Image.BILINEAR)
+    pil = pil.resize((newW, newH), resample=Image.BICUBIC)
     m = m.resize((newW, newH), resample=Image.NEAREST)
 
     top = max(0, (newH - Ht) // 2)
     left = max(0, (newW - Wt) // 2)
     pad = (0, 0, 0, 0)
+    mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+    if len(mean_v) == 1:
+        mean_v = mean_v * 3
+    pad_fill = tuple(int(round(m * 255.0)) for m in mean_v[:3])
+
     if eval_crop_mode == "crop":
         pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
         m = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
@@ -173,7 +178,7 @@ def eval_preprocess_seg_keep_ar(
             pad_left = pad_w // 2
             pad_bottom = pad_h - pad_top
             pad_right = pad_w - pad_left
-            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
+            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
             m = TF.pad(m, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
             pad = (pad_left, pad_top, pad_right, pad_bottom)
     elif eval_crop_mode == "crop_or_pad":
@@ -187,7 +192,7 @@ def eval_preprocess_seg_keep_ar(
             pad_left = pad_w // 2
             pad_bottom = pad_h - pad_top
             pad_right = pad_w - pad_left
-            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
+            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
             m = TF.pad(m, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
             pad = (pad_left, pad_top, pad_right, pad_bottom)
     else:
