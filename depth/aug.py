@@ -339,7 +339,7 @@ class TrainDepthAug:
         hflip_prob: float = 0.5,
         scale_jitter: Optional[Tuple[float, float]] = (0.85, 1.15),
         color_jitter: Optional[Dict[str, float]] = None,
-        color_jitter_prob: float = 0.8,
+        color_jitter_prob: float = 0.5,
         gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
         grayscale_prob: float = 0.05,
         blur_prob: float = 0.0,

@@ -63,7 +63,8 @@ args = SimpleNamespace(
     use_rot_pos_emb=True,
     model_size='base',
     train_sizes=[(240, 320)],  # list of (H, W)
-    eval_size=(384, 512),      # (H, W) eval at native size
+    eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
+    color_jitter_prob=0.5,
     batch_size=40,
     grad_accum_steps=2,
     # batch_size=6,
@@ -83,7 +84,8 @@ args = SimpleNamespace(
     # warmup_steps_for_aux=100,
     workers=8,
     composite_lr=True,
-    warmup_steps=3000,
+    warmup_steps=5000,
+    warmup_ratio=None,
     clip_value=1.0,
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
@@ -105,8 +107,8 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr50_metric_median_h240w320/20260110_075622/ckpt/last.pth",
     total_run_time_sec=None,
 )
 
@@ -176,8 +178,9 @@ if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
 run_tag = time.strftime("%Y%m%d_%H%M%S")
-output_dir = os.path.join(args.output_dir, subdir_name, run_tag)
+output_dir = os.path.join(args.output_dir, subdir_name)
 ckpt_output_dir = os.path.join(output_dir, "ckpt")
+output_dir = os.path.join(output_dir, run_tag)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
@@ -225,7 +228,8 @@ try:
         num_views=1,
         pair_transform=TrainDepthAug(
             target_size=TRAIN_SIZE,
-            scale_jitter=(0.90, 1.01) if args.use_sliding_window else (0.85, 1.00),
+            scale_jitter=(0.90, 1.01) if args.use_sliding_window else (0.75, 1.05),
+            color_jitter_prob=args.color_jitter_prob,
             normalize=True,
         ),
     )
@@ -624,7 +628,10 @@ criterion = MonocularDepthLoss(
 optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
 total_steps = EPOCHS * optimizer_steps_per_epoch
 if args.composite_lr:
-    warmup_steps = min(args.warmup_steps, max(1, total_steps - 1))
+    warmup_steps = args.warmup_steps
+    if args.warmup_ratio is not None:
+        warmup_steps = int(max(1, total_steps * float(args.warmup_ratio)))
+    warmup_steps = min(warmup_steps, max(1, total_steps - 1))
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=1e-7 / args.lr,
@@ -824,7 +831,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
                     batch_metrics, count = compute_depth_metrics(val_pred_depths, gt_depths, return_count=True)
                     if batch_metrics:
                         for k in val_metrics:
-                            val_metrics[k] += batch_metrics.get(k, 0)
+                            val_metrics[k] += batch_metrics.get(k, 0) * count
                         steps += count
                 else:
                     can_batch = False
@@ -881,28 +888,51 @@ if not isinstance(locals().get("training_history", None), dict):
     training_history = {
         'train_loss': [],
         'valid_abs_rel': [], 'valid_l1': [], 'valid_rmse': [], 'valid_a1': [],
+        'train_time': [], 'val_time': [],
         'epoch': []
     }
 if Use_Row_Col_Loss:
     training_history['base_loss'] = []
     training_history['aux_loss'] = []
+
+# Ensure keys exist when resuming older checkpoints
+training_history.setdefault('train_time', [])
+training_history.setdefault('val_time', [])
+training_history.setdefault('valid_l1', [])
+training_history.setdefault('valid_abs_rel', [])
+training_history.setdefault('valid_rmse', [])
+training_history.setdefault('valid_a1', [])
+training_history.setdefault('train_loss', [])
+training_history.setdefault('epoch', [])
+if Use_Row_Col_Loss:
+    training_history.setdefault('base_loss', [])
+    training_history.setdefault('aux_loss', [])
 best_val_abs_rel = float('inf')
 
 logger.info("Starting training...")
 for epoch in range(start_epoch, EPOCHS):
+    train_start = time.time()
     avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
         model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
     )
+    train_time = time.time() - train_start
     # , avg_train_metrics
+    val_start = time.time()
     avg_val_loss, avg_val_metrics = validate(
         model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
     )
+    val_time = time.time() - val_start
 
     logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
     if Use_Row_Col_Loss:
-        logger.info(f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | base_loss: {base_loss:.4f}")
+        logger.info(
+            f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | "
+            f"base_loss: {base_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
+        )
     else:
-        logger.info(f"  Train Loss: {avg_train_loss:.4f}")
+        logger.info(
+            f"  Train Loss: {avg_train_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
+        )
     logger.info(
         f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
         f"Valid L1: {avg_val_metrics['l1']:.4f} | "
@@ -921,6 +951,8 @@ for epoch in range(start_epoch, EPOCHS):
     training_history['valid_l1'].append(avg_val_metrics['l1'])
     training_history['valid_rmse'].append(avg_val_metrics['rmse'])
     training_history['valid_a1'].append(avg_val_metrics['a1'])
+    training_history['train_time'].append(train_time)
+    training_history['val_time'].append(val_time)
     training_history['epoch'].append(epoch + 1)
     
     # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
