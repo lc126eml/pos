@@ -60,8 +60,8 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
-    model_size='small',
+    use_rot_pos_emb=False,
+    model_size='base',
     train_sizes=[(240, 320)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
@@ -79,7 +79,7 @@ args = SimpleNamespace(
     overlap=0,
     seed=55,
     val_steps=None,
-    use_rc_loss=True,
+    use_rc_loss=False,
     rc_alpha=20.0,
     # warmup_steps_for_aux=100,
     workers=8,
@@ -87,8 +87,8 @@ args = SimpleNamespace(
     warmup_steps=3000,
     warmup_ratio=None,
     clip_value=1.0,
-    debug_loss_stats=False,
-    debug_loss_interval=200,
+    debug_loss_stats=True,
+    debug_loss_interval=600,
     lock=True,
     depth_decoder="lite4",  # "simple" or "lite4"
     log_interval=300,
@@ -1045,13 +1045,52 @@ if not history_df.empty:
 logger.info(output_dir)
 logger.info(subdir_name)
 
+training_history.setdefault('final_full_abs_rel', None)
+training_history.setdefault('final_full_l1', None)
+training_history.setdefault('final_full_rmse', None)
+training_history.setdefault('final_full_a1', None)
+training_history.setdefault('final_full_si_abs_rel', None)
+training_history.setdefault('final_full_si_rmse', None)
+training_history.setdefault('final_full_si_a1', None)
+logger.info("Running final full-resolution evaluation...")
+final_valid_dataset = HyperSim_Simple(
+    split='test',
+    ROOT=f'{args.data_root}/hypersim_processed/test',
+    resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
+    num_views=1,
+    seed=777,
+    pair_transform=EvalDepthPreprocessNoResize(
+        ensure_multiple_of=args.patch_size,
+        normalize=True,
+    ),
+)
+final_valid_loader = DataLoader(
+    final_valid_dataset, batch_size=1, shuffle=False, num_workers=args.workers,
+    pin_memory=torch.cuda.is_available(), drop_last=False,
+    persistent_workers=(args.workers > 0),
+    worker_init_fn=_seed_worker,
+    generator=data_rng,
+    prefetch_factor=2,
+)
+_, final_full = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
+if final_full:
+    logger.info(
+        f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
+        f"Final Full L1: {final_full['l1']:.4f} | "
+        f"Final Full RMSE: {final_full['rmse']:.4f} | "
+        f"Final Full a1: {final_full['a1']:.4f}"
+    )
+    training_history["final_full_abs_rel"] = final_full["abs_rel"]
+    training_history["final_full_l1"] = final_full["l1"]
+    training_history["final_full_rmse"] = final_full["rmse"]
+    training_history["final_full_a1"] = final_full["a1"]
+    pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+
 if args.depth_eval_mode == "metric":
     logger.info("Running final scale-invariant evaluation...")
     prev_mode = args.depth_eval_mode
     args.depth_eval_mode = "scale_invariant"
-    _, final_si = validate(
-        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
-    )
+    _, final_si = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
     args.depth_eval_mode = prev_mode
     if final_si:
         logger.info(
@@ -1059,9 +1098,9 @@ if args.depth_eval_mode == "metric":
             f"Final SI RMSE: {final_si['rmse']:.4f} | "
             f"Final SI a1: {final_si['a1']:.4f}"
         )
-        training_history["final_si_abs_rel"] = final_si["abs_rel"]
-        training_history["final_si_rmse"] = final_si["rmse"]
-        training_history["final_si_a1"] = final_si["a1"]
+        training_history["final_full_si_abs_rel"] = final_si["abs_rel"]
+        training_history["final_full_si_rmse"] = final_si["rmse"]
+        training_history["final_full_si_a1"] = final_si["a1"]
         pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 
 del model, decoder
