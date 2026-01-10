@@ -149,7 +149,7 @@ if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
 
 use_amp = torch.cuda.is_available()
-use_bf16 = use_amp and torch.cuda.is_bf16_supported()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported(including_emulation=False)
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
 np.random.seed(SEED)
@@ -908,7 +908,8 @@ def save_checkpoint(model, decoder, output_dir, suffix):
     torch.save(decoder.state_dict(), decoder_path)
     logger.info(f"Checkpoint saved: {suffix}")
 
-scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_amp)
+use_scaler = use_amp and (autocast_dtype == torch.float16)
+scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 train_start_time = time.time()
 start_epoch = 0

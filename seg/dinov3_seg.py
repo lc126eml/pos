@@ -128,7 +128,7 @@ VALID_ANNOTATION_PATH = os.path.join(args.base_path, 'annotations', 'validation'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 use_amp = torch.cuda.is_available()
-use_bf16 = use_amp and torch.cuda.is_bf16_supported()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported(including_emulation=False)
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 # Speed tweaks for Ampere+
 if torch.cuda.is_available():
