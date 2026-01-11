@@ -1686,6 +1686,16 @@ if args.train:
         training_history = resume_ckpt["training_history"]
     training_history.setdefault('train_time', [])
     training_history.setdefault('val_time', [])
+    def _pad_history(hist, fill_value=None):
+        keys = [k for k, v in hist.items() if isinstance(v, list)]
+        if not keys:
+            return
+        max_len = max(len(hist[k]) for k in keys)
+        for k in keys:
+            if len(hist[k]) < max_len:
+                hist[k].extend([fill_value] * (max_len - len(hist[k])))
+    if args.resume_full_ckpt:
+        _pad_history(training_history)
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []

@@ -697,6 +697,16 @@ if args.train:
     if isinstance(locals().get("training_history", None), dict):
         training_history.setdefault('train_time', [])
         training_history.setdefault('val_time', [])
+    def _pad_history(hist, fill_value=None):
+        keys = [k for k, v in hist.items() if isinstance(v, list)]
+        if not keys:
+            return
+        max_len = max(len(hist[k]) for k in keys)
+        for k in keys:
+            if len(hist[k]) < max_len:
+                hist[k].extend([fill_value] * (max_len - len(hist[k])))
+    if args.resume_full_ckpt and isinstance(locals().get("training_history", None), dict):
+        _pad_history(training_history)
     step = 0
     if isinstance(locals().get("training_history", None), dict):
         step = int(training_history.get("step", [0])[-1]) if training_history.get("step") else 0
