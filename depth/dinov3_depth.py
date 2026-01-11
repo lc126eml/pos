@@ -63,9 +63,9 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
-    train_sizes=[(240, 320)],  # list of (H, W)
+    train_sizes=[(240, 240)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     batch_size=40,
@@ -710,7 +710,12 @@ def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
             output_fmt="NLC",
         )
         dpt_feats = _prep_dpt_features(features, (patch_h, patch_w))
-        pred_depths = decoder(dpt_feats, patch_h=patch_h, patch_w=patch_w)
+        if use_amp:
+            dpt_feats_fp32 = [(f.float(), aux) for (f, aux) in dpt_feats]
+            with torch.amp.autocast(device_type=DEVICE.type, enabled=False):
+                pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
+        else:
+            pred_depths = decoder(dpt_feats, patch_h=patch_h, patch_w=patch_w)
         if pred_depths.dim() == 3:
             pred_depths = pred_depths.unsqueeze(1)
     else:
@@ -780,9 +785,17 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
                 pred_mean = (pred_depths * vm).sum() / denom
                 gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
                 pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
+                valid_count = int(vm.sum().item())
+                pred_min = pred_depths.min().item()
+                pred_max = pred_depths.max().item()
+                pred_mean_raw = pred_depths.mean().item()
             logger.info(
                 f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
                 f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
+            )
+            logger.info(
+                f"[debug] valid_count={valid_count} pred_min={pred_min:.6g} "
+                f"pred_max={pred_max:.6g} pred_mean_raw={pred_mean_raw:.6g}"
             )
         
         if Use_Row_Col_Loss:

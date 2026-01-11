@@ -676,6 +676,8 @@ if args.train:
                 'train_acc': [],
                 'valid_acc': [],
                 'valid_miou': [],
+                'train_time': [],
+                'val_time': [],
                 'epoch': [],
                 'step': [],
                 'base_loss': [],
@@ -687,9 +689,14 @@ if args.train:
                 'train_acc': [],
                 'valid_acc': [],
                 'valid_miou': [],
+                'train_time': [],
+                'val_time': [],
                 'epoch': [],
                 'step': [],
             }
+    if isinstance(locals().get("training_history", None), dict):
+        training_history.setdefault('train_time', [])
+        training_history.setdefault('val_time', [])
     step = 0
     if isinstance(locals().get("training_history", None), dict):
         step = int(training_history.get("step", [0])[-1]) if training_history.get("step") else 0
@@ -697,6 +704,7 @@ if args.train:
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     for epoch in range(start_epoch, args.epochs):
+        epoch_train_start = time.time()
         # --- Training Phase ---
         model.train()
         decoder.train()
@@ -775,6 +783,7 @@ if args.train:
 
             # if (step) % VAL_STEPS == 0:
         
+        train_time = time.time() - epoch_train_start
         model.eval()
         decoder.eval()
         val_correct_t = torch.zeros((), device=DEVICE)
@@ -782,6 +791,7 @@ if args.train:
         confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
 
         val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]", mininterval=0.5)
+        val_start = time.time()
 
         with torch.inference_mode():
             for inputs, labels in val_pbar:
@@ -817,6 +827,7 @@ if args.train:
                 # mIoU via confusion matrix (vectorized)
                 confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
 
+        val_time = time.time() - val_start
         # Compute IoU from confmat
         confmat_f = confmat.to(torch.float32)
         intersection = torch.diag(confmat_f)
@@ -843,20 +854,24 @@ if args.train:
             epoch_base_loss = (base_loss_t / denom_pixels).float().item()
             logger.info(
                 f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | "
-                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f} | "
+                f"train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
             )
             training_history["aux_loss"].append(epoch_aux_loss)
             training_history["base_loss"].append(epoch_base_loss)
         else:
             logger.info(
                 f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
-                f"Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+                f"Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f} | "
+                f"train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
             )
 
         training_history["train_loss"].append(epoch_train_loss)
         training_history["train_acc"].append(epoch_train_acc)
         training_history["valid_acc"].append(epoch_val_acc)
         training_history["valid_miou"].append(epoch_val_miou)
+        training_history["train_time"].append(train_time)
+        training_history["val_time"].append(val_time)
         training_history["epoch"].append(epoch + 1)
         training_history["step"].append(step)
         if (epoch + 1) % csv_interval == 0:

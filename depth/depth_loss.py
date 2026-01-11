@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.cuda.amp as amp
 
 
 def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
@@ -44,7 +43,7 @@ def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask
 def _reduction_batch(image_loss: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
     denom = torch.sum(M)
     if denom == 0:
-        return image_loss.new_zeros(())
+        return image_loss.sum() * 0.0
     return torch.sum(image_loss) / denom
 
 
@@ -86,7 +85,7 @@ class SILogLoss(nn.Module):
         target = _ensure_4d(target).float()
         mask = _ensure_4d(mask).float()
 
-        with amp.autocast(enabled=False):
+        with torch.amp.autocast(device_type=pred.device.type, enabled=False):
             alpha = 1e-7
             pred = torch.clamp(pred, min=alpha)
             target = torch.clamp(target, min=alpha)
@@ -105,7 +104,9 @@ class SILogLoss(nn.Module):
                 var = ((g_flat - mean[:, None]) ** 2 * m_flat).sum(dim=1) / denom_var
                 Dg = var + self.beta * mean.pow(2)
                 loss_per_img = 10.0 * torch.sqrt(Dg)
-                return loss_per_img[valid_img].mean() if valid_img.any() else pred.new_zeros(())
+                if valid_img.any():
+                    return loss_per_img[valid_img].mean()
+                return pred.sum() * 0.0
 
             denom = mask.sum().clamp_min(1.0)
             mean = (g * mask).sum() / denom

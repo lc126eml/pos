@@ -1665,6 +1665,8 @@ if args.train:
             'train_loss': [],
             'train_acc': [],
             'valid_acc': [],
+            'train_time': [],
+            'val_time': [],
             'epoch': [],
             'step': [],
             'base_loss': [],
@@ -1675,16 +1677,21 @@ if args.train:
             'train_loss': [],
             'train_acc': [],
             'valid_acc': [],
+            'train_time': [],
+            'val_time': [],
             'epoch': [],
             'step': [],
         }
     if resume_ckpt is not None and resume_ckpt.get("training_history") is not None:
         training_history = resume_ckpt["training_history"]
+    training_history.setdefault('train_time', [])
+    training_history.setdefault('val_time', [])
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []
     train_start_time = time.time()
     for epoch in range(start_epoch, args.epochs):
+        epoch_train_start = time.time()
         # --- Training Phase ---
         model.train()
         # epoch_train_start = time.perf_counter()
@@ -1784,6 +1791,7 @@ if args.train:
 
             step += 1
 
+        train_time = time.time() - epoch_train_start
         # if (step + 1) % VAL_STEPS == 0:
         # epoch_train_end = time.perf_counter()
         # train_epoch_times.append(epoch_train_end - epoch_train_start)
@@ -1792,6 +1800,7 @@ if args.train:
         val_correct_t = torch.zeros((), device=DEVICE)
         val_total = 0
         # val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Validation]")
+        val_start = time.time()
         
         with torch.inference_mode():
             for inputs, labels in valid_loader:
@@ -1803,6 +1812,7 @@ if args.train:
                 val_correct_t += (pred == labels).sum()
                 val_total += labels.size(0)
 
+        val_time = time.time() - val_start
         epoch_val_acc = (val_correct_t / val_total).item()
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
@@ -1817,9 +1827,16 @@ if args.train:
             epoch_base_loss  = (base_loss_t / train_total).item()
             training_history['aux_loss'].append(epoch_aux_loss)
             training_history['base_loss'].append(epoch_base_loss)
-            logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
+            logger.info(
+                f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | "
+                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | "
+                f"train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
+            )
         else:
-            logger.info(f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f}\n")
+            logger.info(
+                f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
+                f"Valid Acc: {epoch_val_acc:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
+            )
         
 
         # ✅ Append the results to the correct lists within the dictionary
@@ -1827,6 +1844,8 @@ if args.train:
         training_history['train_loss'].append(epoch_train_loss)
         training_history['train_acc'].append(epoch_train_acc)
         training_history['valid_acc'].append(epoch_val_acc)  
+        training_history['train_time'].append(train_time)
+        training_history['val_time'].append(val_time)
         training_history['epoch'].append(epoch+1)
         training_history['step'].append(step+1)
         if (epoch + 1) % csv_interval == 0:
