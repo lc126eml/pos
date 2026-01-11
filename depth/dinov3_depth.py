@@ -3,6 +3,10 @@ import math
 import os
 import sys
 import time
+
+CUDA_ALLOC_CONF_DEFAULT = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+if CUDA_ALLOC_CONF_DEFAULT:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF_DEFAULT
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
@@ -64,17 +68,17 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, None),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=40,
-    grad_accum_steps=2,
+    batch_size=72,
+    grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
-    lr=5e-4,
+    lr=1e-4,
     # lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
@@ -115,11 +119,11 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
+    resume_full_ckpt=False,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr50_relative_median_dec_dpt_h224w224/ckpt/last.pth",
     resume_bs=False,
     total_run_time_sec=None,
-    cuda_alloc_conf="expandable_segments:True",
+    cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
 )
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
@@ -143,8 +147,6 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.use_rc_loss = False
 if args.eval_dataset == "nyu" and args.eval_depth_max is None:
     args.eval_depth_max = 10.0
-if args.cuda_alloc_conf:
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = str(args.cuda_alloc_conf)
 # print(args)
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
@@ -212,8 +214,6 @@ output_dir = os.path.join(output_dir, run_tag)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
-if args.resume_full_ckpt and args.resume_ckpt_path is None:
-    raise ValueError("resume_full_ckpt=True requires resume_ckpt_path to be set.")
 
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
@@ -232,6 +232,10 @@ logger.info(f"Using mixed precision: {'disabled' if not use_amp else ('bfloat16'
 logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
+
+if args.resume_full_ckpt and args.resume_ckpt_path is None:
+    logger.info("resume_full_ckpt=True requires resume_ckpt_path to be set. Return to current ckpt path")
+    args.resume_ckpt_path = last_ckpt_path
 
 if args.lock:
     # --- Acquire a file lock to ensure exclusive GPU usage ---        
@@ -794,50 +798,29 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         gt_depths = gt_depths.to(DEVICE, non_blocking=True)
         bs = inputs.size(0)
         aux_loss = None
+        do_step = ((i + 1) % accum_steps == 0) or (i + 1 == len(loader))
+        opt_step = (i // accum_steps) + 1
+        debug_this_step = args.debug_loss_stats and do_step and (opt_step % args.debug_loss_interval == 0)
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
             # gt_depths = torch.nan_to_num(gt_depths, nan=0.0, posinf=0.0, neginf=0.0)
+            raw_pred_depths = pred_depths
             pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
             valid = (gt_depths > 0) #& torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
             if (valid.sum() == 0) or (pred_depths.sum() < 1e-8):
                 logger.warning(f"valid: {valid.sum()}")
                 logger.warning(f"pred sum: {pred_depths.sum()}")
-                bad_paths = []
-                for meta in metas:
-                    if isinstance(meta, dict) and "path" in meta:
-                        bad_paths.append(meta["path"])
-                if bad_paths:
-                    logger.warning(
-                        "Skipping batch: no valid depth pixels after sanitization. paths=%s",
-                        bad_paths,
-                    )
-                else:
-                    logger.warning("Skipping batch: no valid depth pixels after sanitization.")
-                continue
+                nan_count = torch.isnan(raw_pred_depths).sum().item()
+                posinf_count = torch.isposinf(raw_pred_depths).sum().item()
+                neginf_count = torch.isneginf(raw_pred_depths).sum().item()
+                logger.warning(
+                    f"pred nan/inf: nan={nan_count} +inf={posinf_count} -inf={neginf_count}"
+                )
+                logger.warning("Skipping batch: no valid depth pixels after sanitization.")
+                sys.exit(0)
             base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
             loss = base_loss
 
-        if args.debug_loss_stats and ((i + 1) % args.debug_loss_interval == 0):
-            with torch.no_grad():
-                vm = valid.float()
-                denom = vm.sum().clamp_min(1)
-                gt_mean = (gt_depths * vm).sum() / denom
-                pred_mean = (pred_depths * vm).sum() / denom
-                gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
-                pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
-                valid_count = int(vm.sum().item())
-                pred_min = pred_depths.min().item()
-                pred_max = pred_depths.max().item()
-                pred_mean_raw = pred_depths.mean().item()
-            logger.info(
-                f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
-                f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
-            )
-            logger.info(
-                f"[debug] valid_count={valid_count} pred_min={pred_min:.6g} "
-                f"pred_max={pred_max:.6g} pred_mean_raw={pred_mean_raw:.6g}"
-            )
-        
         if Use_Row_Col_Loss:
             last_feat = features[-1] if isinstance(features, (list, tuple)) else features
             if args.depth_decoder == "lite4":
@@ -853,12 +836,39 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
 
         loss_scaled = loss / accum_steps
         scaler.scale(loss_scaled).backward()
-
-        do_step = ((i + 1) % accum_steps == 0) or (i + 1 == len(loader))
+        if debug_this_step:
+            with torch.no_grad():
+                vm = valid.float()
+                denom = vm.sum().clamp_min(1)
+                gt_mean = (gt_depths * vm).sum() / denom
+                pred_mean = (pred_depths * vm).sum() / denom
+                gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
+                pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
+                valid_count = int(vm.sum().item())
+                pred_min = pred_depths.min().item()
+                pred_max = pred_depths.max().item()
+                pred_mean_raw = pred_depths.mean().item()
+                nan_count = torch.isnan(raw_pred_depths).sum().item()
+                posinf_count = torch.isposinf(raw_pred_depths).sum().item()
+                neginf_count = torch.isneginf(raw_pred_depths).sum().item()
+            logger.info(
+                f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
+                f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
+            )
+            logger.info(
+                f"[debug] valid_count={valid_count} pred_min={pred_min:.6g} "
+                f"pred_max={pred_max:.6g} pred_mean_raw={pred_mean_raw:.6g}"
+            )
+            logger.info(
+                f"[debug] pred_nan={nan_count} pred_posinf={posinf_count} pred_neginf={neginf_count}"
+            )
         if do_step:
+            grad_norm = None
             if args.clip_value is not None:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                grad_norm = torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+            if debug_this_step and grad_norm is not None:
+                logger.info(f"[debug] grad_norm={float(grad_norm):.6g}")
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
@@ -869,11 +879,16 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
 
         if (i + 1) % log_interval == 0:
             avg_loss = (running_loss_t / max(total_samples, 1)).float().item()
+            mem_str = ""
+            if torch.cuda.is_available():
+                mem_alloc = torch.cuda.memory_allocated() / (1024 ** 2)
+                mem_reserved = torch.cuda.memory_reserved() / (1024 ** 2)
+                mem_str = f" mem={mem_alloc:.0f}/{mem_reserved:.0f}MB"
             if aux_loss is not None:
                 avg_aux = (aux_loss_sum_t / max(total_samples, 1)).float().item()
-                pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}")
+                pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}{mem_str}")
             else:
-                pbar.set_postfix_str(f"loss={avg_loss:.4f}")
+                pbar.set_postfix_str(f"loss={avg_loss:.4f}{mem_str}")
     
     denom = max(total_samples, 1)
     avg_loss = (running_loss_t / denom).float().item()

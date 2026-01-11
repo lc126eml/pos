@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import gc
 import logging
 from seg.seg_aug import TrainSegAug, EvalSegPreprocess
+from seg.seg_head import PPMliteFCNHead, FCNSegHead, LinearSegHead, UPerNetTokenHead
 from core.priority_lock import PriorityLock
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
 # if torch.cuda.is_available():
@@ -96,6 +97,8 @@ args = SimpleNamespace(
     # loss_type="l1",
     huber_beta=0.1,
     rc_alpha=30.0,
+    seg_head="ppmlite",  # "ppmlite", "upernet", "fcn", "linear"
+    feature_layers=[2, 5, 8, 11],
     # dice_weight=0.0,
     workers=5,
     color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
@@ -140,6 +143,8 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
 if args.eval_img_size != args.train_img_size:
     print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
     args.eval_img_size = args.train_img_size
+if hasattr(args, "seg_head"):
+    args.seg_head = str(args.seg_head).lower()
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 TRAIN_IMAGE_PATH = os.path.join(args.base_path, 'images', 'training')
@@ -384,29 +389,52 @@ model = timm.create_model(
 ).to(DEVICE)
 
 
-from seg_head import PPMliteFCNHead, FCNSegHead
 grid_h, grid_w = model.patch_embed.grid_size
-# decoder = FCNSegHead(
-#     embed_dim=model.embed_dim,
-#     num_classes=args.num_classes,
-#     grid_size=(grid_h, grid_w),
-#     out_size=(args.img_size, args.img_size),
-#     mid_channels=256,
-#     dropout=0.1,
-#     norm='gn',   # or 'gn' if your effective batch per GPU is small
-# ).to(DEVICE)
-
-decoder = PPMliteFCNHead(
-    embed_dim=model.embed_dim,
-    num_classes=args.num_classes,
-    grid_size=(grid_h, grid_w),
-    out_size=(args.train_img_size, args.train_img_size),
-    mid_channels=256,
-    ppm_bins=(1, 2, 3),     # lite; try (1,2,3,6) if you can afford a bit more
-    ppm_channels=64,
-    dropout=0.1,
-    norm="gn",              # "bn" if your per-GPU batch is large/stable
-).to(DEVICE)
+decoder_type = getattr(args, "seg_head", "ppmlite").lower()
+if decoder_type == "ppmlite":
+    decoder = PPMliteFCNHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        mid_channels=256,
+        ppm_bins=(1, 2, 3),
+        ppm_channels=64,
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "upernet":
+    embed_dims = [model.embed_dim] * len(args.feature_layers)
+    decoder = UPerNetTokenHead(
+        embed_dims=embed_dims,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        fpn_channels=256,
+        ppm_bins=(1, 2, 3, 6),
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "fcn":
+    decoder = FCNSegHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        mid_channels=256,
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "linear":
+    decoder = LinearSegHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        dropout=0.1,
+    ).to(DEVICE)
+else:
+    raise ValueError(f"Unsupported seg_head='{decoder_type}'. Use 'ppmlite', 'upernet', 'fcn', or 'linear'.")
 
 # --- Test with a dummy input ---
 # dummy_input = torch.randn(2, 3, args.train_img_size, args.train_img_size).to(DEVICE)
@@ -580,8 +608,35 @@ def _infer_grid_hw(model, inputs):
 def _round_to_multiple(x: int, m: int) -> int:
     return max(m, int(round(x / m) * m))
 
+def _strip_prefix_tokens(features, grid_hw, num_prefix_tokens):
+    if num_prefix_tokens <= 0:
+        return features
+    tokens_needed = grid_hw[0] * grid_hw[1]
+    stripped = []
+    for feat in features:
+        if feat.dim() == 3 and feat.shape[1] == tokens_needed + num_prefix_tokens:
+            stripped.append(feat[:, num_prefix_tokens:, :])
+        else:
+            stripped.append(feat)
+    return stripped
 
-def _ms_flip_predict(model, decoder, inputs, num_classes, scales, flip, patch_size):
+def _forward_upernet(model, decoder, inputs, feature_layers):
+    if not feature_layers:
+        raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+    grid_hw = _infer_grid_hw(model, inputs)
+    features = model.forward_intermediates(
+        inputs,
+        indices=feature_layers,
+        norm=False,
+        intermediates_only=True,
+        output_fmt="NLC",
+    )
+    features = _strip_prefix_tokens(features, grid_hw, model.num_prefix_tokens)
+    outputs = decoder(features, grid_sizes=[grid_hw] * len(features), out_size=inputs.shape[-2:])
+    return outputs, features, grid_hw
+
+
+def _ms_flip_predict(model, decoder, inputs, num_classes, scales, flip, patch_size, *, feature_layers=None):
     if isinstance(patch_size, tuple):
         ph, pw = patch_size
     else:
@@ -594,15 +649,41 @@ def _ms_flip_predict(model, decoder, inputs, num_classes, scales, flip, patch_si
         ws = _round_to_multiple(int(round(w0 * s)), pw)
         x_s = F.interpolate(inputs, size=(hs, ws), mode="bilinear", align_corners=False)
         grid_hw = _infer_grid_hw(model, x_s)
-        feats = model.forward_features(x_s)
-        logits = decoder(feats[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
+        if args.seg_head == "upernet":
+            if not feature_layers:
+                raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+            feats = model.forward_intermediates(
+                x_s,
+                indices=feature_layers,
+                norm=False,
+                intermediates_only=True,
+                output_fmt="NLC",
+            )
+            feats = _strip_prefix_tokens(feats, grid_hw, model.num_prefix_tokens)
+            logits = decoder(feats, grid_sizes=[grid_hw] * len(feats), out_size=(hs, ws))
+        else:
+            feats = model.forward_features(x_s)
+            logits = decoder(feats[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
         logits = F.interpolate(logits, size=(h0, w0), mode="bilinear", align_corners=False)
         logits_sum += logits
         count += 1
         if flip:
             x_f = torch.flip(x_s, dims=[3])
-            feats_f = model.forward_features(x_f)
-            logits_f = decoder(feats_f[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
+            if args.seg_head == "upernet":
+                if not feature_layers:
+                    raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+                feats_f = model.forward_intermediates(
+                    x_f,
+                    indices=feature_layers,
+                    norm=False,
+                    intermediates_only=True,
+                    output_fmt="NLC",
+                )
+                feats_f = _strip_prefix_tokens(feats_f, grid_hw, model.num_prefix_tokens)
+                logits_f = decoder(feats_f, grid_sizes=[grid_hw] * len(feats_f), out_size=(hs, ws))
+            else:
+                feats_f = model.forward_features(x_f)
+                logits_f = decoder(feats_f[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
             logits_f = torch.flip(logits_f, dims=[3])
             logits_f = F.interpolate(logits_f, size=(h0, w0), mode="bilinear", align_corners=False)
             logits_sum += logits_f
@@ -629,39 +710,6 @@ def fast_confusion_matrix(pred: torch.Tensor, target: torch.Tensor, num_classes:
     return conf.view(num_classes, num_classes)
 
 #%%
-def compute_miou(preds, labels, num_classes, ignore_index=-1):
-    """Compute mean IoU with proper handling of ignore index"""
-    mask = (labels != ignore_index)
-    preds = preds[mask]
-    labels = labels[mask]
-    
-    if len(preds) == 0:
-        return 0.0
-    
-    iou_list = []
-    for c in range(num_classes):
-        pred_c = (preds == c)
-        label_c = (labels == c)
-        intersection = (pred_c & label_c).sum().float()
-        union = (pred_c | label_c).sum().float()
-        
-        if union > 0:
-            iou_list.append((intersection / union).item())
-        else:
-            # If no pixels of this class, don't count it
-            continue
-    
-    return np.mean(iou_list) if iou_list else 0.0
-#%%
-def save_checkpoint(model, decoder, output_dir, suffix):
-    encoder_path = os.path.join(output_dir, f'encoder_{suffix}.pth')
-    decoder_path = os.path.join(output_dir, f'decoder_{suffix}.pth')
-    torch.save(model.state_dict(), encoder_path)
-    torch.save(decoder.state_dict(), decoder_path)
-    logger.info(f"Checkpoint saved: {suffix}")
-# %%
-import csv
-
 ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
@@ -757,19 +805,26 @@ if args.train:
             bs = inputs.size(0)
             aux_loss = None
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
-                feats = model.forward_features(inputs)
-                grid_hw = _infer_grid_hw(model, inputs)
-                outputs = decoder(
-                    feats[:, model.num_prefix_tokens:, :],
-                    grid_size=grid_hw,
-                    out_size=inputs.shape[-2:],
-                )
+                if args.seg_head == "upernet":
+                    outputs, features, grid_hw = _forward_upernet(
+                        model, decoder, inputs, args.feature_layers
+                    )
+                    last_tokens = features[-1]
+                else:
+                    feats = model.forward_features(inputs)
+                    grid_hw = _infer_grid_hw(model, inputs)
+                    outputs = decoder(
+                        feats[:, model.num_prefix_tokens:, :],
+                        grid_size=grid_hw,
+                        out_size=inputs.shape[-2:],
+                    )
+                    last_tokens = feats[:, model.num_prefix_tokens:, :]
 
                 loss = ce_criterion(outputs, labels)
                 base_loss = loss              
 
                 if args.use_rc_loss:
-                    aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
+                    aux_loss = rowcol_loss(last_tokens)
                     aux_loss_sum_t += aux_loss.detach() * bs
                     # logger.info(loss, aux_loss)
                     loss = base_loss + args.rc_alpha * aux_loss
@@ -840,15 +895,21 @@ if args.train:
                             args.ms_scales,
                             True,
                             model.patch_embed.patch_size,
+                            feature_layers=args.feature_layers,
                         )
                     else:
-                        feats = model.forward_features(inputs)
-                        grid_hw = _infer_grid_hw(model, inputs)
-                        outputs = decoder(
-                            feats[:, model.num_prefix_tokens:, :],
-                            grid_size=grid_hw,
-                            out_size=inputs.shape[-2:],
-                        )
+                        if args.seg_head == "upernet":
+                            outputs, _, grid_hw = _forward_upernet(
+                                model, decoder, inputs, args.feature_layers
+                            )
+                        else:
+                            feats = model.forward_features(inputs)
+                            grid_hw = _infer_grid_hw(model, inputs)
+                            outputs = decoder(
+                                feats[:, model.num_prefix_tokens:, :],
+                                grid_size=grid_hw,
+                                out_size=inputs.shape[-2:],
+                            )
 
                 pred = outputs.argmax(dim=1)  # (B,H,W)
                 mask = (labels >= 0)
@@ -963,6 +1024,7 @@ if args.train:
                         args.ms_scales,
                         True,
                         model.patch_embed.patch_size,
+                        feature_layers=args.feature_layers,
                     )
                 pred = outputs.argmax(dim=1)
                 mask = (labels >= 0)
