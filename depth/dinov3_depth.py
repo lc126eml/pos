@@ -65,9 +65,11 @@ args = SimpleNamespace(
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
-    train_sizes=[(240, 240)],  # list of (H, W)
+    train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
+    scale_jitter=(1.0, None),  # upper bound None caps scale at original size
+    scale_jitter_sw=(1.0, 1.01),
     batch_size=40,
     grad_accum_steps=2,
     # batch_size=6,
@@ -113,16 +115,36 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr50_metric_median_h240w320/20260110_075622/ckpt/last.pth",
+    resume_full_ckpt=True,
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr50_relative_median_dec_dpt_h224w224/ckpt/last.pth",
+    resume_bs=False,
     total_run_time_sec=None,
+    cuda_alloc_conf="expandable_segments:True",
 )
+ckpt = None
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    resume_full_ckpt = args.resume_full_ckpt
+    resume_ckpt_path = args.resume_ckpt_path
+    batch_size = args.batch_size
+    grad_accum_steps = args.grad_accum_steps
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_args = ckpt.get("args", None)
+    if ckpt_args is not None:
+        for k, v in vars(ckpt_args).items():
+            setattr(args, k, v)
+    args.resume_full_ckpt = resume_full_ckpt
+    args.resume_ckpt_path = resume_ckpt_path
+    if not args.resume_bs:
+        args.batch_size = batch_size
+        args.grad_accum_steps = grad_accum_steps
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
     args.use_rc_loss = False
 if args.eval_dataset == "nyu" and args.eval_depth_max is None:
     args.eval_depth_max = 10.0
+if args.cuda_alloc_conf:
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = str(args.cuda_alloc_conf)
 # print(args)
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
@@ -235,7 +257,7 @@ try:
         num_views=1,
         pair_transform=TrainDepthAug(
             target_size=TRAIN_SIZE,
-            scale_jitter=(0.90, 1.01) if args.use_sliding_window else (0.75, 1.05),
+            scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
             color_jitter_prob=args.color_jitter_prob,
             normalize=True,
         ),
@@ -260,21 +282,22 @@ try:
             )
         ),
     )
+    valid_prefetch = 2 if args.workers > 0 else None
     train_loader = DataLoader(
         train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=True,
         persistent_workers=(args.workers > 0), 
         worker_init_fn=_seed_worker,
         generator=data_rng,
-        prefetch_factor=2,
+        prefetch_factor=valid_prefetch,
     )
     valid_loader = DataLoader(
         valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=args.workers,
         pin_memory=torch.cuda.is_available(), drop_last=False,
-        persistent_workers=True, 
+        persistent_workers=(args.workers > 0),
         worker_init_fn=_seed_worker,
         generator=data_rng,
-        prefetch_factor=2,
+        prefetch_factor=valid_prefetch,
     )
     steps_per_epoch = len(train_loader)
     accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
@@ -766,14 +789,31 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
 
     accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
     optimizer.zero_grad(set_to_none=True)
-    for i, (inputs, gt_depths, _) in enumerate(pbar):
+    for i, (inputs, gt_depths, metas) in enumerate(pbar):
         inputs = inputs.to(DEVICE, non_blocking=True)
         gt_depths = gt_depths.to(DEVICE, non_blocking=True)
         bs = inputs.size(0)
         aux_loss = None
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
-            valid = (gt_depths > 0) & torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
+            # gt_depths = torch.nan_to_num(gt_depths, nan=0.0, posinf=0.0, neginf=0.0)
+            pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
+            valid = (gt_depths > 0) #& torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
+            if (valid.sum() == 0) or (pred_depths.sum() < 1e-8):
+                logger.warning(f"valid: {valid.sum()}")
+                logger.warning(f"pred sum: {pred_depths.sum()}")
+                bad_paths = []
+                for meta in metas:
+                    if isinstance(meta, dict) and "path" in meta:
+                        bad_paths.append(meta["path"])
+                if bad_paths:
+                    logger.warning(
+                        "Skipping batch: no valid depth pixels after sanitization. paths=%s",
+                        bad_paths,
+                    )
+                else:
+                    logger.warning("Skipping batch: no valid depth pixels after sanitization.")
+                continue
             base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
             loss = base_loss
 
@@ -927,8 +967,7 @@ logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 train_start_time = time.time()
 start_epoch = 0
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    if os.path.exists(args.resume_ckpt_path):
-        ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
+    if ckpt is not None:
         model.load_state_dict(ckpt.get("model", {}), strict=False)
         decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
         if "optimizer" in ckpt:
@@ -942,8 +981,6 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         start_epoch = int(ckpt.get("epoch", 0))
         logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
         training_history = ckpt.get("training_history", None)
-    else:
-        logger.warning(f"Resume checkpoint not found: '{args.resume_ckpt_path}'")
 # 'valid_loss': [], 
 if not isinstance(locals().get("training_history", None), dict):
     training_history = {
@@ -1057,6 +1094,9 @@ for epoch in range(start_epoch, EPOCHS):
     if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
         logger.info(f"Stopping training: reached break_at_epoch={args.break_at_epoch}.")
         break
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 logger.info("Training complete.")
 

@@ -83,7 +83,10 @@ def train_aug_seg_resize_random_crop(
     target_size: Tuple[int, int],
     *,
     hflip_prob: float = 0.5,
-    scale_jitter: Optional[Tuple[float, float]] = (0.5, 2.0),
+    scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
+    cat_max_ratio: Optional[float] = None,
+    cat_max_ratio_tries: int = 10,
+    ignore_index: Optional[int] = None,
     color_jitter: Optional[Dict[str, float]] = None,
     color_jitter_prob: float = 0.0,
     normalize: bool = True,
@@ -96,7 +99,15 @@ def train_aug_seg_resize_random_crop(
 
     W0, H0 = pil.size
     base = max(Ht / H0, Wt / W0)
-    jitter = random.uniform(*scale_jitter) if scale_jitter is not None else 1.0
+    if scale_jitter is None:
+        jitter = 1.0
+    else:
+        j0, j1 = scale_jitter
+        j0 = max(1.0, float(j0))
+        if j1 is None:
+            j1 = (1.0 / base) if base < 1.0 else j0
+        j1 = max(j0, float(j1))
+        jitter = random.uniform(j0, j1)
     scale = base * jitter
     newH = int(round(H0 * scale))
     newW = int(round(W0 * scale))
@@ -104,13 +115,36 @@ def train_aug_seg_resize_random_crop(
         newH = int(round(H0 * base))
         newW = int(round(W0 * base))
 
-    pil = pil.resize((newW, newH), resample=Image.BICUBIC)
+    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
+    pil = pil.resize((newW, newH), resample=resample)
     m = m.resize((newW, newH), resample=Image.NEAREST)
 
-    top = 0 if newH == Ht else random.randint(0, newH - Ht)
-    left = 0 if newW == Wt else random.randint(0, newW - Wt)
+    def _is_crop_ok(mask_crop: Image.Image) -> bool:
+        if cat_max_ratio is None or cat_max_ratio >= 1.0:
+            return True
+        mask_np = np.array(mask_crop, dtype=np.int64)
+        if ignore_index is not None:
+            mask_np = mask_np[mask_np != ignore_index]
+        if mask_np.size == 0:
+            return True
+        counts = np.bincount(mask_np.reshape(-1))
+        max_ratio = counts.max() / counts.sum()
+        return max_ratio < cat_max_ratio
+
+    top = 0
+    left = 0
+    m_crop = None
+    tries = max(1, int(cat_max_ratio_tries))
+    for _ in range(tries):
+        top = 0 if newH == Ht else random.randint(0, newH - Ht)
+        left = 0 if newW == Wt else random.randint(0, newW - Wt)
+        m_crop = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
+        if _is_crop_ok(m_crop):
+            break
     pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
-    m = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
+    if m_crop is None:
+        m_crop = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
+    m = m_crop
 
     if random.random() < hflip_prob:
         pil = TF.hflip(pil)
@@ -156,7 +190,8 @@ def eval_preprocess_seg_keep_ar(
 
     newH = int(round(H0 * scale))
     newW = int(round(W0 * scale))
-    pil = pil.resize((newW, newH), resample=Image.BICUBIC)
+    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
+    pil = pil.resize((newW, newH), resample=resample)
     m = m.resize((newW, newH), resample=Image.NEAREST)
 
     top = max(0, (newH - Ht) // 2)
@@ -222,7 +257,10 @@ class TrainSegAug:
         target_size: Tuple[int, int],
         *,
         hflip_prob: float = 0.5,
-        scale_jitter: Optional[Tuple[float, float]] = (0.5, 2.0),
+        scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
+        cat_max_ratio: Optional[float] = None,
+        cat_max_ratio_tries: int = 10,
+        ignore_index: Optional[int] = None,
         color_jitter: Optional[Dict[str, float]] = None,
         color_jitter_prob: float = 0.0,
         normalize: bool = True,
@@ -232,6 +270,9 @@ class TrainSegAug:
         self.target_size = target_size
         self.hflip_prob = hflip_prob
         self.scale_jitter = scale_jitter
+        self.cat_max_ratio = cat_max_ratio
+        self.cat_max_ratio_tries = cat_max_ratio_tries
+        self.ignore_index = ignore_index
         self.color_jitter = None if color_jitter is None else dict(color_jitter)
         self.color_jitter_prob = color_jitter_prob
         self.normalize = normalize
@@ -251,6 +292,9 @@ class TrainSegAug:
             self.target_size,
             hflip_prob=self.hflip_prob,
             scale_jitter=self.scale_jitter,
+            cat_max_ratio=self.cat_max_ratio,
+            cat_max_ratio_tries=self.cat_max_ratio_tries,
+            ignore_index=self.ignore_index,
             color_jitter=self.color_jitter,
             color_jitter_prob=self.color_jitter_prob,
             normalize=False,

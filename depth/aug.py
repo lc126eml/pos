@@ -107,10 +107,11 @@ def train_aug_depth_ar_resize_random_crop(
     target_size: Tuple[int, int],
     *,
     hflip_prob: float = 0.5,
-    scale_jitter: Optional[Tuple[float, float]] = (0.85, 1.15),
+    scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
     color_jitter: Optional[Dict[str, float]] = None,
     color_jitter_prob: float = 0.8,
     gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
+    gamma_jitter_prob: float = 0.0,
     grayscale_prob: float = 0.05,
     blur_prob: float = 0.0,
     blur_kernel: Tuple[int, int] = (5, 5),
@@ -140,7 +141,16 @@ def train_aug_depth_ar_resize_random_crop(
 
     # Base scale so that both dimensions can contain the target crop.
     base = max(Ht / H0, Wt / W0)
-    jitter = random.uniform(*scale_jitter) if scale_jitter is not None else 1.0
+    if scale_jitter is None:
+        jitter = 1.0
+    else:
+        j0, j1 = scale_jitter
+        j0 = max(1.0, float(j0))
+        if j1 is None:
+            # Cap at original size: scale in [base, 1.0] when base < 1.
+            j1 = (1.0 / base) if base < 1.0 else j0
+        j1 = max(j0, float(j1))
+        jitter = random.uniform(j0, j1)
     scale = base * jitter
 
     newH = int(round(H0 * scale))
@@ -156,8 +166,9 @@ def train_aug_depth_ar_resize_random_crop(
         newH = max(Ht, _round_to_multiple(newH, ensure_multiple_of))
         newW = max(Wt, _round_to_multiple(newW, ensure_multiple_of))
 
-    # Resize (synced)
-    pil = pil.resize((newW, newH), resample=Image.BILINEAR)
+    # Resize (synced). Area-like for downscale, bicubic for upscale.
+    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
+    pil = pil.resize((newW, newH), resample=resample)
     d = _resize_depth_with_mask(d, (newH, newW))
 
     # Random crop (synced)
@@ -182,7 +193,7 @@ def train_aug_depth_ar_resize_random_crop(
         pil = ColorJitter(**color_jitter)(pil)
 
     # Gamma jitter (RGB only)
-    if gamma_jitter is not None:
+    if gamma_jitter is not None and gamma_jitter_prob > 0 and random.random() < gamma_jitter_prob:
         g0, g1 = gamma_jitter
         if g0 != 1.0 or g1 != 1.0:
             gamma = random.uniform(g0, g1)
@@ -263,7 +274,8 @@ def eval_preprocess_depth_keep_ar(
         raise ValueError(f"target_by must be 'height' or 'long_side', got {target_by}")
 
     # Deterministic resize (synced)
-    pil_rs = pil.resize((newW, newH), resample=Image.BILINEAR)
+    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
+    pil_rs = pil.resize((newW, newH), resample=resample)
     d_rs = _resize_depth_with_mask(d, (newH, newW))
 
     pad_h = 0
@@ -272,7 +284,11 @@ def eval_preprocess_depth_keep_ar(
         pad_h = (ensure_multiple_of - (newH % ensure_multiple_of)) % ensure_multiple_of
         pad_w = (ensure_multiple_of - (newW % ensure_multiple_of)) % ensure_multiple_of
         if pad_h or pad_w:
-            pil_rs = TF.pad(pil_rs, padding=(0, 0, pad_w, pad_h), fill=0)
+            mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+            if len(mean_v) == 1:
+                mean_v = mean_v * 3
+            pad_fill = tuple(int(round(m * 255.0)) for m in mean_v[:3])
+            pil_rs = TF.pad(pil_rs, padding=(0, 0, pad_w, pad_h), fill=pad_fill)
             d_rs = F.pad(d_rs, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
 
     meta = {
@@ -337,10 +353,11 @@ class TrainDepthAug:
         target_size: Tuple[int, int],
         *,
         hflip_prob: float = 0.5,
-        scale_jitter: Optional[Tuple[float, float]] = (0.85, 1.15),
+        scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
         color_jitter: Optional[Dict[str, float]] = None,
         color_jitter_prob: float = 0.5,
         gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
+        gamma_jitter_prob: float = 0.0,
         grayscale_prob: float = 0.05,
         blur_prob: float = 0.0,
         blur_kernel: Tuple[int, int] = (5, 5),
@@ -359,6 +376,7 @@ class TrainDepthAug:
         self.color_jitter = dict(color_jitter)
         self.color_jitter_prob = color_jitter_prob
         self.gamma_jitter = gamma_jitter
+        self.gamma_jitter_prob = gamma_jitter_prob
         self.grayscale_prob = grayscale_prob
         self.blur_prob = blur_prob
         self.blur_kernel = blur_kernel
@@ -385,6 +403,7 @@ class TrainDepthAug:
             color_jitter=self.color_jitter,
             color_jitter_prob=self.color_jitter_prob,
             gamma_jitter=self.gamma_jitter,
+            gamma_jitter_prob=self.gamma_jitter_prob,
             grayscale_prob=self.grayscale_prob,
             blur_prob=self.blur_prob,
             blur_kernel=self.blur_kernel,

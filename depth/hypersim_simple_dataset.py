@@ -115,6 +115,7 @@ class HyperSim_Simple(Dataset):
                 "padded_h": float(h),
                 "padded_w": float(w),
             }
+        meta["path"] = impath
         return img_t, depth_t, meta
 
 

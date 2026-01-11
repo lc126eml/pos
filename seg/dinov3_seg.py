@@ -70,6 +70,10 @@ args = SimpleNamespace(
     train_img_size=512,
     eval_img_size=512,
     use_ms_flip_eval=False,  # False or True
+    scale_jitter=(1.0, None),
+    use_cat_max_ratio=False,
+    cat_max_ratio=0.75,
+    cat_max_ratio_tries=10,
     ms_scales=(0.75, 1.0, 1.25, 1.5),  # e.g. (0.75, 1.0, 1.25, 1.5)
     eval_crop_mode="crop_or_pad",  # "crop_or_pad" (best practice), "pad", or "crop"
     final_ms_flip_eval=True,
@@ -108,10 +112,27 @@ args = SimpleNamespace(
     save_full_ckpt=True,
     resume_full_ckpt=False,
     resume_ckpt_path=None,
+    resume_bs=False,
     total_run_time_sec=None,
     # --- Dataset Paths ---
     base_path=base_path_default,
 )
+ckpt = None
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    resume_full_ckpt = args.resume_full_ckpt
+    resume_ckpt_path = args.resume_ckpt_path
+    batch_size = args.batch_size
+    grad_accum_steps = args.grad_accum_steps
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_args = ckpt.get("args", None)
+    if ckpt_args is not None:
+        for k, v in vars(ckpt_args).items():
+            setattr(args, k, v)
+    args.resume_full_ckpt = resume_full_ckpt
+    args.resume_ckpt_path = resume_ckpt_path
+    if not args.resume_bs:
+        args.batch_size = batch_size
+        args.grad_accum_steps = grad_accum_steps
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
@@ -253,6 +274,10 @@ train_dataset = SegmentationDataset(
     TRAIN_ANNOTATION_PATH,
     pair_transform=TrainSegAug(
         target_size=(args.train_img_size, args.train_img_size),
+        scale_jitter=args.scale_jitter,
+        cat_max_ratio=(args.cat_max_ratio if args.use_cat_max_ratio else None),
+        cat_max_ratio_tries=args.cat_max_ratio_tries,
+        ignore_index=0 if args.use_cat_max_ratio else None,
         color_jitter=args.color_jitter,
         color_jitter_prob=args.color_jitter_prob,
         normalize=True,
@@ -269,29 +294,29 @@ valid_dataset = SegmentationDataset(
     ),
 )
 
+loader_kwargs = dict(
+    num_workers=args.workers,
+    pin_memory=True,
+    worker_init_fn=_seed_worker,
+    generator=data_rng,
+    persistent_workers=(args.workers > 0),
+)
+if args.workers > 0:
+    loader_kwargs["prefetch_factor"] = 2
+
 train_loader = DataLoader(
     train_dataset,
     batch_size=args.batch_size,
     shuffle=True,
-    num_workers=args.workers,
-    pin_memory=True,
     drop_last=True,
-    worker_init_fn=_seed_worker,
-    generator=data_rng,
-    prefetch_factor=2,
-    persistent_workers=(args.workers > 0),
+    **loader_kwargs,
 )
 valid_loader = DataLoader(
     valid_dataset,
     batch_size=args.batch_size,
     shuffle=False,
-    num_workers=args.workers,
-    pin_memory=True,
     drop_last=False,
-    worker_init_fn=_seed_worker,
-    generator=data_rng,
-    prefetch_factor=2,
-    persistent_workers=(args.workers > 0),
+    **loader_kwargs,
 )
 
 steps_per_epoch = len(train_loader)
@@ -304,23 +329,23 @@ logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: 
 # =================================================================================
 # Step 3.5: Visualize a Batch of Training Data
 # =================================================================================
-def imshow(img, mask, title=None):
-    """Display an image and its mask side by side."""
-    img = img.numpy().transpose((1, 2, 0))
-    mean = np.array(img_mean)
-    std = np.array(img_std)
-    img = std * img + mean
-    img = np.clip(img, 0, 1)
+# def imshow(img, mask, title=None):
+#     """Display an image and its mask side by side."""
+#     img = img.numpy().transpose((1, 2, 0))
+#     mean = np.array(img_mean)
+#     std = np.array(img_std)
+#     img = std * img + mean
+#     img = np.clip(img, 0, 1)
     
-    mask = mask.numpy().squeeze()  # Remove channel dimension
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-    ax1.imshow(img)
-    ax1.set_title('Image' if title is None else f'Image - {title}')
-    ax1.axis('off')
-    ax2.imshow(mask, cmap='jet')  # Use jet colormap for mask visualization
-    ax2.set_title('Mask' if title is None else f'Mask - {title}')
-    ax2.axis('off')
-    plt.show()
+#     mask = mask.numpy().squeeze()  # Remove channel dimension
+#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+#     ax1.imshow(img)
+#     ax1.set_title('Image' if title is None else f'Image - {title}')
+#     ax1.axis('off')
+#     ax2.imshow(mask, cmap='jet')  # Use jet colormap for mask visualization
+#     ax2.set_title('Mask' if title is None else f'Mask - {title}')
+#     ax2.axis('off')
+#     plt.show()
 
 # Get one batch of training images and masks
 # try:
@@ -650,8 +675,7 @@ if args.train:
     train_start_time = time.time()
     start_epoch = 0
     if args.resume_full_ckpt and args.resume_ckpt_path:
-        if os.path.exists(args.resume_ckpt_path):
-            ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
+        if ckpt is not None:
             model.load_state_dict(ckpt.get("model", {}), strict=False)
             decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
             if "optimizer" in ckpt:
@@ -665,8 +689,6 @@ if args.train:
             start_epoch = int(ckpt.get("epoch", 0))
             logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
             training_history = ckpt.get("training_history", None)
-        else:
-            logger.warning(f"Resume checkpoint not found: '{args.resume_ckpt_path}'")
 
     # ✅ Initialize training_history as a dictionary of lists
     if not isinstance(locals().get("training_history", None), dict):
