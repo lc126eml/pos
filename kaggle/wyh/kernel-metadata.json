@@ -1,6 +1,6 @@
 {
-  "id": "ohyeah00/ImageNet-Small-abs28",
-  "title": "ImageNet Small abs28",
+  "id": "ohyeah00/imagenet-small-abs29",
+  "title": "imagenet small abs29",
   "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -10,6 +10,6 @@
   "enable_internet": "true",
   "dataset_sources": ["ambityga/imagenet100", "liucong12601/timm-repos"],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": ["ohyeah00/imagenet-small-abs029"],
   "model_sources": []
 }

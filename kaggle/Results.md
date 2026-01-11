@@ -13,6 +13,10 @@
 - [base](#base)
   - [AbsPE](#abspe-1)
     - [seed=59](#seed59-3)
+    - [seed=50](#seed50-4)
+    - [seed=50](#seed50-5)
+    - [seed=28](#seed28)
+    - [seed=29](#seed29)
   - [None](#none-1)
     - [seed=59](#seed59-4)
 
@@ -63,6 +67,19 @@ Best Accuracy: 0.7202
 Epoch 15/130
 Train Loss: 2.9000 | Train Acc: 0.2897 | Valid Acc: 0.2900
 Best Accuracy: 0.2928
+
+### seed=50
+Epoch 30/130
+Best Accuracy: 0.3248
+
+### seed=50
+Best Accuracy: 0.3202
+
+### seed=28
+Best Accuracy: 0.2468
+
+### seed=29
+Best Accuracy: 0.2802
 
 ## None
 ### seed=59

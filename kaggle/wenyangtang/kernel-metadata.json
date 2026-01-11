@@ -1,6 +1,6 @@
 {
-  "id": "wenyangtang/ImageNet-Small-none29",
-  "title": "ImageNet Small none29",
+  "id": "wenyangtang/imagenet-small-no29",
+  "title": "imagenet small no29",
   "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -10,6 +10,6 @@
   "enable_internet": "true",
   "dataset_sources": ["ambityga/imagenet100", "liucong12601/timm-repos"],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": ["wenyangtang/imagenet-small-none29"],
   "model_sources": []
 }

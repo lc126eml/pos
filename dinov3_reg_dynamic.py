@@ -117,7 +117,7 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=True,
     use_rot_pos_emb=False,
-    model_size='base',
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     grad_accum_steps=1,
@@ -140,7 +140,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=28,
+    seed=29,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -160,7 +160,8 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=False,
-    resume_ckpt_path="/kaggle/input/imagenet-small-rope2/ckpt/last.pth",
+    resume_ckpt_path="/kaggle/input/imagenet-small-abs029/ckpt/last.pth",
+    resume_bs=False,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -169,7 +170,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
-    total_run_time_sec=None, #41000
+    total_run_time_sec=40000, #41000
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -177,13 +178,19 @@ resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
     resume_full_ckpt = args.resume_full_ckpt
     resume_ckpt_path = args.resume_ckpt_path
+    batch_size = args.batch_size
+    grad_accum_steps = args.grad_accum_steps
     resume_ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    print(f"Resumed args from '{args.resume_ckpt_path}'")
     ckpt_args = resume_ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
             setattr(args, k, v)
     args.resume_full_ckpt = resume_full_ckpt
     args.resume_ckpt_path = resume_ckpt_path
+    if not args.resume_bs:
+        args.batch_size = batch_size
+        args.grad_accum_steps = grad_accum_steps
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -196,6 +203,8 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.use_patch_position_loss=False
     args.use_rc_loss = False
 offset = 0
+# args.batch_size = 64
+# args.grad_accum_steps=2
 # print(args)
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 if is_kaggle:
@@ -213,7 +222,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_amp = torch.cuda.is_available()
 use_bf16 = use_amp and torch.cuda.is_bf16_supported(including_emulation=False)
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
-
+use_amp = use_bf16
 print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
 # Speed tweaks (P100-friendly)
 if torch.cuda.is_available():
@@ -1883,7 +1892,7 @@ if args.train:
                     f"Stopping training: elapsed time exceeded {args.total_run_time_sec:.0f}s."
                 )
                 break
-        elif (time.time() - train_start_time) >= (11.5 * 3600):
+        elif (time.time() - train_start_time) >= (11. * 3600):
             logger.info("Stopping training: total running time exceeded 11 hours.")
             break
         # gc.collect()
