@@ -43,7 +43,97 @@ print("torch:", torch.__version__, flush=True)
 _IS_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
 
 
+# =============================================================================
+# Configuration
+# =============================================================================
+if _IS_KAGGLE:
+    root_dir = "/kaggle/working"
+    base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
+args = SimpleNamespace(
+    model_type="dinov3",
+    use_abs_pos_emb=False,
+    use_rot_pos_emb=False,
+    model_size="small",
+    num_classes=150,
+    batch_size=32,
+    grad_accum_steps=1,
+    train_img_size=256,
+    eval_img_size=512,
+    use_ms_flip_eval=False,
+    scale_jitter=(1.0, None),
+    use_cat_max_ratio=False,
+    cat_max_ratio=0.75,
+    cat_max_ratio_tries=10,
+    ms_scales=(0.75, 1.0, 1.25, 1.5),
+    eval_crop_mode="crop_or_pad",
+    final_ms_flip_eval=True,
+    lr=5e-4,
+    lr_aux=1e-5,
+    eta_min=1e-8,
+    composite_lr=True,
+    warmup_steps=3000,
+    weight_decay=0.01,
+    epochs=130,
+    overlap=0,
+    start_epoch=0,
+    seed=28,
+    use_rc_loss=False,
+    huber_beta=0.1,
+    rc_alpha=30.0,
+    seg_head="upernet",  # "ppmlite", "upernet", "fcn", "linear"
+    feature_layers=[2, 5, 8, 11],
+    workers=2 if _IS_KAGGLE else 5,
+    color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
+    color_jitter_prob=0.1,
+    train=True,
+    val=False,
+    ckpt_path=None,
+    lock=False if _IS_KAGGLE else True,
+    clip_value=1.0,
+    output_dir=os.path.join(root_dir, "seg"),
+    log_interval=500,
+    csv_interval=3,
+    show_peak_gpu_mem=True,
+    compile_model=False,
+    save_full_ckpt=True,
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
+    resume_bs=False,
+    total_run_time_sec=40000,
+    base_path=base_path_default,
+)
 
+ckpt = None
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    resume_full_ckpt = args.resume_full_ckpt
+    resume_ckpt_path = args.resume_ckpt_path
+    batch_size = args.batch_size
+    grad_accum_steps = args.grad_accum_steps
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_args = ckpt.get("args", None)
+    if ckpt_args is not None:
+        for k, v in vars(ckpt_args).items():
+            setattr(args, k, v)
+    args.resume_full_ckpt = resume_full_ckpt
+    args.resume_ckpt_path = resume_ckpt_path
+    if not args.resume_bs:
+        args.batch_size = batch_size
+        args.grad_accum_steps = grad_accum_steps
+
+if args.use_abs_pos_emb or args.use_rot_pos_emb:
+    args.overlap = 0
+    args.use_rc_loss = False
+
+if args.eval_img_size != args.train_img_size:
+    print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
+    args.eval_img_size = args.train_img_size
+if hasattr(args, "seg_head"):
+    args.seg_head = str(args.seg_head).lower()
+
+if args.model_size == 'small':
+    args.total_run_time_sec=41000
+else:
+    args.total_run_time_sec=40000
 # =============================================================================
 # Segmentation augmentations
 # =============================================================================
@@ -771,91 +861,6 @@ class PatchRowColRegressionCriterion(nn.Module):
         loss_col = self.loss_fn(col_pred, col_targets)
         return (loss_row + loss_col) / 2.0
 
-# =============================================================================
-# Configuration
-# =============================================================================
-if _IS_KAGGLE:
-    root_dir = "/kaggle/working"
-    base_path_default =  "/kaggle/input/ade20k/ADEChallengeData2016"
-args = SimpleNamespace(
-    model_type="dinov3",
-    use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
-    model_size="base",
-    num_classes=150,
-    batch_size=16,
-    grad_accum_steps=4,
-    train_img_size=512,
-    eval_img_size=512,
-    use_ms_flip_eval=False,
-    scale_jitter=(1.0, None),
-    use_cat_max_ratio=False,
-    cat_max_ratio=0.75,
-    cat_max_ratio_tries=10,
-    ms_scales=(0.75, 1.0, 1.25, 1.5),
-    eval_crop_mode="crop_or_pad",
-    final_ms_flip_eval=True,
-    lr=7e-4,
-    lr_aux=1e-5,
-    eta_min=1e-8,
-    composite_lr=True,
-    warmup_steps=3000,
-    weight_decay=0.01,
-    epochs=130,
-    overlap=0,
-    start_epoch=0,
-    seed=55,
-    use_rc_loss=True,
-    huber_beta=0.1,
-    rc_alpha=30.0,
-    seg_head="ppmlite",  # "ppmlite", "upernet", "fcn", "linear"
-    feature_layers=[2, 5, 8, 11],
-    workers=2 if _IS_KAGGLE else 5,
-    color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
-    color_jitter_prob=0.1,
-    train=True,
-    val=False,
-    ckpt_path=None,
-    lock=False if _IS_KAGGLE else True,
-    clip_value=1.0,
-    output_dir=os.path.join(root_dir, "seg"),
-    log_interval=50,
-    csv_interval=3,
-    compile_model=False,
-    save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
-    resume_bs=False,
-    total_run_time_sec=None,
-    base_path=base_path_default,
-)
-
-ckpt = None
-if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
-    ckpt_args = ckpt.get("args", None)
-    if ckpt_args is not None:
-        for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
-
-if args.use_abs_pos_emb or args.use_rot_pos_emb:
-    args.overlap = 0
-    args.use_rc_loss = False
-
-if args.eval_img_size != args.train_img_size:
-    print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
-    args.eval_img_size = args.train_img_size
-if hasattr(args, "seg_head"):
-    args.seg_head = str(args.seg_head).lower()
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 TRAIN_IMAGE_PATH = os.path.join(args.base_path, "images", "training")
@@ -1343,11 +1348,11 @@ if args.train:
         train_correct_t = torch.zeros((), device=DEVICE)
         train_total_t = torch.zeros((), device=DEVICE)
         train_samples_t = torch.zeros((), device=DEVICE)
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]", mininterval=0.5)
+        # train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]", mininterval=0.5)
 
         optimizer.zero_grad(set_to_none=True)
 
-        for batch_idx, (inputs, labels) in enumerate(train_pbar):
+        for batch_idx, (inputs, labels) in enumerate(train_loader):
             inputs = inputs.to(DEVICE, non_blocking=True)
             labels = labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
@@ -1399,11 +1404,16 @@ if args.train:
             if (step + 1) % log_interval == 0:
                 avg_loss = (running_loss_t / train_total_t.clamp_min(1)).float().item()
                 avg_acc = (train_correct_t / train_total_t.clamp_min(1)).float().item()
+                peak_mb = None
+                if args.show_peak_gpu_mem and torch.cuda.is_available():
+                    peak_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)
+                msg = f"Epoch {epoch+1}/{args.epochs} step {step+1}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
                 if args.use_rc_loss:
                     avg_aux = (aux_loss_sum_t / train_samples_t.clamp_min(1)).float().item()
-                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f} aux={avg_aux:.4f}")
-                else:
-                    train_pbar.set_postfix_str(f"loss={avg_loss:.4f} acc={avg_acc:.3f}")
+                    msg += f" aux={avg_aux:.4f}"
+                if peak_mb is not None:
+                    msg += f" peak_mem={peak_mb:.0f}MB"
+                logger.info(msg)
 
             step += 1
 
@@ -1516,6 +1526,9 @@ if args.train:
             if elapsed >= args.total_run_time_sec:
                 logger.info("Stopping training: elapsed %.0fs reached limit %.0fs.", elapsed, args.total_run_time_sec)
                 break
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     logger.info("Training complete.")
     logger.info("Best Accuracy: %.4f", best_acc)
