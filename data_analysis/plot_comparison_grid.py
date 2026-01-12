@@ -134,7 +134,14 @@ def plot_comparison_grid(dataset_names, model_types, CSV_ROOT_DIRS, row_titles, 
     """
     plt.style.use('seaborn-v0_8-whitegrid')
     # Create a 3x3 grid of subplots with shared X and Y axes sharey='row'
-    fig, axes = plt.subplots(len(dataset_names), len(model_types), figsize=(6*len(model_types), 4*len(dataset_names)), sharex=True, sharey=False)
+    fig, axes = plt.subplots(
+        len(dataset_names),
+        len(model_types),
+        figsize=(6*len(model_types), 4*len(dataset_names)),
+        sharex=True,
+        sharey='row',  # share y-axis per row (both columns)
+        squeeze=False  # keep axes 2D even if one dimension is 1
+    )
 
     # Use a clear color palette
     colors = sns.color_palette('tab10', n_colors=10)
@@ -178,23 +185,22 @@ def plot_comparison_grid(dataset_names, model_types, CSV_ROOT_DIRS, row_titles, 
                         all_acc_values.extend(df['train_acc'].values)
             plot_on_ax(ax, data_to_plot, colors, show_train_acc, max_epoch)
 
-        # min_y = min(all_acc_values) if all_acc_values else 0
-        # max_y = max(all_acc_values) if all_acc_values else 1.0
-        # axes[i, 0].set_ylim(bottom=max(0, min_y - 0.00), top=min(1.0, max_y + 0.02)) 
+        # Align y-limits across the row so both columns share the same ticks
+        min_y = min(all_acc_values) if all_acc_values else 0
+        max_y = max(all_acc_values) if all_acc_values else 1.0
+        axes[i, 0].set_ylim(bottom=max(0, min_y - 0.00), top=min(1.0, max_y + 0.02))
 
     # --- Formatting the Grid ---
     # Set column and row titles
     for j, title in enumerate(col_titles):
         axes[0, j].set_title(title, fontsize=16, pad=8)
-    for i, title in enumerate(row_titles):
-        # Use the ylabel of the first column as the row title
-        # axes[i, 0].set_ylabel(title, fontsize=16, labelpad=18)
-        axes[i, 0].set_ylabel(title, fontsize=16, labelpad=8)
+    # for i, title in enumerate(row_titles):
+    #     # Use the ylabel of the first column as the row title
+    #     axes[i, 0].set_ylabel(title, fontsize=16, labelpad=8)
 
     # Set shared axis labels for the entire figure
     fig.supxlabel('Epoch', fontsize=20, y=0.0) # Adjust y to control vertical position
-    # fig.supylabel('Accuracy', fontsize=20, x=0.04) # Adjust x to control horizontal position
-    fig.supylabel('Accuracy', fontsize=20, x=0.01) # Adjust x to control horizontal position
+    fig.supylabel('Top-1 Acc. (%)', fontsize=20, x=0.02) # Adjust x to control horizontal position
 
     # Format shared axes
     # The ylim is now set per-row inside the loop, so this global setting is not needed.
@@ -212,7 +218,8 @@ def plot_comparison_grid(dataset_names, model_types, CSV_ROOT_DIRS, row_titles, 
         labels = legend_labels
 
     # Place legend centrally above the plots
-    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.025), ncol=4, fontsize='large')
+    # fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize='large')
+    fig.legend(handles, labels, loc='lower right', bbox_to_anchor=(0.96, 0.2), fontsize='large')
 
     # Adjust layout to prevent titles/labels from overlapping
     fig.tight_layout(rect=[0, 0.01, 1, 1]) # rect leaves space at the top for the legend
@@ -228,34 +235,34 @@ def plot_comparison_grid(dataset_names, model_types, CSV_ROOT_DIRS, row_titles, 
         plt.show()
 
 def get_csv_filenames(MODEL_TYPE, DATASET):
-    CSV_FILE_NAMES = [
-        f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_pos.csv',
-        f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}.csv',
-        f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_colrow.csv',
-        f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_colrow_o2.csv',
-        # f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_o2.csv',
-        # f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_patch.csv',
-        # f'{MODEL_TYPE}{"_cifar" if DATASET == "cifar" else ""}_patch_o2.csv',
-        # f'rope_{MODEL_TYPE}.csv',
-        # f'relpos_{MODEL_TYPE}.csv',
-        # f'rpe_{MODEL_TYPE}.csv',
-        # f'sin_{MODEL_TYPE}.csv',
-        # f'alibi_{MODEL_TYPE}.csv',
-    ]
+    if MODEL_TYPE == 'small':
+        CSV_FILE_NAMES = [
+            "small_overlap_0_rc_False_alpha_600lr100.csv",
+            "small_abs_pos_overlap_0_rc_False_alpha_600lr100.csv",
+            "small_rot_pos_overlap_0_rc_False_alpha_20lr100.csv",
+            "small_overlap_0_rc_True_alpha_300lr100.csv",
+        ]
+    else:
+        CSV_FILE_NAMES = [
+            "base_overlap_0_rc_False_alpha_600.0.csv",
+            "base_abs_pos_overlap_0_rc_False_alpha_600.0.csv",
+            "base_rot_pos_overlap_0_rc_False_alpha_600lr50.csv",
+            "base_overlap_0_rc_True_alpha_600lr50.csv",
+        ]
     return CSV_FILE_NAMES
 CSV_ROOT_DIRS = {
-    'cifar': r'D:\codes\working\pos\Draft\csv\cifar',
-    'imagenet10': r'D:\codes\working\pos\Draft\csv\imagenet10',
-    'imagenet100': r'D:\codes\working\pos\Draft\csv\imagenet100',
+    # 'cifar': r'D:\codes\working\pos\Draft\csv\cifar',
+    # 'imagenet10': r'D:\codes\working\pos\Draft\csv\imagenet10',
+    'imagenet100': r'D:\codes\working\pos\Draft\csv\redo20251215\dinov3b392s55of0dynamic_224_',
 }
 
 # --- 3. Define titles and plotting parameters ---, 'imagenet10', 'ImageNet-10'
-model_types = ['small', 'base', 'large']
-dataset_names = ['imagenet100', "cifar"]
-row_titles = ['ImageNet-100', 'CIFAR-100']
-col_titles = ['Small DINOv2 ViT', 'Base DINOv2 ViT', 'Large DINOv2 ViT']
-legend_labels = ['Baseline (with PE)', 'Position-Agnostic (No PE)', 'Ours (Guidance Only)', 'Ours (Full Method)']
-# legend_labels = ['Default Pos. Embedding', 'No Pos. Embedding', 'Col/Row Guidance', 'Col/Row Guid. (Overlap 2)']
+model_types = ['small', 'base']
+dataset_names = ['imagenet100']
+row_titles = ['ImageNet-100']
+col_titles = ['ViT-S (DINOv3)', 'ViT-B (DINOv3)']
+# legend_labels = ['Position-Agnostic (No PE)', 'Absolute learned', 'RoPE', 'Ours (Guidance)']
+legend_labels = ['No PE', 'AbsPE', 'RoPE', 'Ours (Guid.)']
 show_train_acc = False # Set to False to only show validation accuracy
 max_epoch_to_show = 130
 output_directory = r'D:\codes\working\pos\Draft\plots' # Or set to None to display interactively

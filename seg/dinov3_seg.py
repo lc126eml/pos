@@ -2,34 +2,26 @@
 # =================================================================================
 # Step 1: Install and Import Necessary Libraries
 # =================================================================================
+import math
 import os
+import sys
+import time
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torchvision.transforms as transforms
-from torchvision.datasets import ImageFolder
-from torch.utils.data import Dataset,TensorDataset, DataLoader
+from torch.utils.data import Dataset, DataLoader
 
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 import pandas as pd
-import csv
-import pickle
 import numpy as np
 import random
 from PIL import Image
 from torch.nn import functional as F
-import torchvision.transforms.functional as TF
-import sys
-import timm
 from types import SimpleNamespace
 import gc
-import argparse
 import logging
-try:
-    from filelock import FileLock
-except ImportError:
-    FileLock = None
+from seg.seg_aug import TrainSegAug, EvalSegPreprocess
+from seg.seg_head import PPMliteFCNHead, FCNSegHead, LinearSegHead, UPerNetTokenHead
+from core.priority_lock import PriorityLock
 # Enable faster matmul/conv kernels on Ampere+ without extra memory cost
 if torch.cuda.is_available():
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -41,6 +33,16 @@ if torch.cuda.is_available():
 # =================================================================================
 # Step 2: Configuration
 # =================================================================================
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+LOCAL_TIMM = os.environ.get("LOCAL_TIMM_DIR", "/home/liucong/codes/pos/timm/pytorch-image-models-main")
+if os.path.isdir(LOCAL_TIMM):
+    sys.path.insert(0, LOCAL_TIMM)
+
+import timm
+
 sys.path.append("/lc/code/pos")
 # --- Dynamically set root directory ---
 if os.path.exists('/home/sshuser'):
@@ -49,9 +51,15 @@ if os.path.exists('/home/sshuser'):
 elif os.path.exists('/lc'):
     root_dir = '/lc/logs'
     BASE_PATH = f'/ubuntu/Data/ADEChallengeData2016'
+elif os.path.exists("/home/liucong"):
+    root_dir = '/home/liucong/codes/pos/seglogs'
+    BASE_PATH = f'/home/liucong/data/ADEChallengeData2016'
 else:
     root_dir = '/linux'
     BASE_PATH = f'{root_dir}/Data/ADEChallengeData2016'
+root_dir = os.environ.get("OUTPUT_ROOT", os.path.join(REPO_ROOT, "outputs"))
+data_root_default = BASE_PATH
+base_path_default = data_root_default
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
@@ -60,20 +68,29 @@ args = SimpleNamespace(
     use_rot_pos_emb=True,
     model_size='base',
     num_classes=150,  # For ADE20K
-    batch_size=168,
+    batch_size=16,
+    grad_accum_steps=4,
     # batch_size=80,
-    img_size=224,
-    # img_size=384,
+    train_img_size=512,
+    eval_img_size=512,
+    use_ms_flip_eval=False,  # False or True
+    scale_jitter=(1.0, None),
+    use_cat_max_ratio=False,
+    cat_max_ratio=0.75,
+    cat_max_ratio_tries=10,
+    ms_scales=(0.75, 1.0, 1.25, 1.5),  # e.g. (0.75, 1.0, 1.25, 1.5)
+    eval_crop_mode="crop_or_pad",  # "crop_or_pad" (best practice), "pad", or "crop"
+    final_ms_flip_eval=True,
     # lr=3e-4,
     # lr=8e-4,
-    lr=5e-4,
+    lr=7e-4,
     lr_aux=1e-5,
     # lr=1e-3,
     # lr=8e-4,
-    eta_min=0.0,
+    eta_min=1e-8,  # cosine LR floor; 1e-8 is a common stable default
     composite_lr=True,
-    warmup_epochs=10,
-    weight_decay=0.01, 
+    warmup_steps=3000,
+    weight_decay=0.01,  # typical 0.01-0.05 for ViT+AdamW
     epochs=130,
     # has_pos=True,
     overlap=0,
@@ -83,27 +100,56 @@ args = SimpleNamespace(
     # loss_type="l1",
     huber_beta=0.1,
     rc_alpha=30.0,
+    seg_head="ppmlite",  # "ppmlite", "upernet", "fcn", "linear"
+    feature_layers=[2, 5, 8, 11],
     # dice_weight=0.0,
     workers=5,
-    persistent_workers=False,
+    color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
+    color_jitter_prob=0.1,
     train=True,
     # val=False,
     ckpt_path=None,
     lock=True,
     lock_prio=6,
     clip_value=1.0,
-    output_dir=f"{root_dir}/output/seg_redo2",
+    output_dir=os.path.join(root_dir, "seg"),
     log_interval=50,
     csv_interval=3,
     save_ckpt=True,
     compile_model=False,
+    save_full_ckpt=True,
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
+    resume_bs=False,
+    total_run_time_sec=None,
     # --- Dataset Paths ---
-    base_path=f"{BASE_PATH}",
+    base_path=base_path_default,
 )
+ckpt = None
+if args.resume_full_ckpt and args.resume_ckpt_path:
+    resume_full_ckpt = args.resume_full_ckpt
+    resume_ckpt_path = args.resume_ckpt_path
+    batch_size = args.batch_size
+    grad_accum_steps = args.grad_accum_steps
+    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt_args = ckpt.get("args", None)
+    if ckpt_args is not None:
+        for k, v in vars(ckpt_args).items():
+            setattr(args, k, v)
+    args.resume_full_ckpt = resume_full_ckpt
+    args.resume_ckpt_path = resume_ckpt_path
+    if not args.resume_bs:
+        args.batch_size = batch_size
+        args.grad_accum_steps = grad_accum_steps
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
     args.use_rc_loss = False
+if args.eval_img_size != args.train_img_size:
+    print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
+    args.eval_img_size = args.train_img_size
+if hasattr(args, "seg_head"):
+    args.seg_head = str(args.seg_head).lower()
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 TRAIN_IMAGE_PATH = os.path.join(args.base_path, 'images', 'training')
@@ -115,8 +161,15 @@ VALID_ANNOTATION_PATH = os.path.join(args.base_path, 'annotations', 'validation'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 use_amp = torch.cuda.is_available()
-use_bf16 = use_amp and torch.cuda.is_bf16_supported()
+use_bf16 = use_amp and torch.cuda.is_bf16_supported(including_emulation=False)
 autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
+# Speed tweaks for Ampere+
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
+    torch.backends.cudnn.benchmark = True
 # %%
 # Set seeds
 np.random.seed(args.seed)
@@ -125,8 +178,15 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-if torch.cuda.is_available() and args.img_size is not None:
-    torch.backends.cudnn.benchmark = True
+
+def _seed_worker(worker_id):
+    worker_seed = args.seed + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
+
+data_rng = torch.Generator()
+data_rng.manual_seed(args.seed)
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
@@ -136,9 +196,12 @@ if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
 output_dir = os.path.join(args.output_dir, subdir_name)
-ckpt_output_dir = output_dir.replace("/output/", "/output/ckpt/")
+ckpt_output_dir = os.path.join(output_dir, "ckpt")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
+last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
+if args.resume_full_ckpt and args.resume_ckpt_path is None:
+    args.resume_ckpt_path = last_ckpt_path
 
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
@@ -160,25 +223,19 @@ logger.info(subdir_name)
 # --- Acquire a file lock to ensure exclusive GPU usage ---
 gpu_lock = None
 if args.lock:
-    if FileLock:
-        from core.lock_utils import PriorityFileLock
-        lock_path = "/tmp/gpu.lock"
-        gpu_lock = PriorityFileLock("/tmp/gpu.lock", prio=args.lock_prio, poll_s=1.0)
-    #     gpu_lock = FileLock(lock_path)
-        logger.info(f"Attempting to acquire lock on '{lock_path}'...")
-        gpu_lock.acquire()
-        logger.info("Lock acquired. It is safe to proceed.")
-        # The lock will be automatically released when the script exits.
-    else:
-        logger.warning("`filelock` library not found, skipping lock. Run `pip install filelock`.")
+    lock_path = "/tmp/gpu.lock"
+    lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
+    gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
+    print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
+    gpu_lock.acquire()
+    print("Lock acquired. It is safe to proceed.")
 
-logger.info(args)
+logger.info(output_dir)
 # %%
 # %%
 # =================================================================================
 # Custom Dataset for Segmentation (Image + Mask)
 # =================================================================================
-import torchvision.transforms.functional as TF
 class SegmentationDataset(Dataset):
     """
     Custom PyTorch Dataset for semantic segmentation.
@@ -186,7 +243,7 @@ class SegmentationDataset(Dataset):
     Reads images and their corresponding segmentation masks, and applies
     appropriate data augmentation for training and validation.
     """
-    def __init__(self, image_dir, annotation_dir, img_size, is_train, mean, std):
+    def __init__(self, image_dir, annotation_dir, pair_transform):
         """
         Args:
             image_dir (str): Directory with all the images.
@@ -199,10 +256,7 @@ class SegmentationDataset(Dataset):
         self.image_dir = image_dir
         self.annotation_dir = annotation_dir
         self.images = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
-        self.img_size = img_size
-        self.is_train = is_train
-        self.mean = mean
-        self.std = std
+        self.pair_transform = pair_transform
 
     def __len__(self):
         return len(self.images)
@@ -217,45 +271,10 @@ class SegmentationDataset(Dataset):
         # Masks contain class labels, so they are typically opened in grayscale ('L') mode
         mask = Image.open(ann_path).convert('L')
 
-        # --- Apply Synchronized Transformations ---
-
-        # 1. Spatial transformations (applied to both image and mask)
-        if self.is_train:
-            # Random horizontal flip (50% chance)
-            if random.random() > 0.5:
-                image = TF.hflip(image)
-                mask = TF.hflip(mask)
-
-            # Random resized crop
-            # Get parameters for crop and apply it to both image and mask
-            i, j, h, w = transforms.RandomResizedCrop.get_params(
-                image, scale=(0.08, 1.0), ratio=(0.75, 1.33)
-            )
-            image = TF.resized_crop(image, i, j, h, w, [self.img_size, self.img_size], TF.InterpolationMode.BILINEAR)
-            # Use NEAREST interpolation for masks to avoid creating new class labels
-            mask = TF.resized_crop(mask, i, j, h, w, [self.img_size, self.img_size], TF.InterpolationMode.NEAREST)
-
-        else:  # Validation/Testing
-            # Resize to a size larger than the crop size
-            image = TF.resize(image, [int(self.img_size * 1.14), int(self.img_size * 1.14)], TF.InterpolationMode.BILINEAR)
-            mask = TF.resize(mask, [int(self.img_size * 1.14), int(self.img_size * 1.14)], TF.InterpolationMode.NEAREST)
-            # Center crop to the final size
-            image = TF.center_crop(image, [self.img_size, self.img_size])
-            mask = TF.center_crop(mask, [self.img_size, self.img_size])
-
-        # 2. Pixel-level transformations
-        # Image: convert to tensor and normalize
-        image = TF.to_tensor(image)
-        image = TF.normalize(image, self.mean, self.std)
-
-        # Mask: convert to numpy array, then to a long tensor
-        # The values should be class indices (0, 1, 2, ...), not floats.
-        mask = torch.from_numpy(np.array(mask)).long() - 1 # ADE20K labels are 1-150, background 0. Map to 0-149, ignore -1.
-        # mask = torch.clamp(mask, min=0, max=NUM_CLASSES-1)
-
-        return image, mask
+        image_t, mask_t = self.pair_transform(image, mask)
+        mask_t = mask_t.long() - 1  # ADE20K labels are 1-150, background 0
+        return image_t, mask_t
 #%%
-# Data Augmentation
 img_mean = [0.485, 0.456, 0.406]
 img_std = [0.229, 0.224, 0.225]
 
@@ -263,42 +282,56 @@ img_std = [0.229, 0.224, 0.225]
 train_dataset = SegmentationDataset(
     TRAIN_IMAGE_PATH,
     TRAIN_ANNOTATION_PATH,
-    img_size=args.img_size,
-    is_train=True,
-    mean=img_mean,
-    std=img_std
+    pair_transform=TrainSegAug(
+        target_size=(args.train_img_size, args.train_img_size),
+        scale_jitter=args.scale_jitter,
+        cat_max_ratio=(args.cat_max_ratio if args.use_cat_max_ratio else None),
+        cat_max_ratio_tries=args.cat_max_ratio_tries,
+        ignore_index=0 if args.use_cat_max_ratio else None,
+        color_jitter=args.color_jitter,
+        color_jitter_prob=args.color_jitter_prob,
+        normalize=True,
+    ),
 )
 valid_dataset = SegmentationDataset(
     VALID_IMAGE_PATH,
     VALID_ANNOTATION_PATH,
-    img_size=args.img_size,
-    is_train=False,
-    mean=img_mean,
-    std=img_std
+    pair_transform=EvalSegPreprocess(
+        target_size=(args.eval_img_size, args.eval_img_size),
+        target_by="shorter",
+        eval_crop_mode=args.eval_crop_mode,
+        normalize=True,
+    ),
 )
+
+loader_kwargs = dict(
+    num_workers=args.workers,
+    pin_memory=True,
+    worker_init_fn=_seed_worker,
+    generator=data_rng,
+    persistent_workers=(args.workers > 0),
+)
+if args.workers > 0:
+    loader_kwargs["prefetch_factor"] = 2
 
 train_loader = DataLoader(
     train_dataset,
     batch_size=args.batch_size,
     shuffle=True,
-    num_workers=args.workers,
-    pin_memory=torch.cuda.is_available(),
     drop_last=True,
-    persistent_workers=(args.workers > 0 and args.persistent_workers),
+    **loader_kwargs,
 )
 valid_loader = DataLoader(
     valid_dataset,
     batch_size=args.batch_size,
     shuffle=False,
-    num_workers=args.workers,
-    pin_memory=torch.cuda.is_available(),
     drop_last=False,
-    persistent_workers=(args.workers > 0 and args.persistent_workers),
+    **loader_kwargs,
 )
 
 steps_per_epoch = len(train_loader)
-warmup_steps = int(args.warmup_epochs * steps_per_epoch)
-total_steps = args.epochs * steps_per_epoch
+accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
 logger.info(f"✅ DataLoaders created successfully.")
 logger.info(f"   - Training samples: {len(train_dataset)}, Batches per epoch: {len(train_loader)}")
 logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: {len(valid_loader)}")
@@ -306,23 +339,23 @@ logger.info(f"   - Validation samples: {len(valid_dataset)}, Batches per epoch: 
 # =================================================================================
 # Step 3.5: Visualize a Batch of Training Data
 # =================================================================================
-def imshow(img, mask, title=None):
-    """Display an image and its mask side by side."""
-    img = img.numpy().transpose((1, 2, 0))
-    mean = np.array(img_mean)
-    std = np.array(img_std)
-    img = std * img + mean
-    img = np.clip(img, 0, 1)
+# def imshow(img, mask, title=None):
+#     """Display an image and its mask side by side."""
+#     img = img.numpy().transpose((1, 2, 0))
+#     mean = np.array(img_mean)
+#     std = np.array(img_std)
+#     img = std * img + mean
+#     img = np.clip(img, 0, 1)
     
-    mask = mask.numpy().squeeze()  # Remove channel dimension
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-    ax1.imshow(img)
-    ax1.set_title('Image' if title is None else f'Image - {title}')
-    ax1.axis('off')
-    ax2.imshow(mask, cmap='jet')  # Use jet colormap for mask visualization
-    ax2.set_title('Mask' if title is None else f'Mask - {title}')
-    ax2.axis('off')
-    plt.show()
+#     mask = mask.numpy().squeeze()  # Remove channel dimension
+#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+#     ax1.imshow(img)
+#     ax1.set_title('Image' if title is None else f'Image - {title}')
+#     ax1.axis('off')
+#     ax2.imshow(mask, cmap='jet')  # Use jet colormap for mask visualization
+#     ax2.set_title('Mask' if title is None else f'Mask - {title}')
+#     ax2.axis('off')
+#     plt.show()
 
 # Get one batch of training images and masks
 # try:
@@ -356,36 +389,60 @@ model = timm.create_model(
     use_abs_pos_emb=args.use_abs_pos_emb,
     use_rot_pos_emb=args.use_rot_pos_emb,
     num_classes=0, 
-    img_size=args.img_size,
+    dynamic_img_size=True,
+    img_size=args.train_img_size,
 ).to(DEVICE)
 
 
-from seg_head import PPMliteFCNHead, FCNSegHead
 grid_h, grid_w = model.patch_embed.grid_size
-# decoder = FCNSegHead(
-#     embed_dim=model.embed_dim,
-#     num_classes=args.num_classes,
-#     grid_size=(grid_h, grid_w),
-#     out_size=(args.img_size, args.img_size),
-#     mid_channels=256,
-#     dropout=0.1,
-#     norm='gn',   # or 'gn' if your effective batch per GPU is small
-# ).to(DEVICE)
-
-decoder = PPMliteFCNHead(
-    embed_dim=model.embed_dim,
-    num_classes=args.num_classes,
-    grid_size=(grid_h, grid_w),
-    out_size=(args.img_size, args.img_size),
-    mid_channels=256,
-    ppm_bins=(1, 2, 3),     # lite; try (1,2,3,6) if you can afford a bit more
-    ppm_channels=64,
-    dropout=0.1,
-    norm="gn",              # "bn" if your per-GPU batch is large/stable
-).to(DEVICE)
+decoder_type = getattr(args, "seg_head", "ppmlite").lower()
+if decoder_type == "ppmlite":
+    decoder = PPMliteFCNHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        mid_channels=256,
+        ppm_bins=(1, 2, 3),
+        ppm_channels=64,
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "upernet":
+    embed_dims = [model.embed_dim] * len(args.feature_layers)
+    decoder = UPerNetTokenHead(
+        embed_dims=embed_dims,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        fpn_channels=256,
+        ppm_bins=(1, 2, 3, 6),
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "fcn":
+    decoder = FCNSegHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        mid_channels=256,
+        dropout=0.1,
+        norm="gn",
+    ).to(DEVICE)
+elif decoder_type == "linear":
+    decoder = LinearSegHead(
+        embed_dim=model.embed_dim,
+        num_classes=args.num_classes,
+        grid_size=(grid_h, grid_w),
+        out_size=(args.train_img_size, args.train_img_size),
+        dropout=0.1,
+    ).to(DEVICE)
+else:
+    raise ValueError(f"Unsupported seg_head='{decoder_type}'. Use 'ppmlite', 'upernet', 'fcn', or 'linear'.")
 
 # --- Test with a dummy input ---
-# dummy_input = torch.randn(2, 3, args.img_size, args.img_size).to(DEVICE)
+# dummy_input = torch.randn(2, 3, args.train_img_size, args.train_img_size).to(DEVICE)
 # with torch.no_grad():
 #     feats = model.forward_features(dummy_input)
 #     output = decoder(feats[:, model.num_prefix_tokens:, :])
@@ -393,7 +450,7 @@ decoder = PPMliteFCNHead(
 # logger.info(f"Model created successfully!")
 # logger.info(f"Input shape: {dummy_input.shape}")
 # logger.info(f"Output shape: {output.shape}")
-# assert output.shape == (2, args.num_classes, args.img_size, args.img_size)
+# assert output.shape == (2, args.num_classes, args.train_img_size, args.train_img_size)
 # logger.info("✅ Output shape is correct.")
 # del feats, output, dummy_input
 
@@ -404,8 +461,8 @@ if args.overlap > 0:
     original_patch_size = model.patch_embed.proj.kernel_size[0]
     new_patch_size = original_patch_size + args.overlap  # Or 15, 16, 17, etc., as desired
     stride = original_patch_size
-    original_grid_size = args.img_size // stride  # 16 for 224//14
-    padding = ((original_grid_size - 1) * stride + new_patch_size - args.img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
+    original_grid_size = args.train_img_size // stride  # 16 for 224//14
+    padding = ((original_grid_size - 1) * stride + new_patch_size - args.train_img_size + 1) // 2  # +1 for ceiling effect; yields 1 for patch_size=15
     
     # Override the PatchEmbed projection (Conv2d layer)
     in_chans = model.patch_embed.proj.in_channels  # Typically 3 for RGB
@@ -418,7 +475,7 @@ if args.overlap > 0:
     ).to(DEVICE)
     
     # Recompute grid size and num_patches
-    # grid_size_h = ((args.img_size + 2 * padding - new_patch_size) // stride) + 1
+    # grid_size_h = ((args.train_img_size + 2 * padding - new_patch_size) // stride) + 1
     # grid_size_w = grid_size_h  # Assuming square input
     # logger.info(new_patch_size, padding, grid_size_h, model.patch_embed.grid_size)
     # model.patch_embed.grid_size = (grid_size_h, grid_size_w)
@@ -507,8 +564,10 @@ from seg_loss import MMSegCrossEntropyLoss
 ce_criterion = MMSegCrossEntropyLoss(ignore_index=-1, avg_non_ignore=True)
 # dice_criterion = GatherDiceLoss(ignore_index=-1)  # Our new Dice Loss
 
+optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+total_steps = args.epochs * optimizer_steps_per_epoch
 if args.composite_lr:
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    warmup_steps = min(args.warmup_steps, max(1, total_steps - 1))
     warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=1e-7 / args.lr,
@@ -526,7 +585,6 @@ if args.composite_lr:
         milestones=[warmup_steps],
     )
 else:
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=total_steps, eta_min=args.eta_min
     )
@@ -541,6 +599,101 @@ logger.info("✅ Initialized Loss, Optimizer, and LR Scheduler.")
 # logger.info(f"Output shape: {feats.shape}") 
 
 # %%
+
+
+def _infer_grid_hw(model, inputs):
+    patch_size = model.patch_embed.patch_size
+    if isinstance(patch_size, tuple):
+        ph, pw = patch_size
+    else:
+        ph = pw = patch_size
+    return (inputs.shape[-2] // ph, inputs.shape[-1] // pw)
+
+
+def _round_to_multiple(x: int, m: int) -> int:
+    return max(m, int(round(x / m) * m))
+
+def _strip_prefix_tokens(features, grid_hw, num_prefix_tokens):
+    if num_prefix_tokens <= 0:
+        return features
+    tokens_needed = grid_hw[0] * grid_hw[1]
+    stripped = []
+    for feat in features:
+        if feat.dim() == 3 and feat.shape[1] == tokens_needed + num_prefix_tokens:
+            stripped.append(feat[:, num_prefix_tokens:, :])
+        else:
+            stripped.append(feat)
+    return stripped
+
+def _forward_upernet(model, decoder, inputs, feature_layers):
+    if not feature_layers:
+        raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+    grid_hw = _infer_grid_hw(model, inputs)
+    features = model.forward_intermediates(
+        inputs,
+        indices=feature_layers,
+        norm=False,
+        intermediates_only=True,
+        output_fmt="NLC",
+    )
+    features = _strip_prefix_tokens(features, grid_hw, model.num_prefix_tokens)
+    outputs = decoder(features, grid_sizes=[grid_hw] * len(features), out_size=inputs.shape[-2:])
+    return outputs, features, grid_hw
+
+
+def _ms_flip_predict(model, decoder, inputs, num_classes, scales, flip, patch_size, *, feature_layers=None):
+    if isinstance(patch_size, tuple):
+        ph, pw = patch_size
+    else:
+        ph = pw = patch_size
+    b, _, h0, w0 = inputs.shape
+    logits_sum = torch.zeros((b, num_classes, h0, w0), device=inputs.device, dtype=inputs.dtype)
+    count = 0
+    for s in scales:
+        hs = _round_to_multiple(int(round(h0 * s)), ph)
+        ws = _round_to_multiple(int(round(w0 * s)), pw)
+        x_s = F.interpolate(inputs, size=(hs, ws), mode="bilinear", align_corners=False)
+        grid_hw = _infer_grid_hw(model, x_s)
+        if args.seg_head == "upernet":
+            if not feature_layers:
+                raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+            feats = model.forward_intermediates(
+                x_s,
+                indices=feature_layers,
+                norm=False,
+                intermediates_only=True,
+                output_fmt="NLC",
+            )
+            feats = _strip_prefix_tokens(feats, grid_hw, model.num_prefix_tokens)
+            logits = decoder(feats, grid_sizes=[grid_hw] * len(feats), out_size=(hs, ws))
+        else:
+            feats = model.forward_features(x_s)
+            logits = decoder(feats[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
+        logits = F.interpolate(logits, size=(h0, w0), mode="bilinear", align_corners=False)
+        logits_sum += logits
+        count += 1
+        if flip:
+            x_f = torch.flip(x_s, dims=[3])
+            if args.seg_head == "upernet":
+                if not feature_layers:
+                    raise ValueError("feature_layers must be set when using seg_head='upernet'.")
+                feats_f = model.forward_intermediates(
+                    x_f,
+                    indices=feature_layers,
+                    norm=False,
+                    intermediates_only=True,
+                    output_fmt="NLC",
+                )
+                feats_f = _strip_prefix_tokens(feats_f, grid_hw, model.num_prefix_tokens)
+                logits_f = decoder(feats_f, grid_sizes=[grid_hw] * len(feats_f), out_size=(hs, ws))
+            else:
+                feats_f = model.forward_features(x_f)
+                logits_f = decoder(feats_f[:, model.num_prefix_tokens:, :], grid_size=grid_hw, out_size=(hs, ws))
+            logits_f = torch.flip(logits_f, dims=[3])
+            logits_f = F.interpolate(logits_f, size=(h0, w0), mode="bilinear", align_corners=False)
+            logits_sum += logits_f
+            count += 1
+    return logits_sum / max(count, 1)
 
 
 @torch.no_grad()
@@ -562,39 +715,6 @@ def fast_confusion_matrix(pred: torch.Tensor, target: torch.Tensor, num_classes:
     return conf.view(num_classes, num_classes)
 
 #%%
-def compute_miou(preds, labels, num_classes, ignore_index=-1):
-    """Compute mean IoU with proper handling of ignore index"""
-    mask = (labels != ignore_index)
-    preds = preds[mask]
-    labels = labels[mask]
-    
-    if len(preds) == 0:
-        return 0.0
-    
-    iou_list = []
-    for c in range(num_classes):
-        pred_c = (preds == c)
-        label_c = (labels == c)
-        intersection = (pred_c & label_c).sum().float()
-        union = (pred_c | label_c).sum().float()
-        
-        if union > 0:
-            iou_list.append((intersection / union).item())
-        else:
-            # If no pixels of this class, don't count it
-            continue
-    
-    return np.mean(iou_list) if iou_list else 0.0
-#%%
-def save_checkpoint(model, decoder, output_dir, suffix):
-    encoder_path = os.path.join(output_dir, f'encoder_{suffix}.pth')
-    decoder_path = os.path.join(output_dir, f'decoder_{suffix}.pth')
-    torch.save(model.state_dict(), encoder_path)
-    torch.save(decoder.state_dict(), decoder_path)
-    logger.info(f"Checkpoint saved: {suffix}")
-# %%
-import csv
-
 ckpt_path = None
 if args.train:
     # FP16: Initialize the Gradient Scaler
@@ -605,33 +725,71 @@ if args.train:
     # Step 5: Training and Validation Loop
     # =================================================================================
     logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
+    train_start_time = time.time()
+    start_epoch = 0
+    if args.resume_full_ckpt and args.resume_ckpt_path:
+        if ckpt is not None:
+            model.load_state_dict(ckpt.get("model", {}), strict=False)
+            decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
+            if "optimizer" in ckpt:
+                optimizer.load_state_dict(ckpt["optimizer"])
+            if "scheduler" in ckpt and ckpt["scheduler"] is not None:
+                scheduler.load_state_dict(ckpt["scheduler"])
+            if "scaler" in ckpt and ckpt["scaler"] is not None:
+                scaler.load_state_dict(ckpt["scaler"])
+            if args.use_rc_loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
+                rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
+            start_epoch = int(ckpt.get("epoch", 0))
+            logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
+            training_history = ckpt.get("training_history", None)
 
     # ✅ Initialize training_history as a dictionary of lists
-    if args.use_rc_loss:
-        training_history = {
-            'train_loss': [],
-            'train_acc': [],
-            'valid_acc': [],
-            'valid_miou': [],
-            'epoch': [],
-            'step': [],
-            'base_loss': [],
-            'aux_loss': [],
-        }
-    else:
-        training_history = {
-            'train_loss': [],
-            'train_acc': [],
-            'valid_acc': [],
-            'valid_miou': [],
-            'epoch': [],
-            'step': [],
-        }
+    if not isinstance(locals().get("training_history", None), dict):
+        if args.use_rc_loss:
+            training_history = {
+                'train_loss': [],
+                'train_acc': [],
+                'valid_acc': [],
+                'valid_miou': [],
+                'train_time': [],
+                'val_time': [],
+                'epoch': [],
+                'step': [],
+                'base_loss': [],
+                'aux_loss': [],
+            }
+        else:
+            training_history = {
+                'train_loss': [],
+                'train_acc': [],
+                'valid_acc': [],
+                'valid_miou': [],
+                'train_time': [],
+                'val_time': [],
+                'epoch': [],
+                'step': [],
+            }
+    if isinstance(locals().get("training_history", None), dict):
+        training_history.setdefault('train_time', [])
+        training_history.setdefault('val_time', [])
+    def _pad_history(hist, fill_value=None):
+        keys = [k for k, v in hist.items() if isinstance(v, list)]
+        if not keys:
+            return
+        max_len = max(len(hist[k]) for k in keys)
+        for k in keys:
+            if len(hist[k]) < max_len:
+                hist[k].extend([fill_value] * (max_len - len(hist[k])))
+    if args.resume_full_ckpt and isinstance(locals().get("training_history", None), dict):
+        _pad_history(training_history)
     step = 0
+    if isinstance(locals().get("training_history", None), dict):
+        step = int(training_history.get("step", [0])[-1]) if training_history.get("step") else 0
     best_acc = 0.0
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
+        epoch_train_start = time.time()
         # --- Training Phase ---
         model.train()
         decoder.train()
@@ -645,37 +803,50 @@ if args.train:
         # train_pbar = train_loader
         
         # FP16: Use autocast for the forward pass
+        optimizer.zero_grad(set_to_none=True)
         for batch_idx, (inputs, labels) in enumerate(train_pbar):
             inputs = inputs.to(DEVICE, non_blocking=True)
             labels = labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
-            
-            optimizer.zero_grad(set_to_none=True)
             aux_loss = None
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
-                feats = model.forward_features(inputs)
-                outputs = decoder(feats[:, model.num_prefix_tokens:, :])            
+                if args.seg_head == "upernet":
+                    outputs, features, grid_hw = _forward_upernet(
+                        model, decoder, inputs, args.feature_layers
+                    )
+                    last_tokens = features[-1]
+                else:
+                    feats = model.forward_features(inputs)
+                    grid_hw = _infer_grid_hw(model, inputs)
+                    outputs = decoder(
+                        feats[:, model.num_prefix_tokens:, :],
+                        grid_size=grid_hw,
+                        out_size=inputs.shape[-2:],
+                    )
+                    last_tokens = feats[:, model.num_prefix_tokens:, :]
 
                 loss = ce_criterion(outputs, labels)
                 base_loss = loss              
 
                 if args.use_rc_loss:
-                    aux_loss = rowcol_loss(feats[:, model.num_prefix_tokens:, :])
+                    aux_loss = rowcol_loss(last_tokens)
                     aux_loss_sum_t += aux_loss.detach() * bs
                     # logger.info(loss, aux_loss)
                     loss = base_loss + args.rc_alpha * aux_loss
             
-            # FP16: Scale, backward, and step
-            scaler.scale(loss).backward()
+            # FP16: Scale, backward, and step (with grad accumulation)
+            loss_scaled = loss / accum_steps
+            scaler.scale(loss_scaled).backward()
 
-            if args.clip_value is not None:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
-
-            scaler.step(optimizer)
-            scaler.update()
-
-            scheduler.step()
+            do_step = ((batch_idx + 1) % accum_steps == 0) or (batch_idx + 1 == len(train_loader))
+            if do_step:
+                if args.clip_value is not None:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
             
             with torch.no_grad():
                 pred = outputs.detach().argmax(dim=1)  # (B,H,W)
@@ -704,6 +875,7 @@ if args.train:
 
             # if (step) % VAL_STEPS == 0:
         
+        train_time = time.time() - epoch_train_start
         model.eval()
         decoder.eval()
         val_correct_t = torch.zeros((), device=DEVICE)
@@ -711,6 +883,7 @@ if args.train:
         confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
 
         val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]", mininterval=0.5)
+        val_start = time.time()
 
         with torch.inference_mode():
             for inputs, labels in val_pbar:
@@ -718,8 +891,30 @@ if args.train:
                 labels = labels.to(DEVICE, non_blocking=True)
 
                 with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
-                    feats = model.forward_features(inputs)
-                    outputs = decoder(feats[:, model.num_prefix_tokens:, :])
+                    if args.use_ms_flip_eval:
+                        outputs = _ms_flip_predict(
+                            model,
+                            decoder,
+                            inputs,
+                            args.num_classes,
+                            args.ms_scales,
+                            True,
+                            model.patch_embed.patch_size,
+                            feature_layers=args.feature_layers,
+                        )
+                    else:
+                        if args.seg_head == "upernet":
+                            outputs, _, grid_hw = _forward_upernet(
+                                model, decoder, inputs, args.feature_layers
+                            )
+                        else:
+                            feats = model.forward_features(inputs)
+                            grid_hw = _infer_grid_hw(model, inputs)
+                            outputs = decoder(
+                                feats[:, model.num_prefix_tokens:, :],
+                                grid_size=grid_hw,
+                                out_size=inputs.shape[-2:],
+                            )
 
                 pred = outputs.argmax(dim=1)  # (B,H,W)
                 mask = (labels >= 0)
@@ -730,6 +925,7 @@ if args.train:
                 # mIoU via confusion matrix (vectorized)
                 confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
 
+        val_time = time.time() - val_start
         # Compute IoU from confmat
         confmat_f = confmat.to(torch.float32)
         intersection = torch.diag(confmat_f)
@@ -756,24 +952,51 @@ if args.train:
             epoch_base_loss = (base_loss_t / denom_pixels).float().item()
             logger.info(
                 f"  Train Loss: {epoch_train_loss:.4f} | Aux Loss: {epoch_aux_loss:.4f} | Base Loss: {epoch_base_loss:.4f} | "
-                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+                f"Train Acc: {epoch_train_acc:.4f} | Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f} | "
+                f"train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
             )
             training_history["aux_loss"].append(epoch_aux_loss)
             training_history["base_loss"].append(epoch_base_loss)
         else:
             logger.info(
                 f"  Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
-                f"Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f}\n"
+                f"Valid Acc: {epoch_val_acc:.4f} | Valid mIoU: {epoch_val_miou:.4f} | "
+                f"train_time: {train_time:.1f}s | val_time: {val_time:.1f}s\n"
             )
 
         training_history["train_loss"].append(epoch_train_loss)
         training_history["train_acc"].append(epoch_train_acc)
         training_history["valid_acc"].append(epoch_val_acc)
         training_history["valid_miou"].append(epoch_val_miou)
+        training_history["train_time"].append(train_time)
+        training_history["val_time"].append(val_time)
         training_history["epoch"].append(epoch + 1)
         training_history["step"].append(step)
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        if args.save_full_ckpt:
+            ckpt = {
+                "epoch": epoch + 1,
+                "step": step,
+                "model": model.state_dict(),
+                "decoder": decoder.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "scaler": scaler.state_dict() if scaler is not None else None,
+                "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+                "training_history": training_history,
+                "args": args,
+            }
+            torch.save(ckpt, last_ckpt_path)
+            logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
+        if args.total_run_time_sec is not None:
+            elapsed = time.time() - train_start_time
+            if elapsed >= args.total_run_time_sec:
+                logger.info(
+                    f"Stopping training: elapsed {elapsed:.0f}s reached limit "
+                    f"{args.total_run_time_sec:.0f}s."
+                )
+                break
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
@@ -784,6 +1007,49 @@ if args.train:
     logger.info("🏁 Training complete.")
     logger.info(f"Best Accuracy: {best_acc:.4f}")
     logger.info(output_dir)
+    if args.final_ms_flip_eval and not args.use_ms_flip_eval:
+        logger.info("Running final multi-scale + flip evaluation...")
+        model.eval()
+        decoder.eval()
+        val_correct_t = torch.zeros((), device=DEVICE)
+        val_total_t   = torch.zeros((), device=DEVICE)
+        confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
+
+        val_pbar = tqdm(valid_loader, desc="Final MS+Flip [Validation]", mininterval=0.5)
+        with torch.inference_mode():
+            for inputs, labels in val_pbar:
+                inputs = inputs.to(DEVICE, non_blocking=True)
+                labels = labels.to(DEVICE, non_blocking=True)
+                with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
+                    outputs = _ms_flip_predict(
+                        model,
+                        decoder,
+                        inputs,
+                        args.num_classes,
+                        args.ms_scales,
+                        True,
+                        model.patch_embed.patch_size,
+                        feature_layers=args.feature_layers,
+                    )
+                pred = outputs.argmax(dim=1)
+                mask = (labels >= 0)
+                val_correct_t += ((pred == labels) & mask).sum()
+                val_total_t   += mask.sum()
+                confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+
+        confmat_f = confmat.to(torch.float32)
+        intersection = torch.diag(confmat_f)
+        union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
+        valid = union > 0
+        final_ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
+        final_ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
+        logger.info(f"Final MS+Flip Acc: {final_ms_acc:.4f} | Final MS+Flip mIoU: {final_ms_miou:.4f}")
+        training_history["final_ms_flip_acc"] = final_ms_acc
+        training_history["final_ms_flip_miou"] = final_ms_miou
+        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    if args.lock and gpu_lock and gpu_lock.is_locked:
+        logger.info("Manually releasing lock.")
+        gpu_lock.release()
 
     # =================================================================================
     # Step 6: Save the Results and Model

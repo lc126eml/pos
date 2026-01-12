@@ -1,0 +1,14 @@
+task: seg #cls
+id: xulijuan
+method: rope #abs none colrow
+model_size: base #small
+is_private: false
+dataset_sources: null
+kernel_sources: xulijuan/imagenet-small-rope29
+resume_full_ckpt: true
+resume_source: kernel #dataset
+seed: 28
+simple:
+  - batch_size: 64
+  - grad_accum_steps: 1
+  - resume_bs: True

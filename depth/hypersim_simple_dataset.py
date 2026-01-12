@@ -1,25 +1,11 @@
-import os
 import os.path as osp
 import numpy as np
-import pandas as pd
 import glob
 import cv2
 import random
 from PIL import Image
 from torch.utils.data import Dataset
-import torch
-import torchvision.transforms as T
-import torchvision.transforms.functional as TF
-import torchvision.transforms as tvf
-# from src.dust3r.utils.image import imread_cv2, ImgnetNorm
-# from src.dust3r.datasets.utils import cropping
-
-ImgNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-# ImageNet normalization statistics
-imagenet_mean = [0.485, 0.456, 0.406]
-imagenet_std = [0.229, 0.224, 0.225]
-ImgnetNorm = tvf.Compose([tvf.ToTensor(), tvf.Normalize(mean=imagenet_mean, std=imagenet_std)])
+from aug import TrainDepthAug, EvalDepthPreprocess
 def imread_cv2(path, options=cv2.IMREAD_COLOR):
     """Open an image or a depthmap with opencv-python."""
     if path.endswith((".exr", "EXR")):
@@ -41,26 +27,37 @@ class HyperSim_Simple(Dataset):
     pair is an independent sample.
     """
 
-    def __init__(self, ROOT, resolution, split=None, useImgnet=True, transform=None, sample_rate=1.0, **kwargs):
+    def __init__(
+        self,
+        ROOT,
+        resolution,
+        split=None,
+        sample_rate=1.0,
+        pair_transform=None,
+        **kwargs
+    ):
         super().__init__()
         self.ROOT = ROOT
         self.resolution = resolution
         self._setup_resolution()
         self.dataset_label = "HyperSim_Simple"
         self.is_train = split == 'train'
-
-        # Set up image normalization
-        if useImgnet:
-            self.img_norm = ImgnetNorm
+        if pair_transform is None:
+            target_size = (self.resolution[1], self.resolution[0]) if isinstance(self.resolution, (list, tuple)) else (self.resolution, self.resolution)
+            if self.is_train:
+                self.pair_transform = TrainDepthAug(
+                    target_size=target_size,
+                    normalize=True,
+                )
+            else:
+                self.pair_transform = EvalDepthPreprocess(
+                    target_size=target_size,
+                    target_by="height",
+                    ensure_multiple_of=32,
+                    normalize=True,
+                )
         else:
-            # Fallback to default normalization if not using ImageNet stats
-            from src.dust3r.utils.image import ImgNorm
-            self.img_norm = ImgNorm
-
-        # Set up data augmentation
-        self.transform = None # Color Jitter
-        if self.is_train:
-            self.transform = T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05)
+            self.pair_transform = pair_transform
 
         print(f"Searching for images in {self.ROOT}...")
         # Recursively find all files ending with '_rgb.png'
@@ -98,48 +95,28 @@ class HyperSim_Simple(Dataset):
         pil_img = Image.fromarray(rgb_image)
         depthmap = np.load(depthpath)
         depthmap[~np.isfinite(depthmap)] = 0.0
-        depthmap = depthmap.astype(np.float32)/100.0
+        depthmap = depthmap.astype(np.float32)
 
-        # Apply augmentations if in training mode
-        if self.is_train:
-            # Random horizontal flip
-            if random.random() > 0.5:
-                pil_img = TF.hflip(pil_img)
-                depthmap = np.fliplr(depthmap)
-
-            if random.random() > 0.5:
-                i, j, h, w = T.RandomResizedCrop.get_params(
-                    pil_img, scale=(0.9, 1.0), ratio=(0.9, 1.1)  # Less aggressive
-                )
-                pil_img = TF.resized_crop(pil_img, i, j, h, w, list(self.resolution))
-                depthmap = depthmap[i:i+h, j:j+w]
-                # FIX: Use bilinear for depth (better than nearest)
-                depthmap = cv2.resize(depthmap, self.resolution, 
-                                 interpolation=cv2.INTER_LINEAR)
-            else:
-                pil_img = TF.resize(pil_img, list(self.resolution))
-                depthmap = cv2.resize(depthmap, self.resolution, 
-                                 interpolation=cv2.INTER_LINEAR)
-            
-            # Random color jitter
-            if self.transform is not None and random.random() > 0.7:
-                pil_img = self.transform(pil_img)
-
+        out = self.pair_transform(pil_img, depthmap)
+        if isinstance(out, tuple) and len(out) == 3:
+            img_t, depth_t, meta = out
         else:
-            # For validation/testing, just resize
-            pil_img = TF.resize(pil_img, list(self.resolution))
-            depthmap = cv2.resize(depthmap, self.resolution, 
-                             interpolation=cv2.INTER_LINEAR)
-
-        # The collate_fn expects a list of views, so we wrap the view in a list.
-        view = dict(
-            img=self.img_norm(pil_img), # ToTensor and Normalize
-            depthmap=torch.from_numpy(np.ascontiguousarray(depthmap)),
-            dataset=self.dataset_label,
-            label=osp.relpath(osp.dirname(impath), self.ROOT),
-            instance=osp.split(impath)[1],
-        )
-        return [view]
+            img_t, depth_t = out
+            h, w = depth_t.shape[-2], depth_t.shape[-1]
+            meta = {
+                "orig_h": float(h),
+                "orig_w": float(w),
+                "resized_h": float(h),
+                "resized_w": float(w),
+                "scale_h": 1.0,
+                "scale_w": 1.0,
+                "pad_h": 0.0,
+                "pad_w": 0.0,
+                "padded_h": float(h),
+                "padded_w": float(w),
+            }
+        # meta["path"] = impath
+        return img_t, depth_t, meta
 
 
 if __name__ == '__main__':
@@ -150,8 +127,7 @@ if __name__ == '__main__':
     )
     print(f"Found {len(dataset)} total frames.")
 
-    sample = dataset[0]
-    view = sample[0]
-    print("\nSample view keys:", view.keys())
-    print("Image shape:", view['img'].shape)
-    print("Depthmap shape:", view['depthmap'].shape)
+    img_t, depth_t, _ = dataset[0]
+    print("\nSample shapes:")
+    print("Image shape:", img_t.shape)
+    print("Depthmap shape:", depth_t.shape)
