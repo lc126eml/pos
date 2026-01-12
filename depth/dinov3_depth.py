@@ -68,13 +68,13 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, None),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=72,
+    batch_size=40,
     grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
@@ -96,8 +96,8 @@ args = SimpleNamespace(
     warmup_steps=3000,
     warmup_ratio=None,
     clip_value=1.0,
-    debug_loss_stats=True,
-    debug_loss_interval=600,
+    debug_loss_stats=False,
+    debug_loss_interval=1,
     lock=True,
     depth_decoder="dpt",  # "simple", "lite4", or "dpt"
     log_interval=300,
@@ -120,27 +120,33 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=False,
-    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr50_relative_median_dec_dpt_h224w224/ckpt/last.pth",
+    resume_ckpt_path="",
+    resume_args=True,
     resume_bs=False,
     total_run_time_sec=None,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
 )
+# /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_001419/ckpt/last.pth
+# /home/liucong/codes/pos/logs/depth/small_rc_False_lr10_relative_median_dec_dpt_h224w224/ckpt/last.pth
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
     resume_full_ckpt = args.resume_full_ckpt
     resume_ckpt_path = args.resume_ckpt_path
     batch_size = args.batch_size
     grad_accum_steps = args.grad_accum_steps
+    resume_args = args.resume_args
     ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
-    ckpt_args = ckpt.get("args", None)
-    if ckpt_args is not None:
-        for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
+    if args.resume_args:
+        ckpt_args = ckpt.get("args", None)
+        if ckpt_args is not None:
+            for k, v in vars(ckpt_args).items():
+                setattr(args, k, v)
+        args.resume_full_ckpt = resume_full_ckpt
+        args.resume_ckpt_path = resume_ckpt_path
+        args.resume_args = resume_args
+        if not args.resume_bs:
+            args.batch_size = batch_size
+            args.grad_accum_steps = grad_accum_steps
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
@@ -209,8 +215,8 @@ if args.use_rc_loss:
 
 run_tag = time.strftime("%Y%m%d_%H%M%S")
 output_dir = os.path.join(args.output_dir, subdir_name)
-ckpt_output_dir = os.path.join(output_dir, "ckpt")
 output_dir = os.path.join(output_dir, run_tag)
+ckpt_output_dir = os.path.join(output_dir, "ckpt")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
@@ -835,6 +841,10 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         base_loss_t += base_loss.detach() * bs
 
         loss_scaled = loss / accum_steps
+        if debug_this_step:
+            loss_val = loss.detach().float().item()
+            if not math.isfinite(loss_val):
+                logger.warning(f"[debug] loss_nonfinite={loss_val}")
         scaler.scale(loss_scaled).backward()
         if debug_this_step:
             with torch.no_grad():
@@ -873,6 +883,14 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
             scaler.update()
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
+            if debug_this_step:
+                has_nan = any(
+                    torch.isnan(p).any().item()
+                    for p in training_parameters
+                    if p is not None
+                )
+                if has_nan:
+                    logger.warning("Detected NaN in parameters after optimizer step.")
         
         running_loss_t += loss.detach() * bs
         total_samples += bs            

@@ -86,6 +86,10 @@ class SILogLoss(nn.Module):
         mask = _ensure_4d(mask).float()
 
         with torch.amp.autocast(device_type=pred.device.type, enabled=False):
+            valid = (mask > 0.5) & torch.isfinite(pred) & torch.isfinite(target)
+            mask = valid.float()
+            pred = torch.where(valid, pred, torch.ones_like(pred))
+            target = torch.where(valid, target, torch.ones_like(target))
             alpha = 1e-7
             pred = torch.clamp(pred, min=alpha)
             target = torch.clamp(target, min=alpha)
