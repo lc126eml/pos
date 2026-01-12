@@ -117,10 +117,10 @@ args = SimpleNamespace(
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     num_classes=100,
     patch_size = 16,
-    grad_accum_steps=2,
+    grad_accum_steps=1,
     # Adjust based on your GPU memory. BATCH_SIZE = 120, 128, 136, 392, 768, etc.
     batch_size=64, #rpe
     # batch_size=256, #rope
@@ -142,7 +142,7 @@ args = SimpleNamespace(
     pretrained=None,
     seed=29,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
@@ -159,9 +159,9 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path="/kaggle/input/imagenet-base-rope28/ckpt/last.pth",
-    resume_bs=False,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/imagenet-base-no29/ckpt/last.pth',
+    resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -170,7 +170,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
-    total_run_time_sec=40000, #41000
+    total_run_time_sec=11000, #41000
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -289,12 +289,6 @@ logger.info(f"Using mixed precision: {'bfloat16' if use_bf16 else 'float16'}")
 logger.info(args)
 logger.info(output_dir)
 logger.info(subdir_name)
-if resume_ckpt_missing:
-    logger.warning("Resume requested but checkpoint not found.")
-if resume_ckpt_no_args:
-    logger.warning("Resume checkpoint has no saved args; using current args.")
-for key, saved_val, current_val in resume_arg_mismatches:
-    logger.warning(f"Resume arg mismatch: {key} saved={saved_val} current={current_val}")
 
 # --- Acquire a file lock to ensure exclusive GPU usage ---
 # gpu_lock = None

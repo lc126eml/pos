@@ -37,12 +37,12 @@ kaggle kernels push -p .
 kaggle kernels status 
 kaggle kernels output 
 kaggle kernels delete -y 
-# qq
+# qqmail4092
 409274141@qq.com 11
 cd D:\codes\working\pos\pos\kaggle\qq
 $env:KAGGLE_API_TOKEN = "KGAT_8279c1e528a3052d8681816cbe30c3d4"
 
-# wyh ohyeah00 16
+# ohyeah00 16
 1715071962@qq.com
 wyh456852
 cd D:\codes\working\pos\pos\kaggle\wyh

@@ -32,18 +32,15 @@ if os.path.isdir(LOCAL_TIMM):
 
 import timm
 
-if os.path.exists('/home/sshuser'):
-    root_dir = '/home/sshuser'
-    BASE_PATH = f'{root_dir}/Data/imagenet100/'
-elif os.path.exists('/lc'):
+if os.path.exists('/lc'):
     root_dir = '/lc/logs'
-    BASE_PATH = f'/lc/data/imagenet100/'
+    BASE_PATH = f'/lc/data/3D'
 elif os.path.exists("/home/liucong"):
     root_dir = '/home/liucong/codes/pos/logs'
     BASE_PATH = f'/home/liucong/data/3d'
 else:
     root_dir = '/linux'
-    BASE_PATH = f'{root_dir}/Data/imagenet100/'
+    BASE_PATH = f'{root_dir}/Data/imagenet100'
 # root_dir = os.environ.get("OUTPUT_ROOT", os.path.join(REPO_ROOT, "outputs"))
 data_root_default = BASE_PATH
 # os.environ.get("DATA_ROOT", os.path.join(REPO_ROOT, "data"))
@@ -67,18 +64,18 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
-    train_sizes=[(224, 224)],  # list of (H, W)
-    eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
+    train_sizes=[(256, 256)],  # list of (H, W)
+    eval_size=(288, 384), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, None),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=40,
+    batch_size=80,
     grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
-    lr=1e-4,
+    lr=5e-4,
     # lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
@@ -86,7 +83,7 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
-    seed=55,
+    seed=28,
     val_steps=200,
     use_rc_loss=False,
     rc_alpha=20.0,

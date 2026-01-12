@@ -1,15 +1,20 @@
 {
-  "id": "xulijuan/imagenet-small-rope29",
-  "title": "imagenet small rope29",
-  "code_file": "D:\\codes\\working\\pos\\pos\\dinov3_reg_dynamic.py",
+  "id": "jacksisi/cls-base-none229",
+  "title": "cls base none229",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
-  "is_private": "true",
+  "is_private": "false",
   "enable_gpu": "true",
   "enable_tpu": "false",
   "enable_internet": "true",
-  "dataset_sources": ["ambityga/imagenet100", "liucong12601/timm-repos"],
+  "dataset_sources": [
+    "liucong12601/timm-repos",
+    "ambityga/imagenet100"
+  ],
   "competition_sources": [],
-  "kernel_sources": ["xulijuan/imagenet-small-rope29"],
+  "kernel_sources": [
+    "jacksisi/imagenet-base-no29"
+  ],
   "model_sources": []
 }
