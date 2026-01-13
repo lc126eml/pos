@@ -64,7 +64,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
@@ -85,7 +85,7 @@ args = SimpleNamespace(
     overlap=0,
     seed=55,
     val_steps=None,
-    use_rc_loss=False,
+    use_rc_loss=True,
     rc_alpha=20.0,
     # warmup_steps_for_aux=100,
     workers=8,
@@ -215,8 +215,8 @@ subdir_name = (
     f"_h{TRAIN_SIZE[0]}w{TRAIN_SIZE[1]}"
 )
 if args.use_rc_loss:
-    subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
-
+    subdir_name += f"_alpha_{int(args.rc_alpha)}"
+# _overlap_{args.overlap}
 run_tag = time.strftime("%Y%m%d_%H%M%S")
 output_dir = os.path.join(args.output_dir, subdir_name)
 output_dir = os.path.join(output_dir, run_tag)
@@ -1110,9 +1110,17 @@ def _history_to_frame(hist):
         else:
             data[k] = [v] * max_len
     return pd.DataFrame(data)
+
+def _append_eval_log(log_path, row):
+    if not row:
+        return
+    df = pd.DataFrame([row])
+    header = not os.path.exists(log_path)
+    df.to_csv(log_path, mode="a", header=header, index=False)
 if args.resume_full_ckpt:
     _pad_history(training_history)
 best_val_abs_rel = float('inf')
+last_trained_epoch = int(start_epoch)
 
 if args.train:
     logger.info("Starting training...")
@@ -1160,6 +1168,7 @@ if args.train:
         training_history['train_time'].append(train_time)
         training_history['val_time'].append(val_time)
         training_history['epoch'].append(epoch + 1)
+        last_trained_epoch = epoch + 1
 
         # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
         #     best_val_abs_rel = avg_val_metrics['abs_rel']
@@ -1245,18 +1254,13 @@ if (not history_df.empty) and history_df['valid_abs_rel'].notna().any():
 logger.info(output_dir)
 logger.info(subdir_name)
 
-training_history.setdefault('final_default_abs_rel', None)
-training_history.setdefault('final_default_l1', None)
-training_history.setdefault('final_default_rmse', None)
-training_history.setdefault('final_default_a1', None)
-training_history.setdefault('final_full_abs_rel', None)
-training_history.setdefault('final_full_l1', None)
-training_history.setdefault('final_full_rmse', None)
-training_history.setdefault('final_full_a1', None)
-training_history.setdefault('final_full_rel_abs_rel', None)
-training_history.setdefault('final_full_rel_rmse', None)
-training_history.setdefault('final_full_rel_a1', None)
 if args.val:
+    final_eval_row = {
+        "run_tag": run_tag,
+        "subdir_name": subdir_name,
+        "output_dir": output_dir,
+        "epoch": int(last_trained_epoch),
+    }
     logger.info("Running final default evaluation...")
     _, final_default = validate(
         model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
@@ -1268,14 +1272,12 @@ if args.val:
             f"Final Default RMSE: {final_default['rmse']:.4f} | "
             f"Final Default a1: {final_default['a1']:.4f}"
         )
-        training_history["final_default_abs_rel"] = final_default["abs_rel"]
-        training_history["final_default_l1"] = final_default["l1"]
-        training_history["final_default_rmse"] = final_default["rmse"]
-        training_history["final_default_a1"] = final_default["a1"]
-        _history_to_frame(training_history).to_csv(
-            os.path.join(output_dir, f'{subdir_name}.csv'),
-            index=False,
-        )
+        final_eval_row.update({
+            "final_default_abs_rel": final_default["abs_rel"],
+            "final_default_l1": final_default["l1"],
+            "final_default_rmse": final_default["rmse"],
+            "final_default_a1": final_default["a1"],
+        })
 
     logger.info("Running final full-resolution evaluation...")
     final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
@@ -1324,14 +1326,12 @@ if args.val:
             f"Final Full RMSE: {final_full['rmse']:.4f} | "
             f"Final Full a1: {final_full['a1']:.4f}"
         )
-        training_history["final_full_abs_rel"] = final_full["abs_rel"]
-        training_history["final_full_l1"] = final_full["l1"]
-        training_history["final_full_rmse"] = final_full["rmse"]
-        training_history["final_full_a1"] = final_full["a1"]
-        _history_to_frame(training_history).to_csv(
-            os.path.join(output_dir, f'{subdir_name}.csv'),
-            index=False,
-        )
+        final_eval_row.update({
+            "final_full_abs_rel": final_full["abs_rel"],
+            "final_full_l1": final_full["l1"],
+            "final_full_rmse": final_full["rmse"],
+            "final_full_a1": final_full["a1"],
+        })
 
     # if args.depth_eval_mode == "metric":
     logger.info("Running final relative (scale+shift aligned) evaluation...")
@@ -1355,13 +1355,13 @@ if args.val:
             f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
             f"Final Rel a1: {final_rel['a1']:.4f}"
         )
-        training_history["final_full_rel_abs_rel"] = final_rel["abs_rel"]
-        training_history["final_full_rel_rmse"] = final_rel["rmse"]
-        training_history["final_full_rel_a1"] = final_rel["a1"]
-        _history_to_frame(training_history).to_csv(
-            os.path.join(output_dir, f'{subdir_name}.csv'),
-            index=False,
-        )
+        final_eval_row.update({
+            "final_full_rel_abs_rel": final_rel["abs_rel"],
+            "final_full_rel_rmse": final_rel["rmse"],
+            "final_full_rel_a1": final_rel["a1"],
+        })
+    final_eval_log = os.path.join(args.output_dir, subdir_name, "final_eval_log.csv")
+    _append_eval_log(final_eval_log, final_eval_row)
 else:
     logger.info("Skipping evaluation (args.val=False).")
 

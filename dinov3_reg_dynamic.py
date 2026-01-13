@@ -116,8 +116,8 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
-    model_size='base',
+    use_rot_pos_emb=False,
+    model_size='small',
     num_classes=100,
     patch_size = 16,
     grad_accum_steps=2,
@@ -140,13 +140,13 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=59,
+    seed=29,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
-    # rc_alpha=300.0,
-    rc_alpha=600.0, # base
+    rc_alpha=300.0,
+    # rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
     workers=5,
     randaugment=False,
@@ -159,8 +159,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope59/ckpt/last.pth',
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -170,7 +170,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=2.5,
+    total_run_time_hr=11.2,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -226,7 +226,7 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 use_amp = use_bf16
 print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
 # Speed tweaks (P100-friendly)
-if torch.cuda.is_available():
+if torch.cuda.is_available() and use_bf16:
     if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
         torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True

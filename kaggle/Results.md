@@ -73,11 +73,16 @@ sinayliu/imagenet-small-rc
 Train Loss: 1.1829 | Aux Loss: 0.0019 | Base Loss: 0.6101 | Train Acc: 0.8232 | Valid Acc: 0.7170
 Best Accuracy: 0.7190
 
-### cdong121/imagenet-small-rc28
+### cdong121/cls-small-colrow228
 0.709999979
 
-### cdong121/imagenet-small-rc29
+### cdong121/cls-small-colrow229
+alpha=600
 0.680599988
+
+### b201xiaoli/cls-small-colrow29
+alpha=300
+
 
 ### seed=59
 wenyangtang/imagenet-small-rc

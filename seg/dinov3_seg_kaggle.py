@@ -892,6 +892,7 @@ def _seed_worker(worker_id):
 
 data_rng = torch.Generator()
 data_rng.manual_seed(args.seed)
+run_tag = time.strftime("%Y%m%d_%H%M%S")
 
 subdir_name = (
     f"{args.model_size}"
@@ -1326,6 +1327,13 @@ if args.train:
             if len(hist[k]) < max_len:
                 hist[k].extend([fill_value] * (max_len - len(hist[k])))
 
+    def _append_eval_log(log_path, row):
+        if not row:
+            return
+        df = pd.DataFrame([row])
+        header = not os.path.exists(log_path)
+        df.to_csv(log_path, mode="a", header=header, index=False)
+
     if args.resume_full_ckpt:
         _pad_history(training_history)
 
@@ -1339,6 +1347,7 @@ if args.train:
         best_acc = max(training_history.get("valid_acc", [0.0]) or [0.0])
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1)
+    last_trained_epoch = int(start_epoch)
 
     for epoch in range(start_epoch, args.epochs):
         epoch_train_start = time.time()
@@ -1504,6 +1513,7 @@ if args.train:
         training_history["val_time"].append(val_time)
         training_history["epoch"].append(epoch + 1)
         training_history["step"].append(step)
+        last_trained_epoch = epoch + 1
 
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
@@ -1590,9 +1600,15 @@ if args.train:
             return ms_acc, ms_miou
 
         logger.info("Running final multi-scale + flip evaluation (final checkpoint)...")
+        final_eval_row = {
+            "run_tag": run_tag,
+            "subdir_name": subdir_name,
+            "output_dir": output_dir,
+            "epoch": int(last_trained_epoch),
+        }
         final_ms_acc, final_ms_miou = _run_ms_flip_eval("Final")
-        training_history["final_ms_flip_acc"] = final_ms_acc
-        training_history["final_ms_flip_miou"] = final_ms_miou
+        final_eval_row["final_ms_flip_acc"] = final_ms_acc
+        final_eval_row["final_ms_flip_miou"] = final_ms_miou
 
         if os.path.exists(best_ckpt_path):
             best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
@@ -1600,12 +1616,13 @@ if args.train:
             decoder.load_state_dict(best_ckpt.get("decoder", {}), strict=False)
             logger.info("Loaded best checkpoint for final MS+Flip evaluation.")
             best_ms_acc, best_ms_miou = _run_ms_flip_eval("Best")
-            training_history["best_ms_flip_acc"] = best_ms_acc
-            training_history["best_ms_flip_miou"] = best_ms_miou
+            final_eval_row["best_ms_flip_acc"] = best_ms_acc
+            final_eval_row["best_ms_flip_miou"] = best_ms_miou
         else:
             logger.info("Best checkpoint not found; skipping best MS+Flip evaluation.")
 
-        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
+        final_eval_log = os.path.join(output_dir, "final_eval_log.csv")
+        _append_eval_log(final_eval_log, final_eval_row)
     history_df = pd.DataFrame(training_history)
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     # save_checkpoint(model, decoder, ckpt_output_dir, "final")

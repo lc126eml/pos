@@ -1,6 +1,6 @@
 {
-  "id": "jiwei313/cls-base-rope59",
-  "title": "cls base rope59",
+  "id": "b201xiaoli/cls-small-colrow29",
+  "title": "cls small colrow29",
   "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -13,8 +13,6 @@
     "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "jiwei313/cls-base-rope259"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

@@ -187,6 +187,7 @@ def _seed_worker(worker_id):
 
 data_rng = torch.Generator()
 data_rng.manual_seed(args.seed)
+run_tag = time.strftime("%Y%m%d_%H%M%S")
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
@@ -780,6 +781,12 @@ if args.train:
         for k in keys:
             if len(hist[k]) < max_len:
                 hist[k].extend([fill_value] * (max_len - len(hist[k])))
+    def _append_eval_log(log_path, row):
+        if not row:
+            return
+        df = pd.DataFrame([row])
+        header = not os.path.exists(log_path)
+        df.to_csv(log_path, mode="a", header=header, index=False)
     if args.resume_full_ckpt and isinstance(locals().get("training_history", None), dict):
         _pad_history(training_history)
     step = 0
@@ -788,6 +795,7 @@ if args.train:
     best_acc = 0.0
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
+    last_trained_epoch = int(start_epoch)
     for epoch in range(start_epoch, args.epochs):
         epoch_train_start = time.time()
         # --- Training Phase ---
@@ -972,6 +980,7 @@ if args.train:
         training_history["val_time"].append(val_time)
         training_history["epoch"].append(epoch + 1)
         training_history["step"].append(step)
+        last_trained_epoch = epoch + 1
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
         if args.save_full_ckpt:
@@ -1011,6 +1020,12 @@ if args.train:
     logger.info(output_dir)
     if args.final_ms_flip_eval and not args.use_ms_flip_eval:
         logger.info("Running final multi-scale + flip evaluation...")
+        final_eval_row = {
+            "run_tag": run_tag,
+            "subdir_name": subdir_name,
+            "output_dir": output_dir,
+            "epoch": int(last_trained_epoch),
+        }
         model.eval()
         decoder.eval()
         val_correct_t = torch.zeros((), device=DEVICE)
@@ -1046,9 +1061,10 @@ if args.train:
         final_ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
         final_ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
         logger.info(f"Final MS+Flip Acc: {final_ms_acc:.4f} | Final MS+Flip mIoU: {final_ms_miou:.4f}")
-        training_history["final_ms_flip_acc"] = final_ms_acc
-        training_history["final_ms_flip_miou"] = final_ms_miou
-        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+        final_eval_row["final_ms_flip_acc"] = final_ms_acc
+        final_eval_row["final_ms_flip_miou"] = final_ms_miou
+        final_eval_log = os.path.join(output_dir, "final_eval_log.csv")
+        _append_eval_log(final_eval_log, final_eval_row)
     if args.lock and gpu_lock and gpu_lock.is_locked:
         logger.info("Manually releasing lock.")
         gpu_lock.release()

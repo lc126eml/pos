@@ -140,7 +140,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=50,
+    seed=59,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -160,7 +160,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-alibi50/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-rope259/ckpt/last.pth',
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -170,7 +170,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=2.5,
+    total_run_time_hr=11.1,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
