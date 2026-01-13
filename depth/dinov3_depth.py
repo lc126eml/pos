@@ -120,30 +120,28 @@ args = SimpleNamespace(
     resume_ckpt_path="",
     resume_args=True,
     resume_bs=False,
-    total_run_time_sec=None,
+    total_run_time_hr=None,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
 )
 # /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_001419/ckpt/last.pth
 # /home/liucong/codes/pos/logs/depth/small_rc_False_lr10_relative_median_dec_dpt_h224w224/ckpt/last.pth
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    resume_args = args.resume_args
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     if args.resume_args:
+        skip_keys = [
+            "resume_full_ckpt",
+            "resume_ckpt_path",
+            "resume_bs",
+            "total_run_time_hr",
+        ]
+        if not args.resume_bs:
+            skip_keys.extend(["batch_size", "grad_accum_steps"])
         ckpt_args = ckpt.get("args", None)
         if ckpt_args is not None:
             for k, v in vars(ckpt_args).items():
-                setattr(args, k, v)
-        args.resume_full_ckpt = resume_full_ckpt
-        args.resume_ckpt_path = resume_ckpt_path
-        args.resume_args = resume_args
-        if not args.resume_bs:
-            args.batch_size = batch_size
-            args.grad_accum_steps = grad_accum_steps
+                if k not in skip_keys:
+                    setattr(args, k, v)
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
@@ -1113,12 +1111,14 @@ for epoch in range(start_epoch, EPOCHS):
         }
         torch.save(ckpt, last_ckpt_path)
         logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
-    if args.total_run_time_sec is not None:
+    if args.total_run_time_hr is not None:
         elapsed = time.time() - train_start_time
-        if elapsed >= args.total_run_time_sec:
+        max_run_time_sec = args.total_run_time_hr * 3600
+        if elapsed >= max_run_time_sec:
             logger.info(
-                f"Stopping training: elapsed {elapsed:.0f}s reached limit "
-                f"{args.total_run_time_sec:.0f}s."
+                "Stopping training: elapsed %.0fs reached limit %.2fh.",
+                elapsed,
+                args.total_run_time_hr,
             )
             break
     if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:

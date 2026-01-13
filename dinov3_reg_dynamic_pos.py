@@ -112,7 +112,7 @@ else:
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = 'relpos', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    pos_type = 'alibi', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=False,
     model_type= "dinov3",
     use_abs_pos_emb=False,
@@ -159,8 +159,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/cls-base-alibi50/ckpt/last.pth',
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -170,27 +170,27 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
-    total_run_time_sec=40000, #41000
+    total_run_time_hr=2.5,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
 resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    resume_ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    skip_keys = [
+        "resume_full_ckpt",
+        "resume_ckpt_path",
+        "resume_bs",
+        "total_run_time_hr",
+    ]
+    if not args.resume_bs:
+        skip_keys.extend(["batch_size", "grad_accum_steps"])
+    resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     print(f"Resumed args from '{args.resume_ckpt_path}'")
     ckpt_args = resume_ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
+            if k not in skip_keys:
+                setattr(args, k, v)
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -203,9 +203,9 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.use_patch_position_loss=False
     args.use_rc_loss = False
 if args.model_size == 'small':
-    args.total_run_time_sec=42000
+    args.total_run_time_hr=11.67
 else:
-    args.total_run_time_sec=40000
+    args.total_run_time_hr=11.11
 
 offset = 0
 # args.batch_size = 64
@@ -4833,13 +4833,15 @@ if args.train:
             torch.save(ckpt, last_ckpt_path)
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
-        if args.total_run_time_sec is not None:
-            if (time.time() - train_start_time) >= args.total_run_time_sec:
+        if args.total_run_time_hr is not None:
+            max_run_time_sec = args.total_run_time_hr * 3600
+            if (time.time() - train_start_time) >= max_run_time_sec:
                 logger.info(
-                    f"Stopping training: elapsed time exceeded {args.total_run_time_sec:.0f}s."
+                    "Stopping training: elapsed time exceeded %.2fh.",
+                    args.total_run_time_hr,
                 )
                 break
-        elif (time.time() - train_start_time) >= (11. * 3600):
+        elif (time.time() - train_start_time) >= (11.0 * 3600):
             logger.info("Stopping training: total running time exceeded 11 hours.")
             break
         # gc.collect()

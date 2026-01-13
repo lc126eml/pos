@@ -50,8 +50,8 @@ if _IS_KAGGLE:
     base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
 args = SimpleNamespace(
     model_type="dinov3",
-    use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_abs_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
     batch_size=24,
@@ -96,29 +96,29 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-rope28/seg/base_rot_pos_rc_False_lr50/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/seg-base-abs28/seg/base_abs_pos_rc_False_lr50/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_bs=True,
-    total_run_time_sec=40000,
+    total_run_time_hr=11.11,
     base_path=base_path_default,
     pos_type=None,
 )
 
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    skip_keys = [
+        "resume_full_ckpt",
+        "resume_ckpt_path",
+        "resume_bs",
+        "total_run_time_hr",
+    ]
+    if not args.resume_bs:
+        skip_keys.extend(["batch_size", "grad_accum_steps"])
+    ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     ckpt_args = ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
+            if k not in skip_keys:
+                setattr(args, k, v)
 
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
@@ -130,10 +130,6 @@ if args.eval_img_size != args.train_img_size:
 if hasattr(args, "seg_head"):
     args.seg_head = str(args.seg_head).lower()
 
-if args.model_size == 'small':
-    args.total_run_time_sec=41000
-else:
-    args.total_run_time_sec=40000
 # =============================================================================
 # Segmentation augmentations
 # =============================================================================
@@ -1539,10 +1535,15 @@ if args.train:
             torch.save(ckpt, last_ckpt_path)
             logger.info("Saved full checkpoint to %s", last_ckpt_path)
 
-        if args.total_run_time_sec is not None:
+        if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
-            if elapsed >= args.total_run_time_sec:
-                logger.info("Stopping training: elapsed %.0fs reached limit %.0fs.", elapsed, args.total_run_time_sec)
+            max_run_time_sec = args.total_run_time_hr * 3600
+            if elapsed >= max_run_time_sec:
+                logger.info(
+                    "Stopping training: elapsed %.0fs reached limit %.2fh.",
+                    elapsed,
+                    args.total_run_time_hr,
+                )
                 break
         gc.collect()
         if torch.cuda.is_available():

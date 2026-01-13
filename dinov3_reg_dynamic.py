@@ -116,7 +116,7 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -140,9 +140,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=28,
+    seed=59,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
@@ -160,7 +160,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-colrow228/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-rope59/ckpt/last.pth',
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -168,29 +168,29 @@ args = SimpleNamespace(
     log_interval=100,
     csv_interval=1,
     show_peak_gpu_mem=True,
-    save_ckpt=False,
+    # save_ckpt=False,
     compile_model=False,
-    total_run_time_sec=40000, #41000
+    total_run_time_hr=2.5,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
 resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    resume_ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    skip_keys = [
+        "resume_full_ckpt",
+        "resume_ckpt_path",
+        "resume_bs",
+        "total_run_time_hr",
+    ]
+    if not args.resume_bs:
+        skip_keys.extend(["batch_size", "grad_accum_steps"])
+    resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     print(f"Resumed args from '{args.resume_ckpt_path}'")
     ckpt_args = resume_ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
+            if k not in skip_keys:
+                setattr(args, k, v)
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -202,10 +202,6 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
-if args.model_size == 'small':
-    args.total_run_time_sec=42000
-else:
-    args.total_run_time_sec=40000
 
 offset = 0
 # args.batch_size = 64
@@ -1631,13 +1627,15 @@ if args.train:
             torch.save(ckpt, last_ckpt_path)
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
-        if args.total_run_time_sec is not None:
-            if (time.time() - train_start_time) >= args.total_run_time_sec:
+        if args.total_run_time_hr is not None:
+            max_run_time_sec = args.total_run_time_hr * 3600
+            if (time.time() - train_start_time) >= max_run_time_sec:
                 logger.info(
-                    f"Stopping training: elapsed time exceeded {args.total_run_time_sec:.0f}s."
+                    "Stopping training: elapsed time exceeded %.2fh.",
+                    args.total_run_time_hr,
                 )
                 break
-        elif (time.time() - train_start_time) >= (11. * 3600):
+        elif (time.time() - train_start_time) >= (11.0 * 3600):
             logger.info("Stopping training: total running time exceeded 11 hours.")
             break
         # gc.collect()
@@ -1671,11 +1669,11 @@ if args.train:
     #     writer = csv.writer(csv_file)
     #     for epoch_time in train_epoch_times:
     #         writer.writerow([epoch_time])
-    if args.save_ckpt:
-        # Save the model's state dictionary
-        ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
-        torch.save(model.state_dict(), ckpt_path)
-        logger.info(f"✅ Model saved to '{ckpt_path}'")
+    # if args.save_ckpt:
+    #     # Save the model's state dictionary
+    #     ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
+    #     torch.save(model.state_dict(), ckpt_path)
+    #     logger.info(f"✅ Model saved to '{ckpt_path}'")
 
 if args.val:    
     val_results = {

@@ -53,6 +53,33 @@ def _get_source_name(value):
     return src
 
 
+def _infer_from_source_id(source_id):
+    if not source_id or not isinstance(source_id, str):
+        raise ValueError("resume_infer requires a valid source id string.")
+    parts = source_id.split("-", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Unsupported source id format: {source_id}")
+    task, model_size, rest = parts
+    match = re.search(r"(\d+)$", rest)
+    if not match:
+        raise ValueError(f"Unable to infer seed from source id: {source_id}")
+    digits = match.group(1)
+    if len(digits) == 3:
+        seed = int(digits[1:])
+    else:
+        seed = int(digits)
+    method_with_suffix = rest[: -len(digits)]
+    methods = ("rope", "abs", "colrow", "none")
+    method = None
+    for candidate in methods:
+        if method_with_suffix.startswith(candidate):
+            method = candidate
+            break
+    if method is None:
+        raise ValueError(f"Unable to infer method from source id: {source_id}")
+    return task, model_size, method, seed
+
+
 def _update_args_block(text, updates, add_missing=None):
     lines = text.splitlines(keepends=True)
     in_block = False
@@ -146,6 +173,25 @@ def main():
     tokens_path = BASE_DIR / "tokens.yaml"
     with tokens_path.open("r", encoding="utf-8") as f:
         tokens = yaml.safe_load(f)
+
+    if cfg.get("resume_full_ckpt") and cfg.get("resume_infer"):
+        resume_source = cfg.get("resume_source")
+        if resume_source == "kernel":
+            source_name = _get_source_name(cfg.get("kernel_sources"))
+        elif resume_source == "dataset":
+            source_name = _get_source_name(cfg.get("dataset_sources"))
+        else:
+            raise ValueError(f"Unsupported resume_source: {resume_source}")
+        task, model_size, method, seed = _infer_from_source_id(source_name)
+        cfg["task"] = task
+        cfg["model_size"] = model_size
+        cfg["method"] = method
+        cfg["seed"] = seed
+        print(
+            "resume_infer: source=%s task=%s model_size=%s method=%s seed=%s"
+            % (source_name, task, model_size, method, seed)
+        )
+
     task = cfg["task"]
     pos_type = cfg.get("pos_type")
     if pos_type is not None:

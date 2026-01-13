@@ -121,26 +121,26 @@ args = SimpleNamespace(
     resume_full_ckpt=False,
     resume_ckpt_path=None,
     resume_bs=False,
-    total_run_time_sec=None,
+    total_run_time_hr=None,
     # --- Dataset Paths ---
     base_path=base_path_default,
 )
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    resume_full_ckpt = args.resume_full_ckpt
-    resume_ckpt_path = args.resume_ckpt_path
-    batch_size = args.batch_size
-    grad_accum_steps = args.grad_accum_steps
-    ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+    skip_keys = [
+        "resume_full_ckpt",
+        "resume_ckpt_path",
+        "resume_bs",
+        "total_run_time_hr",
+    ]
+    if not args.resume_bs:
+        skip_keys.extend(["batch_size", "grad_accum_steps"])
+    ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     ckpt_args = ckpt.get("args", None)
     if ckpt_args is not None:
         for k, v in vars(ckpt_args).items():
-            setattr(args, k, v)
-    args.resume_full_ckpt = resume_full_ckpt
-    args.resume_ckpt_path = resume_ckpt_path
-    if not args.resume_bs:
-        args.batch_size = batch_size
-        args.grad_accum_steps = grad_accum_steps
+            if k not in skip_keys:
+                setattr(args, k, v)
 if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     # args.use_patch_position_loss=False
@@ -989,12 +989,14 @@ if args.train:
             }
             torch.save(ckpt, last_ckpt_path)
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
-        if args.total_run_time_sec is not None:
+        if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
-            if elapsed >= args.total_run_time_sec:
+            max_run_time_sec = args.total_run_time_hr * 3600
+            if elapsed >= max_run_time_sec:
                 logger.info(
-                    f"Stopping training: elapsed {elapsed:.0f}s reached limit "
-                    f"{args.total_run_time_sec:.0f}s."
+                    "Stopping training: elapsed %.0fs reached limit %.2fh.",
+                    elapsed,
+                    args.total_run_time_hr,
                 )
                 break
         # gc.collect()
