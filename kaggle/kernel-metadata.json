@@ -1,7 +1,7 @@
 {
-  "id": "straghtwizard/cls-base-alibi250",
-  "title": "cls base alibi250",
-  "code_file": "../dinov3_reg_dynamic_pos.py",
+  "id": "jiwei313/cls-base-rope59",
+  "title": "cls base rope59",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "straghtwizard/cls-base-alibi50"
+    "jiwei313/cls-base-rope259"
   ],
   "model_sources": []
 }

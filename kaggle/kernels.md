@@ -167,15 +167,15 @@ cd D:\codes\working\pos\pos\kaggle\straghtwizard
 $env:KAGGLE_API_TOKEN = "KGAT_5c6ab315de5782ce6c8bf882be33a036"
 straghtwizard/cls-base-relpos250
 straghtwizard/cls-base-alibi250
-13:00
+23:00
 
 # jiwei313 30
 2388364616@qq.com	191226JW
 cd D:\codes\working\pos\pos\kaggle\jiwei313 
 $env:KAGGLE_API_TOKEN = "KGAT_0a0d15cd2dd802134d9df180b98444b4"
-jiwei313/cls-base-rope259
-jiwei313/cls-base-colrow259
-13:00
+jiwei313/cls-base-rope59
+jiwei313/cls-base-colrow59
+tmr
 
 # miratowa1 3
 1296778893@qq.com	46890325Qq.
@@ -201,6 +201,6 @@ linyunlk243/seg-base-rope28
 # starysinger 33
 3051554253@qq.com	2245425998zxb
 cd D:\codes\working\pos\pos\kaggle\starysinger 
-$env:KAGGLE_API_TOKEN = "KGAT_bada79f91c63a56be9e5053108c20a00"
+$env:KAGGLE_API_TOKEN = "KGAT_4f16a523d0248adbe04f501e9a41924b"
 starysinger/cls-base-colrow28
 starysinger/cls-base-colrow29

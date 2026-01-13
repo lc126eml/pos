@@ -12,4 +12,6 @@ generate process_kaggle.py in /lc/code/pos/kaggle:
 11. cfg.method is rope, set use_rot_pos_emb to true, but use_abs_pos_emb and use_rc_loss to False; if cfg.method is abs, only use_abs_pos_emb True; if colrow, only use_rc_loss True; if none, All False.
 12. for items in cfg.simple, set the values of args in py_file with the key.
 13. set cfg.pos_type to args of py_file. if cfg.pos_type is not None, set use_rot_pos_emb, use_abs_pos_emb, use_rc_loss, dynamic_img_size, use_patch_position_loss, val   to False. id of json_f as:  {cfg.id}/{cfg.task}-{cfg.model_size}-{cfg.pos_type}{cfg.suffix}{cfg.seed}, and title too
-14. if cfg.resume_full_ckpt and cfg.resume_infer both true, infer following in cfg: task, method, model_size, seed. the name of kernel_sources or dataset_sources is the id in previous json_f
+14. if cfg.resume_full_ckpt and cfg.resume_infer both true, infer following in cfg: task, method, model_size, seed. the name of kernel_sources or dataset_sources is the id in previous json_f;
+15. please generate a kaggle/kernel.py, it can be provided with args id, kernel_id, output and delete. if arg id is not provided, use the id in kaggle/
+  config.yaml; if kernel_id not given, use id of json_f;  if kernel_id don't contain '/', make it as id/kernel_id; retrieve token with id from kaggle/tokens.yaml; set env KAGGLE_API_TOKEN. if flag delete is given, the run "kaggle kernels delete -y kernel_id"; if flag output is given, the run "kaggle kernels output kernel_id"; if both delete and output not given, "kaggle kernels status kernel_id".
