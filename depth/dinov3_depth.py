@@ -121,6 +121,8 @@ args = SimpleNamespace(
     resume_args=True,
     resume_bs=False,
     total_run_time_hr=None,
+    train=True,
+    val=True,
     final_use_sliding_window=True,
     final_sw_window_size=None,
     final_sw_overlap=0.25,
@@ -1091,105 +1093,128 @@ def _pad_history(hist, fill_value=None):
     for k in keys:
         if len(hist[k]) < max_len:
             hist[k].extend([fill_value] * (max_len - len(hist[k])))
+
+def _history_to_frame(hist):
+    list_keys = [k for k, v in hist.items() if isinstance(v, list)]
+    if not list_keys:
+        scalar_data = {k: v for k, v in hist.items() if not isinstance(v, list)}
+        return pd.DataFrame([scalar_data]) if scalar_data else pd.DataFrame()
+    max_len = max(len(hist[k]) for k in list_keys)
+    data = {}
+    for k, v in hist.items():
+        if isinstance(v, list):
+            if len(v) < max_len:
+                data[k] = v + [None] * (max_len - len(v))
+            else:
+                data[k] = v
+        else:
+            data[k] = [v] * max_len
+    return pd.DataFrame(data)
 if args.resume_full_ckpt:
     _pad_history(training_history)
 best_val_abs_rel = float('inf')
 
-logger.info("Starting training...")
-for epoch in range(start_epoch, EPOCHS):
-    train_start = time.time()
-    avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
-        model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
-    )
-    train_time = time.time() - train_start
-    # , avg_train_metrics
-    val_start = time.time()
-    avg_val_loss, avg_val_metrics = validate(
-        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
-    )
-    val_time = time.time() - val_start
+if args.train:
+    logger.info("Starting training...")
+    for epoch in range(start_epoch, EPOCHS):
+        train_start = time.time()
+        avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
+            model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
+        )
+        train_time = time.time() - train_start
+        val_start = time.time()
+        avg_val_loss, avg_val_metrics = validate(
+            model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
+        )
+        val_time = time.time() - val_start
 
-    logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
-    if Use_Row_Col_Loss:
-        logger.info(
-            f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | "
-            f"base_loss: {base_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
-        )
-    else:
-        logger.info(
-            f"  Train Loss: {avg_train_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
-        )
-    logger.info(
-        f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
-        f"Valid L1: {avg_val_metrics['l1']:.4f} | "
-        f"Valid RMSE: {avg_val_metrics['rmse']:.4f} | "
-        f"Valid a1: {avg_val_metrics['a1']:.4f}\n"
-    )
-    #   Valid Loss: {avg_val_loss:.4f} |
-    training_history['train_loss'].append(avg_train_loss)
-    if Use_Row_Col_Loss:
-        training_history['base_loss'].append(base_loss)
-        training_history['aux_loss'].append(avg_aux_loss)
-    # training_history['train_abs_rel'].append(avg_train_metrics['abs_rel'])
-    # training_history['train_rmse'].append(avg_train_metrics['rmse'])
-    # training_history['train_a1'].append(avg_train_metrics['a1'])
-    training_history['valid_abs_rel'].append(avg_val_metrics['abs_rel'])
-    training_history['valid_l1'].append(avg_val_metrics['l1'])
-    training_history['valid_rmse'].append(avg_val_metrics['rmse'])
-    training_history['valid_a1'].append(avg_val_metrics['a1'])
-    training_history['train_time'].append(train_time)
-    training_history['val_time'].append(val_time)
-    training_history['epoch'].append(epoch + 1)
-    
-    # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
-    #     best_val_abs_rel = avg_val_metrics['abs_rel']
-    if args.csv_interval and (epoch + 1) % args.csv_interval == 0:
-        history_df = pd.DataFrame(training_history)
-        history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-        # save_checkpoint(model, decoder, ckpt_output_dir, "best")
-    if args.save_full_ckpt:
-        ckpt = {
-            "epoch": epoch + 1,
-            "model": model.state_dict(),
-            "decoder": decoder.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict() if scheduler is not None else None,
-            "scaler": scaler.state_dict() if scaler is not None else None,
-            "rowcol_loss": rowcol_loss.state_dict() if Use_Row_Col_Loss else None,
-            "training_history": training_history,
-            "args": args,
-        }
-        torch.save(ckpt, last_ckpt_path)
-        logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
-    if args.total_run_time_hr is not None:
-        elapsed = time.time() - train_start_time
-        max_run_time_sec = args.total_run_time_hr * 3600
-        if elapsed >= max_run_time_sec:
+        logger.info(f"\n--- Epoch {epoch+1} Validation Summary ---")
+        if Use_Row_Col_Loss:
             logger.info(
-                "Stopping training: elapsed %.0fs reached limit %.2fh.",
-                elapsed,
-                args.total_run_time_hr,
+                f"  Train Loss: {avg_train_loss:.4f} | aux_loss: {avg_aux_loss:.4f} | "
+                f"base_loss: {base_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
             )
+        else:
+            logger.info(
+                f"  Train Loss: {avg_train_loss:.4f} | train_time: {train_time:.1f}s | val_time: {val_time:.1f}s"
+            )
+        logger.info(
+            f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
+            f"Valid L1: {avg_val_metrics['l1']:.4f} | "
+            f"Valid RMSE: {avg_val_metrics['rmse']:.4f} | "
+            f"Valid a1: {avg_val_metrics['a1']:.4f}\n"
+        )
+
+        #   Valid Loss: {avg_val_loss:.4f} |
+        training_history['train_loss'].append(avg_train_loss)
+        if Use_Row_Col_Loss:
+            training_history['base_loss'].append(base_loss)
+            training_history['aux_loss'].append(avg_aux_loss)
+        # training_history['train_abs_rel'].append(avg_train_metrics['abs_rel'])
+        # training_history['train_rmse'].append(avg_train_metrics['rmse'])
+        # training_history['train_a1'].append(avg_train_metrics['a1'])
+        training_history['valid_abs_rel'].append(avg_val_metrics['abs_rel'])
+        training_history['valid_l1'].append(avg_val_metrics['l1'])
+        training_history['valid_rmse'].append(avg_val_metrics['rmse'])
+        training_history['valid_a1'].append(avg_val_metrics['a1'])
+        training_history['train_time'].append(train_time)
+        training_history['val_time'].append(val_time)
+        training_history['epoch'].append(epoch + 1)
+
+        # if avg_val_metrics['abs_rel'] < best_val_abs_rel:
+        #     best_val_abs_rel = avg_val_metrics['abs_rel']
+        if args.csv_interval and (epoch + 1) % args.csv_interval == 0:
+            history_df = _history_to_frame(training_history)
+            history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+            # save_checkpoint(model, decoder, ckpt_output_dir, "best")
+        if args.save_full_ckpt:
+            ckpt = {
+                "epoch": epoch + 1,
+                "model": model.state_dict(),
+                "decoder": decoder.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "scaler": scaler.state_dict() if scaler is not None else None,
+                "rowcol_loss": rowcol_loss.state_dict() if Use_Row_Col_Loss else None,
+                "training_history": training_history,
+                "args": args,
+            }
+            torch.save(ckpt, last_ckpt_path)
+            logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
+        if args.total_run_time_hr is not None:
+            elapsed = time.time() - train_start_time
+            max_run_time_sec = args.total_run_time_hr * 3600
+            if elapsed >= max_run_time_sec:
+                logger.info(
+                    "Stopping training: elapsed %.0fs reached limit %.2fh.",
+                    elapsed,
+                    args.total_run_time_hr,
+                )
+                break
+        if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
+            logger.info(f"Stopping training: reached break_at_epoch={args.break_at_epoch}.")
             break
-    if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
-        logger.info(f"Stopping training: reached break_at_epoch={args.break_at_epoch}.")
-        break
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-logger.info("Training complete.")
+    logger.info("Training complete.")
+else:
+    logger.info("Skipping training (args.train=False).")
+    if not (args.resume_full_ckpt and args.resume_ckpt_path):
+        logger.warning("No checkpoint specified; evaluation will use randomly initialized weights.")
 
-history_df = pd.DataFrame(training_history)
-history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+history_df = _history_to_frame(training_history)
+if args.train:
+    history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
 # save_checkpoint(model, decoder, ckpt_output_dir, "final")
 
-if not history_df.empty:
+if (not history_df.empty) and history_df['valid_a1'].notna().any():
     best_a1 = history_df['valid_a1'].max()
     best_epoch = history_df.loc[history_df['valid_a1'].idxmax(), 'epoch']
     logger.info(f"Best a1: {best_a1:.4f} at epoch {best_epoch}")
 
-if not history_df.empty:
+if (not history_df.empty) and history_df['valid_abs_rel'].notna().any():
     # Find the epoch with the best validation loss
     # best_loss_row = history_df.loc[history_df['valid_loss'].idxmin()]
     # best_loss_epoch = int(best_loss_row['epoch'])
@@ -1220,6 +1245,10 @@ if not history_df.empty:
 logger.info(output_dir)
 logger.info(subdir_name)
 
+training_history.setdefault('final_default_abs_rel', None)
+training_history.setdefault('final_default_l1', None)
+training_history.setdefault('final_default_rmse', None)
+training_history.setdefault('final_default_a1', None)
 training_history.setdefault('final_full_abs_rel', None)
 training_history.setdefault('final_full_l1', None)
 training_history.setdefault('final_full_rmse', None)
@@ -1227,85 +1256,114 @@ training_history.setdefault('final_full_a1', None)
 training_history.setdefault('final_full_rel_abs_rel', None)
 training_history.setdefault('final_full_rel_rmse', None)
 training_history.setdefault('final_full_rel_a1', None)
-logger.info("Running final full-resolution evaluation...")
-final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
-final_sw_window = None
-final_sw_overlap = None
-if final_use_sw:
-    final_sw_window, final_sw_overlap = _resolve_final_sw_params(
-        args.final_sw_window_size,
-        args.final_sw_overlap,
-        args.patch_size,
+if args.val:
+    logger.info("Running final default evaluation...")
+    _, final_default = validate(
+        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
     )
-final_valid_dataset = HyperSim_Simple(
-    split='test',
-    ROOT=f'{args.data_root}/hypersim_processed/test',
-    resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
-    num_views=1,
-    seed=777,
-    pair_transform=EvalDepthPreprocessNoResize(
-        ensure_multiple_of=args.patch_size,
-        normalize=True,
-    ),
-)
-final_valid_loader = DataLoader(
-    final_valid_dataset, batch_size=1, shuffle=False, num_workers=args.workers,
-    pin_memory=torch.cuda.is_available(), drop_last=False,
-    persistent_workers=(args.workers > 0),
-    worker_init_fn=_seed_worker,
-    generator=data_rng,
-    prefetch_factor=2,
-)
-_, final_full = validate(
-    model,
-    decoder,
-    final_valid_loader,
-    criterion,
-    feature_layers,
-    max_steps=VAL_STEPS,
-    use_sliding_window=final_use_sw,
-    sw_window_size=final_sw_window,
-    sw_overlap=final_sw_overlap,
-)
-if final_full:
-    logger.info(
-        f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
-        f"Final Full L1: {final_full['l1']:.4f} | "
-        f"Final Full RMSE: {final_full['rmse']:.4f} | "
-        f"Final Full a1: {final_full['a1']:.4f}"
-    )
-    training_history["final_full_abs_rel"] = final_full["abs_rel"]
-    training_history["final_full_l1"] = final_full["l1"]
-    training_history["final_full_rmse"] = final_full["rmse"]
-    training_history["final_full_a1"] = final_full["a1"]
-    pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    if final_default:
+        logger.info(
+            f"Final Default AbsRel: {final_default['abs_rel']:.4f} | "
+            f"Final Default L1: {final_default['l1']:.4f} | "
+            f"Final Default RMSE: {final_default['rmse']:.4f} | "
+            f"Final Default a1: {final_default['a1']:.4f}"
+        )
+        training_history["final_default_abs_rel"] = final_default["abs_rel"]
+        training_history["final_default_l1"] = final_default["l1"]
+        training_history["final_default_rmse"] = final_default["rmse"]
+        training_history["final_default_a1"] = final_default["a1"]
+        _history_to_frame(training_history).to_csv(
+            os.path.join(output_dir, f'{subdir_name}.csv'),
+            index=False,
+        )
 
-# if args.depth_eval_mode == "metric":
-logger.info("Running final relative (scale+shift aligned) evaluation...")
-prev_mode = args.depth_eval_mode
-args.depth_eval_mode = "relative"
-_, final_rel = validate(
-    model,
-    decoder,
-    final_valid_loader,
-    criterion,
-    feature_layers,
-    max_steps=VAL_STEPS,
-    use_sliding_window=final_use_sw,
-    sw_window_size=final_sw_window,
-    sw_overlap=final_sw_overlap,
-)
-args.depth_eval_mode = prev_mode
-if final_rel:
-    logger.info(
-        f"Final Rel AbsRel: {final_rel['abs_rel']:.4f} | "
-        f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
-        f"Final Rel a1: {final_rel['a1']:.4f}"
+    logger.info("Running final full-resolution evaluation...")
+    final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
+    final_sw_window = None
+    final_sw_overlap = None
+    if final_use_sw:
+        final_sw_window, final_sw_overlap = _resolve_final_sw_params(
+            args.final_sw_window_size,
+            args.final_sw_overlap,
+            args.patch_size,
+        )
+    final_valid_dataset = HyperSim_Simple(
+        split='test',
+        ROOT=f'{args.data_root}/hypersim_processed/test',
+        resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
+        num_views=1,
+        seed=777,
+        pair_transform=EvalDepthPreprocessNoResize(
+            ensure_multiple_of=args.patch_size,
+            normalize=True,
+        ),
     )
-    training_history["final_full_rel_abs_rel"] = final_rel["abs_rel"]
-    training_history["final_full_rel_rmse"] = final_rel["rmse"]
-    training_history["final_full_rel_a1"] = final_rel["a1"]
-    pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+    final_valid_loader = DataLoader(
+        final_valid_dataset, batch_size=1, shuffle=False, num_workers=args.workers,
+        pin_memory=torch.cuda.is_available(), drop_last=False,
+        persistent_workers=(args.workers > 0),
+        worker_init_fn=_seed_worker,
+        generator=data_rng,
+        prefetch_factor=2,
+    )
+    _, final_full = validate(
+        model,
+        decoder,
+        final_valid_loader,
+        criterion,
+        feature_layers,
+        max_steps=VAL_STEPS,
+        use_sliding_window=final_use_sw,
+        sw_window_size=final_sw_window,
+        sw_overlap=final_sw_overlap,
+    )
+    if final_full:
+        logger.info(
+            f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
+            f"Final Full L1: {final_full['l1']:.4f} | "
+            f"Final Full RMSE: {final_full['rmse']:.4f} | "
+            f"Final Full a1: {final_full['a1']:.4f}"
+        )
+        training_history["final_full_abs_rel"] = final_full["abs_rel"]
+        training_history["final_full_l1"] = final_full["l1"]
+        training_history["final_full_rmse"] = final_full["rmse"]
+        training_history["final_full_a1"] = final_full["a1"]
+        _history_to_frame(training_history).to_csv(
+            os.path.join(output_dir, f'{subdir_name}.csv'),
+            index=False,
+        )
+
+    # if args.depth_eval_mode == "metric":
+    logger.info("Running final relative (scale+shift aligned) evaluation...")
+    prev_mode = args.depth_eval_mode
+    args.depth_eval_mode = "relative"
+    _, final_rel = validate(
+        model,
+        decoder,
+        final_valid_loader,
+        criterion,
+        feature_layers,
+        max_steps=VAL_STEPS,
+        use_sliding_window=final_use_sw,
+        sw_window_size=final_sw_window,
+        sw_overlap=final_sw_overlap,
+    )
+    args.depth_eval_mode = prev_mode
+    if final_rel:
+        logger.info(
+            f"Final Rel AbsRel: {final_rel['abs_rel']:.4f} | "
+            f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
+            f"Final Rel a1: {final_rel['a1']:.4f}"
+        )
+        training_history["final_full_rel_abs_rel"] = final_rel["abs_rel"]
+        training_history["final_full_rel_rmse"] = final_rel["rmse"]
+        training_history["final_full_rel_a1"] = final_rel["a1"]
+        _history_to_frame(training_history).to_csv(
+            os.path.join(output_dir, f'{subdir_name}.csv'),
+            index=False,
+        )
+else:
+    logger.info("Skipping evaluation (args.val=False).")
 
 del model, decoder
 gc.collect()
