@@ -121,6 +121,9 @@ args = SimpleNamespace(
     resume_args=True,
     resume_bs=False,
     total_run_time_hr=None,
+    final_use_sliding_window=True,
+    final_sw_window_size=None,
+    final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
 )
 # /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_001419/ckpt/last.pth
@@ -162,6 +165,10 @@ SEED = args.seed
 VAL_STEPS = args.val_steps
 Use_Row_Col_Loss = args.use_rc_loss
 RC_ALPHA = args.rc_alpha
+if args.final_sw_window_size is None:
+    args.final_sw_window_size = EVAL_SIZE
+if args.final_sw_overlap is None:
+    args.final_sw_overlap = 0.25
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -781,6 +788,35 @@ def sliding_window_predict(model, decoder, inputs, feature_layers, window_size, 
     out = out / weight.clamp_min(1e-6)
     return out
 
+def _align_to_multiple(value, multiple):
+    if multiple <= 1:
+        return int(value)
+    return max(multiple, (int(value) // multiple) * multiple)
+
+def _resolve_final_sw_params(window_size, overlap, patch_size):
+    if window_size is None:
+        win_h, win_w = EVAL_SIZE
+    elif isinstance(window_size, int):
+        win_h = win_w = window_size
+    else:
+        win_h, win_w = window_size
+    win_h = _align_to_multiple(win_h, patch_size)
+    win_w = _align_to_multiple(win_w, patch_size)
+
+    if overlap is None:
+        overlap = args.sw_overlap
+    overlap = float(overlap)
+
+    # Align strides to the patch grid across both axes.
+    ph = max(1, win_h // patch_size)
+    pw = max(1, win_w // patch_size)
+    g = math.gcd(ph, pw)
+    if g > 1:
+        candidates = [1.0 - (m / g) for m in range(1, g + 1)]
+        overlap = min(candidates, key=lambda o: abs(o - overlap))
+    overlap = min(max(overlap, 0.0), 0.99)
+    return (win_h, win_w), overlap
+
 def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, total_epochs):
     """Trains the model for one epoch."""
     model.train()
@@ -910,10 +946,24 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
     return avg_loss, avg_aux, avg_base
 # {k: v / len(loader) for k, v in train_metrics.items()}
 
-def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
+def validate(
+    model,
+    decoder,
+    loader,
+    criterion,
+    feature_layers,
+    max_steps=None,
+    *,
+    use_sliding_window=None,
+    sw_window_size=None,
+    sw_overlap=None,
+):
     """Validates the model."""
     model.eval()
     decoder.eval()
+    use_sw = args.use_sliding_window if use_sliding_window is None else bool(use_sliding_window)
+    window_size = args.sw_window_size if sw_window_size is None else sw_window_size
+    overlap = args.sw_overlap if sw_overlap is None else sw_overlap
     val_loss = 0.0
     val_metrics = {'abs_rel': 0, 'l1': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
     steps = 0
@@ -924,22 +974,22 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None):
             val_inputs = val_inputs.to(DEVICE, non_blocking=True)
             gt_depths = gt_depths.to(DEVICE, non_blocking=True)
             with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
-                if args.use_sliding_window:
-                    window_size = args.sw_window_size or EVAL_SIZE
+                if use_sw:
+                    window_size = window_size or EVAL_SIZE
                     val_pred_depths = sliding_window_predict(
                         model,
                         decoder,
                         val_inputs,
                         feature_layers,
                         window_size=window_size,
-                        overlap=args.sw_overlap,
+                        overlap=overlap,
                     )
                 else:
                     val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # v_loss, _ = criterion(val_pred_depths, gt_depths)
             # val_loss += v_loss.item()
             can_batch = (
-                (not args.use_sliding_window)
+                (not use_sw)
                 and (args.eval_crop_mode is None)
                 and isinstance(metas, dict)
                 and ("pad_h" in metas) and ("pad_w" in metas)
@@ -1178,6 +1228,15 @@ training_history.setdefault('final_full_rel_abs_rel', None)
 training_history.setdefault('final_full_rel_rmse', None)
 training_history.setdefault('final_full_rel_a1', None)
 logger.info("Running final full-resolution evaluation...")
+final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
+final_sw_window = None
+final_sw_overlap = None
+if final_use_sw:
+    final_sw_window, final_sw_overlap = _resolve_final_sw_params(
+        args.final_sw_window_size,
+        args.final_sw_overlap,
+        args.patch_size,
+    )
 final_valid_dataset = HyperSim_Simple(
     split='test',
     ROOT=f'{args.data_root}/hypersim_processed/test',
@@ -1197,7 +1256,17 @@ final_valid_loader = DataLoader(
     generator=data_rng,
     prefetch_factor=2,
 )
-_, final_full = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
+_, final_full = validate(
+    model,
+    decoder,
+    final_valid_loader,
+    criterion,
+    feature_layers,
+    max_steps=VAL_STEPS,
+    use_sliding_window=final_use_sw,
+    sw_window_size=final_sw_window,
+    sw_overlap=final_sw_overlap,
+)
 if final_full:
     logger.info(
         f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
@@ -1215,7 +1284,17 @@ if final_full:
 logger.info("Running final relative (scale+shift aligned) evaluation...")
 prev_mode = args.depth_eval_mode
 args.depth_eval_mode = "relative"
-_, final_rel = validate(model, decoder, final_valid_loader, criterion, feature_layers, max_steps=VAL_STEPS)
+_, final_rel = validate(
+    model,
+    decoder,
+    final_valid_loader,
+    criterion,
+    feature_layers,
+    max_steps=VAL_STEPS,
+    use_sliding_window=final_use_sw,
+    sw_window_size=final_sw_window,
+    sw_overlap=final_sw_overlap,
+)
 args.depth_eval_mode = prev_mode
 if final_rel:
     logger.info(
