@@ -53,20 +53,30 @@ def _get_source_name(value):
     return src
 
 
-def _update_args_block(text, updates):
+def _update_args_block(text, updates, add_missing=None):
     lines = text.splitlines(keepends=True)
     in_block = False
     found = {key: False for key in updates}
+    add_missing = set(add_missing or [])
     patterns = {
         key: re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)([^,]+)(,?)(\s*#.*)?\s*$")
         for key in updates
     }
+    indent = None
+    block_end_idx = None
     for i, line in enumerate(lines):
         if not in_block and "args = SimpleNamespace(" in line:
             in_block = True
             continue
-        if in_block and line.lstrip().startswith(")"):
-            in_block = False
+        if in_block:
+            if indent is None:
+                stripped = line.strip()
+                if stripped and not line.lstrip().startswith(")"):
+                    indent = line[: len(line) - len(line.lstrip())]
+            if line.lstrip().startswith(")"):
+                block_end_idx = i
+                in_block = False
+                continue
         if not in_block:
             continue
         for key, pattern in patterns.items():
@@ -78,7 +88,17 @@ def _update_args_block(text, updates):
                 break
     missing = [key for key, ok in found.items() if not ok]
     if missing:
-        raise ValueError(f"Missing args keys in SimpleNamespace: {', '.join(missing)}")
+        to_add = [key for key in updates if key in add_missing and key in missing]
+        missing = [key for key in missing if key not in add_missing]
+        if missing:
+            raise ValueError(f"Missing args keys in SimpleNamespace: {', '.join(missing)}")
+        if to_add:
+            if block_end_idx is None:
+                raise ValueError("Could not locate end of args SimpleNamespace block.")
+            if indent is None:
+                indent = "    "
+            new_lines = [f"{indent}{key}={_py_value(updates[key])},\n" for key in to_add]
+            lines[block_end_idx:block_end_idx] = new_lines
     return "".join(lines)
 
 
@@ -123,8 +143,16 @@ def main():
     with cfg_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
+    tokens_path = BASE_DIR / "tokens.yaml"
+    with tokens_path.open("r", encoding="utf-8") as f:
+        tokens = yaml.safe_load(f)
     task = cfg["task"]
-    if task == "seg":
+    pos_type = cfg.get("pos_type")
+    if pos_type is not None:
+        if task != "cls":
+            raise ValueError("pos_type is only supported for cls task.")
+        py_file = Path("dinov3_reg_dynamic_pos.py")
+    elif task == "seg":
         py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":
         py_file = Path("dinov3_reg_dynamic.py")
@@ -174,9 +202,23 @@ def main():
     for item in _as_list(cfg.get("simple")):
         if isinstance(item, dict):
             updates.update(item)
+    updates["pos_type"] = pos_type
+    add_missing = {"pos_type"}
+    if pos_type is not None:
+        updates.update(
+            {
+                "use_rot_pos_emb": False,
+                "use_abs_pos_emb": False,
+                "use_rc_loss": False,
+                "dynamic_img_size": False,
+                "use_patch_position_loss": False,
+                "val": False,
+            }
+        )
+        add_missing.update({"dynamic_img_size", "use_patch_position_loss", "val"})
 
     before_args = _get_args_values(py_text, updates.keys())
-    py_text = _update_args_block(py_text, updates)
+    py_text = _update_args_block(py_text, updates, add_missing=add_missing)
     after_args = _get_args_values(py_text, updates.keys())
     py_path.write_text(py_text, encoding="utf-8")
 
@@ -187,10 +229,16 @@ def main():
     json_data["code_file"] = os.path.relpath(py_path, BASE_DIR)
 
     suffix = cfg.get("suffix") or ""
-    kernel_id = (
-        f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
-        f"{cfg['method']}{suffix}{cfg['seed']}"
-    )
+    if pos_type is not None:
+        kernel_id = (
+            f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
+            f"{pos_type}{suffix}{cfg['seed']}"
+        )
+    else:
+        kernel_id = (
+            f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
+            f"{cfg['method']}{suffix}{cfg['seed']}"
+        )
     json_data["id"] = kernel_id
     json_data["title"] = kernel_id.split("/", 1)[1].replace("-", " ")
 
@@ -225,7 +273,7 @@ def main():
 
     if args_ns.run:
         token = None
-        for item in _as_list(cfg.get("tokens")):
+        for item in _as_list(tokens.get("tokens")):
             if isinstance(item, dict) and cfg["id"] in item:
                 token = item[cfg["id"]]
                 break

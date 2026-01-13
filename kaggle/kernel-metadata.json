@@ -1,7 +1,7 @@
 {
-  "id": "jacksisi/cls-base-none229",
-  "title": "cls base none229",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "linyunlk243/seg-base-rope28",
+  "title": "seg base rope28",
+  "code_file": "../seg/dinov3_seg_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,11 +10,11 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "ambityga/imagenet100"
+    "awsaf49/ade20k-dataset"
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "jacksisi/imagenet-base-no29"
+    "ly1122/seg-base-rope28"
   ],
   "model_sources": []
 }

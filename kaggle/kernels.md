@@ -97,103 +97,105 @@ $env:KAGGLE_API_TOKEN = "KGAT_2fb73ecb825fff9917d49b5e42201914"
 hx2021..@
 cd D:\codes\working\pos\pos\kaggle\du55148
 $env:KAGGLE_API_TOKEN = "KGAT_749523713ad20704cb3c4721c43c3c4a"
-du55148/imagenet-small-no29
-du55148/imagenet-small-no28
+du55148/cls-base-rope29
+du55148/cls-base-rope28
 
 # sollasi 19
 547164434@qq.com		
 shufang
 cd D:\codes\working\pos\pos\kaggle\sollasi
 $env:KAGGLE_API_TOKEN = "KGAT_e6d0aee2d7f2012ccc006cf5b60a0dff"
-sollasi/imagenet-small-rope28
-sollasi/imagenet-small-rope29
 
 # cdong121 2
  956808459@qq.com		
 20001222.
 cd D:\codes\working\pos\pos\kaggle\cdong121
 $env:KAGGLE_API_TOKEN = "KGAT_2e7c647559cbb636ef319cf404242ebb"
-cdong121/imagenet-small-rc28
-cdong121/imagenet-small-rc29
 
 # jacksisi 20
 3374608651@qq.com
 weareoverwatch6
 cd D:\codes\working\pos\pos\kaggle\jacksisi
 $env:KAGGLE_API_TOKEN = "KGAT_7024a17b44e5eed234360b8d6cbc2802"
-jacksisi/imagenet-base-no28
-jacksisi/imagenet-base-no29
 
 # pycjn666 21
 pycjn666	654242py
 cd D:\codes\working\pos\pos\kaggle\pycjn666 
 $env:KAGGLE_API_TOKEN = "KGAT_4c64ca87bedbfe58f17b882ea8d5577d"
-pycjn666/imagenet-small-abs29
-pycjn666/imagenet-small-abs28
 
 # zhuzichen123 22
 2767643932@qq.com	zhu1zi2chen3
 cd D:\codes\working\pos\pos\kaggle\zhuzichen123
 $env:KAGGLE_API_TOKEN = "KGAT_d4519ece2db354881cb694308ded7063"
-zhuzichen123/imagenet-base-abs28
-zhuzichen123/imagenet-base-abs29
 
 # dusi605 23
 1455719765@qq.com	aaa153246789
 cd D:\codes\working\pos\pos\kaggle\dusi605 
 $env:KAGGLE_API_TOKEN = "KGAT_a44768301ad9cdbd0da83b26d6eafa90"
-dusi605/imagenet-base-rope29
-dusi605/imagenet-base-rope28
 
 # sh1weiwu 25
 2980441757@qq.com	weiwei123456..
 cd D:\codes\working\pos\pos\kaggle\sh1weiwu 
 $env:KAGGLE_API_TOKEN = "KGAT_33c54b67bf12a3be626e2382174e7211"
-sh1weiwu/imagenet-base-rc28
-sh1weiwu/imagenet-base-rc29
 
 # ly1122 26
 1610392285@qq.com	ly309112
 cd D:\codes\working\pos\pos\kaggle\ly1122 
 $env:KAGGLE_API_TOKEN = "KGAT_3d52f4b489e94297d028108a7ebc5ec2"
-ly1122/dinov3-seg-none28
 
 # jinliyekaggle 27
 3211498596@qq.com	123456789
 cd D:\codes\working\pos\pos\kaggle\jinliyekaggle 
 $env:KAGGLE_API_TOKEN = "KGAT_d7cddfc8dbf84134253db8b9c6a7c68d"
+ly1122/seg-base-abs28
+ly1122/seg-base-colrow28
 
 # zhangtingfengztf 28
 1767439958@qq.com	Ztf13952865913
 cd D:\codes\working\pos\pos\kaggle\zhangtingfengztf 
 $env:KAGGLE_API_TOKEN = "KGAT_2e2f44f497ad4719f90effee11b6ba3a"
+zhangtingfengztf/cls-base-abs59
+zhangtingfengztf/cls-base-none59
 
 # jiwei313 30
 2388364616@qq.com	191226JW
 cd D:\codes\working\pos\pos\kaggle\jiwei313 
 $env:KAGGLE_API_TOKEN = "KGAT_0a0d15cd2dd802134d9df180b98444b4"
+jiwei313/cls-base-rope59
+jiwei313/cls-base-colrow59
 
 # straghtwizard 29
 1151315805@qq.com	KG@wzm123456
 cd D:\codes\working\pos\pos\kaggle\straghtwizard 
 $env:KAGGLE_API_TOKEN = "KGAT_5c6ab315de5782ce6c8bf882be33a036"
+straghtwizard/cls-base-relpos50
+straghtwizard/cls-base-alibi50
+
 
 # miratowa1 3
 1296778893@qq.com	46890325Qq.
 cd D:\codes\working\pos\pos\kaggle\miratowa1 
 $env:KAGGLE_API_TOKEN = "KGAT_f66576b645d48300e6a5f903c68c6191"
+miratowa1/cls-base-none29
+miratowa1/cls-base-none28
 
 # qcx2333 31
 1831850884@qq.com	qcx1214
 cd D:\codes\working\pos\pos\kaggle\qcx2333 
 $env:KAGGLE_API_TOKEN = "KGAT_f47b5206c8e776f42e7d99dcb8ed6012"
+qcx2333/cls-base-abs29
+qcx2333/cls-base-abs28
 
 # starysinger 33
 3051554253@qq.com	2245425998zxb
 cd D:\codes\working\pos\pos\kaggle\starysinger 
 $env:KAGGLE_API_TOKEN = "KGAT_bada79f91c63a56be9e5053108c20a00"
+starysinger/cls-base-colrow28
+starysinger/cls-base-colrow29
 
 # linyunlk243 32
 2499276408@qq.com	Li123456
 cd D:\codes\working\pos\pos\kaggle\linyunlk243 
 $env:KAGGLE_API_TOKEN = "KGAT_6f068ae76e3c608d8592d01349f79f71"
+linyunlk243/seg-base-none28
+linyunlk243/seg-base-rope28

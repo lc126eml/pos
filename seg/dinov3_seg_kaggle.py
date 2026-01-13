@@ -21,18 +21,17 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import csv
 from PIL import Image
-from tqdm import tqdm
 
 import torchvision.transforms.functional as TF
 from torchvision.transforms import ColorJitter
-from importlib.metadata import version, PackageNotFoundError
-ver = version("timm").split('.')[-1]
-print(ver)
-if int(ver) < 20:
+# from importlib.metadata import version, PackageNotFoundError
+# ver = version("timm").split('.')[-1]
+# print(ver)
+# if int(ver) < 20:
     # !pip uninstall -y timm
-    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
-    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
-    sys.path.insert(0, LOCAL_TIMM)
+subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
+LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+sys.path.insert(0, LOCAL_TIMM)
 
 import timm
 print("timm:", timm.__version__, flush=True)
@@ -52,19 +51,19 @@ if _IS_KAGGLE:
 args = SimpleNamespace(
     model_type="dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
-    model_size="small",
+    use_rot_pos_emb=True,
+    model_size='base',
     num_classes=150,
-    batch_size=32,
+    batch_size=24,
     grad_accum_steps=1,
-    train_img_size=256,
+    train_img_size=320,
     eval_img_size=512,
     use_ms_flip_eval=False,
     scale_jitter=(1.0, None),
     use_cat_max_ratio=False,
     cat_max_ratio=0.75,
     cat_max_ratio_tries=10,
-    ms_scales=(0.75, 1.0, 1.25, 1.5),
+    ms_scales=(0.75, 1.0, 1.25),
     eval_crop_mode="crop_or_pad",
     final_ms_flip_eval=True,
     lr=5e-4,
@@ -90,17 +89,18 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=False if _IS_KAGGLE else True,
     clip_value=1.0,
-    output_dir=os.path.join(root_dir, "seg"),
+    output_dir=root_dir,
     log_interval=500,
     csv_interval=3,
     show_peak_gpu_mem=True,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
-    resume_bs=False,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/seg-base-rope28/seg/base_rot_pos_rc_False_lr50/ckpt/last.pth',
+    resume_bs=True,
     total_run_time_sec=40000,
     base_path=base_path_default,
+    pos_type=None,
 )
 
 ckpt = None
@@ -905,8 +905,8 @@ subdir_name = (
 if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
+ckpt_output_dir = os.path.join(args.output_dir, "ckpt")
 output_dir = os.path.join(args.output_dir, subdir_name)
-ckpt_output_dir = os.path.join(output_dir, "ckpt")
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
@@ -1335,6 +1335,12 @@ if args.train:
 
     step = int(training_history.get("step", [0])[-1]) if training_history.get("step") else 0
     best_acc = 0.0
+    best_miou = 0.0
+    best_ckpt_path = os.path.join(ckpt_output_dir, "best.pth")
+    if training_history.get("valid_miou"):
+        best_miou = max(training_history.get("valid_miou", [0.0]) or [0.0])
+    if training_history.get("valid_acc"):
+        best_acc = max(training_history.get("valid_acc", [0.0]) or [0.0])
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1)
 
@@ -1348,8 +1354,6 @@ if args.train:
         train_correct_t = torch.zeros((), device=DEVICE)
         train_total_t = torch.zeros((), device=DEVICE)
         train_samples_t = torch.zeros((), device=DEVICE)
-        # train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Training]", mininterval=0.5)
-
         optimizer.zero_grad(set_to_none=True)
 
         for batch_idx, (inputs, labels) in enumerate(train_loader):
@@ -1424,10 +1428,9 @@ if args.train:
         val_total_t = torch.zeros((), device=DEVICE)
         confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
 
-        val_pbar = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Validation]", mininterval=0.5)
         val_start = time.time()
         with torch.inference_mode():
-            for inputs, labels in val_pbar:
+            for inputs, labels in valid_loader:
                 inputs = inputs.to(DEVICE, non_blocking=True)
                 labels = labels.to(DEVICE, non_blocking=True)
                 if args.use_ms_flip_eval:
@@ -1472,6 +1475,9 @@ if args.train:
         epoch_train_loss = (running_loss_t / denom_pixels).float().item()
         if best_acc < epoch_val_acc:
             best_acc = epoch_val_acc
+        improved_miou = epoch_val_miou > best_miou
+        if improved_miou:
+            best_miou = epoch_val_miou
 
         logger.info("Epoch %s/%s Summary:", epoch + 1 + args.start_epoch, args.epochs)
         logger.info("Step %s Summary:", step)
@@ -1505,6 +1511,18 @@ if args.train:
 
         if (epoch + 1) % csv_interval == 0:
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
+        if improved_miou:
+            best_ckpt = {
+                "epoch": epoch + 1,
+                "model": model.state_dict(),
+                "decoder": decoder.state_dict(),
+                "metric": {
+                    "valid_miou": epoch_val_miou,
+                    "valid_acc": epoch_val_acc,
+                },
+            }
+            torch.save(best_ckpt, best_ckpt_path)
+            logger.info("Saved best checkpoint (weights only) to %s", best_ckpt_path)
         if args.save_full_ckpt:
             ckpt = {
                 "epoch": epoch + 1,
@@ -1535,42 +1553,57 @@ if args.train:
     logger.info(output_dir)
 
     if args.final_ms_flip_eval and not args.use_ms_flip_eval:
-        logger.info("Running final multi-scale + flip evaluation...")
-        model.eval()
-        decoder.eval()
-        val_correct_t = torch.zeros((), device=DEVICE)
-        val_total_t = torch.zeros((), device=DEVICE)
-        confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
-        val_pbar = tqdm(valid_loader, desc="Final MS+Flip [Validation]", mininterval=0.5)
-        with torch.inference_mode():
-            for inputs, labels in val_pbar:
-                inputs = inputs.to(DEVICE, non_blocking=True)
-                labels = labels.to(DEVICE, non_blocking=True)
-                outputs = _ms_flip_predict(
-                    model,
-                    decoder,
-                    inputs,
-                    args.num_classes,
-                    args.ms_scales,
-                    True,
-                    model.patch_embed.patch_size,
-                    feature_layers=args.feature_layers,
-                )
-                pred = outputs.argmax(dim=1)
-                mask = (labels >= 0)
-                val_correct_t += ((pred == labels) & mask).sum()
-                val_total_t += mask.sum()
-                confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+        def _run_ms_flip_eval(tag: str):
+            model.eval()
+            decoder.eval()
+            val_correct_t = torch.zeros((), device=DEVICE)
+            val_total_t = torch.zeros((), device=DEVICE)
+            confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
+            with torch.inference_mode():
+                for inputs, labels in valid_loader:
+                    inputs = inputs.to(DEVICE, non_blocking=True)
+                    labels = labels.to(DEVICE, non_blocking=True)
+                    outputs = _ms_flip_predict(
+                        model,
+                        decoder,
+                        inputs,
+                        args.num_classes,
+                        args.ms_scales,
+                        True,
+                        model.patch_embed.patch_size,
+                        feature_layers=args.feature_layers,
+                    )
+                    pred = outputs.argmax(dim=1)
+                    mask = (labels >= 0)
+                    val_correct_t += ((pred == labels) & mask).sum()
+                    val_total_t += mask.sum()
+                    confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
 
-        confmat_f = confmat.to(torch.float32)
-        intersection = torch.diag(confmat_f)
-        union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
-        valid = union > 0
-        final_ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
-        final_ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
-        logger.info("Final MS+Flip Acc: %.4f | Final MS+Flip mIoU: %.4f", final_ms_acc, final_ms_miou)
+            confmat_f = confmat.to(torch.float32)
+            intersection = torch.diag(confmat_f)
+            union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
+            valid = union > 0
+            ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
+            ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
+            logger.info("%s MS+Flip Acc: %.4f | %s MS+Flip mIoU: %.4f", tag, ms_acc, tag, ms_miou)
+            return ms_acc, ms_miou
+
+        logger.info("Running final multi-scale + flip evaluation (final checkpoint)...")
+        final_ms_acc, final_ms_miou = _run_ms_flip_eval("Final")
         training_history["final_ms_flip_acc"] = final_ms_acc
         training_history["final_ms_flip_miou"] = final_ms_miou
+
+        if os.path.exists(best_ckpt_path):
+            best_ckpt = torch.load(best_ckpt_path, map_location="cpu", weights_only=False)
+            model.load_state_dict(best_ckpt.get("model", {}), strict=False)
+            decoder.load_state_dict(best_ckpt.get("decoder", {}), strict=False)
+            logger.info("Loaded best checkpoint for final MS+Flip evaluation.")
+            best_ms_acc, best_ms_miou = _run_ms_flip_eval("Best")
+            training_history["best_ms_flip_acc"] = best_ms_acc
+            training_history["best_ms_flip_miou"] = best_ms_miou
+        else:
+            logger.info("Best checkpoint not found; skipping best MS+Flip evaluation.")
+
         pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     history_df = pd.DataFrame(training_history)
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)

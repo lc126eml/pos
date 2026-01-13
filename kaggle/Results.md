@@ -32,6 +32,12 @@ xulijuan/imagenet-small-rope
 Train Loss: 0.8360 | Train Acc: 0.7679 | Valid Acc: 0.5768
 Best Accuracy: 0.5812
 
+### sollasi/imagenet-small-rope28
+0.586199999
+
+### sollasi/imagenet-small-rope29
+0.584999979
+
 ## AbsPE
 ### seed=50
 xulin5522/imagenet-small-abs 
@@ -43,17 +49,35 @@ xulin5522/imagenet-small-abs
 Train Loss: 0.7201 | Train Acc: 0.8009 | Valid Acc: 0.5526
 Best Accuracy: 0.5562
 
+### pycjn666/imagenet-small-abs29
+0.550000012
+
+### pycjn666/imagenet-small-abs28
+0.561399996
+
 ## None
 ### seed=50
 sinayliu/imagenet-small-none2
 Train Loss: 0.2563 | Train Acc: 0.9320 | Valid Acc: 0.5898
 Best Accuracy: 0.5918
 
+### du55148/imagenet-small-no29
+0.544399977
+
+### du55148/imagenet-small-no28
+0.546400011
+
 ## RC
 ### seed=50
 sinayliu/imagenet-small-rc
 Train Loss: 1.1829 | Aux Loss: 0.0019 | Base Loss: 0.6101 | Train Acc: 0.8232 | Valid Acc: 0.7170
 Best Accuracy: 0.7190
+
+### cdong121/imagenet-small-rc28
+0.709999979
+
+### cdong121/imagenet-small-rc29
+0.680599988
 
 ### seed=59
 wenyangtang/imagenet-small-rc
@@ -63,27 +87,3 @@ Best Accuracy: 0.7202
 
 # base
 ## AbsPE
-### seed=59
-Epoch 15/130
-Train Loss: 2.9000 | Train Acc: 0.2897 | Valid Acc: 0.2900
-Best Accuracy: 0.2928
-
-### seed=50
-Epoch 30/130
-Best Accuracy: 0.3248
-
-### seed=50
-Best Accuracy: 0.3202
-
-### seed=28
-Best Accuracy: 0.2468
-
-### seed=29
-Best Accuracy: 0.2802
-
-## None
-### seed=59
-Epoch 15/130
-Train Loss: 2.8932 | Train Acc: 0.2913 | Valid Acc: 0.2894
-Best Accuracy: 0.2942
-

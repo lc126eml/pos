@@ -11,3 +11,4 @@ generate process_kaggle.py in /lc/code/pos/kaggle:
 10. if resume_full_ckpt is true: and if resume_source is kernel, source_name as second part (after '/') of cfg.kernel_sources; if is resume_source is dataset, source_name as second part (after '/') of cfg.dataset_sources. then make arg resume_ckpt_path of py_file as "/kaggle/input/{}/ckpt/last.pth";
 11. cfg.method is rope, set use_rot_pos_emb to true, but use_abs_pos_emb and use_rc_loss to False; if cfg.method is abs, only use_abs_pos_emb True; if colrow, only use_rc_loss True; if none, All False.
 12. for items in cfg.simple, set the values of args in py_file with the key.
+13. set cfg.pos_type to args of py_file. if cfg.pos_type is not None, set use_rot_pos_emb, use_abs_pos_emb, use_rc_loss, dynamic_img_size, use_patch_position_loss, val   to False. id of json_f as:  {cfg.id}/{cfg.task}-{cfg.model_size}-{cfg.pos_type}{cfg.suffix}{cfg.seed}, and title too
