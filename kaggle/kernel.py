@@ -53,18 +53,18 @@ def _load_kernel_id_from_json():
     return kernel_id
 
 
-def _iter_kernel_ids_from_md(path, require_delete_marker):
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        if "/" not in raw_line:
+def _iter_kernel_ids_from_md(path, args):
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "/" not in line:
             continue
-        line = raw_line.strip(" ?\t\r\n")
-        if not line:
+        # line = raw_line.strip(" ?\t\r\n")
+        if args.delete:
+            if not line.startswith("-"):
+                continue
+        elif '?' in line:
             continue
-        has_marker = line.startswith("-")
-        if require_delete_marker and not has_marker:
-            continue
-        if has_marker:
-            line = line[1:].strip(" ?\t\r\n")
+            
+        line = line.strip(" -?\t\r\n")
         yield line
 
 
@@ -95,8 +95,8 @@ def main():
     parser.add_argument("--dry", action="store_true", help="Print commands without running them.")
     parser.add_argument("--v", action="store_true", help="Verbose output.")
     args = parser.parse_args()
-    if args.dry:
-        args.v = True
+    # if args.dry:
+    #     args.v = True
 
     cfg = _load_yaml(BASE_DIR / "config.yaml")
     tokens = _load_yaml(BASE_DIR / "tokens.yaml")
@@ -107,7 +107,7 @@ def main():
         md_path = Path(kernel_arg)
         if not md_path.exists():
             raise ValueError(f"Kernel list file not found: {md_path}")
-        kernel_ids = list(_iter_kernel_ids_from_md(md_path, args.delete))
+        kernel_ids = list(_iter_kernel_ids_from_md(md_path, args))
     else:
         kernel_id = kernel_arg or _load_kernel_id_from_json()
         kernel_ids = [kernel_id.strip()]

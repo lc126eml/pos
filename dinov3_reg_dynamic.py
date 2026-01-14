@@ -2,6 +2,7 @@
 # =================================================================================
 # Step 1: Install and Import Necessary Libraries
 # =================================================================================
+import glob
 import math
 import os
 import torch
@@ -146,7 +147,7 @@ args = SimpleNamespace(
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
-    rc_alpha=600.0, # base
+    rc_alpha=300.0, # base
     warmup_steps_for_aux=1,
     workers=5,
     randaugment=False,
@@ -170,12 +171,26 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=11.1,
+    total_run_time_hr=2.5,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
 resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
+    if not os.path.exists(args.resume_ckpt_path):
+        resume_dir = os.path.dirname(args.resume_ckpt_path)
+        parts = os.path.normpath(resume_dir).split(os.sep)
+        if os.path.isabs(resume_dir):
+            prefix_parts = parts[1:4]
+            search_root = os.path.join(os.sep, *prefix_parts)
+        else:
+            prefix_parts = parts[:3]
+            search_root = os.path.join(*prefix_parts)
+        candidates = sorted(
+            glob.glob(os.path.join(search_root, "**", "last.pth"), recursive=True)
+        )
+        if candidates:
+            args.resume_ckpt_path = candidates[0]
     skip_keys = [
         "resume_full_ckpt",
         "resume_ckpt_path",
@@ -202,6 +217,10 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
+if args.model_size == "base":
+    args.rc_alpha = 600.0
+else:
+    args.rc_alpha = 300.0
 
 offset = 0
 # args.batch_size = 64

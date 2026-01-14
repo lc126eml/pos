@@ -1,7 +1,7 @@
 {
-  "id": "zhuangminghui/cls-base-relpos50",
-  "title": "cls base relpos50",
-  "code_file": "../dinov3_reg_dynamic_pos.py",
+  "id": "phoenixcsw01/cls-base-rope228",
+  "title": "cls base rope228",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "straghtwizard/cls-base-relpos250"
+    "phoenixcsw01/cls-base-rope28"
   ],
   "model_sources": []
 }

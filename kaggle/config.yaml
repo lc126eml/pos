@@ -1,18 +1,19 @@
 task: cls #seg #cls
-id: zhuangminghui
-pos_type: relpos #relpos alibi null
+id: phoenixcsw01
+pos_type: null #relpos alibi null
 method: none #abs none colrow rope
 model_size: base #small base
-suffix: 0
+suffix: 2
 is_private: false
 dataset_sources: null
-kernel_sources: straghtwizard/cls-base-relpos250
+kernel_sources: phoenixcsw01/cls-base-rope28
 resume_full_ckpt: true
 resume_source: kernel #dataset kernel
-resume_infer: false
+resume_infer: true
 seed: 50
 simple:
   # - batch_size: 64
   # - grad_accum_steps: 1
+  # - rc_alpha: 600.0
   - resume_bs: True
-  - total_run_time_hr: 11.2
+  - total_run_time_hr: 2.5

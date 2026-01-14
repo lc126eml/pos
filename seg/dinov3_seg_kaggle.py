@@ -4,6 +4,7 @@
 # =================================================================================
 import math
 import os
+import glob
 import sys
 import time
 import logging
@@ -96,15 +97,29 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-abs28/seg/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-abs228/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_bs=True,
-    total_run_time_hr=11.2,
+    total_run_time_hr=10.0,
     base_path=base_path_default,
     pos_type=None,
 )
 
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
+    if not os.path.exists(args.resume_ckpt_path):
+        resume_dir = os.path.dirname(args.resume_ckpt_path)
+        parts = os.path.normpath(resume_dir).split(os.sep)
+        if os.path.isabs(resume_dir):
+            prefix_parts = parts[1:4]
+            search_root = os.path.join(os.sep, *prefix_parts)
+        else:
+            prefix_parts = parts[:3]
+            search_root = os.path.join(*prefix_parts)
+        candidates = sorted(
+            glob.glob(os.path.join(search_root, "**", "last.pth"), recursive=True)
+        )
+        if candidates:
+            args.resume_ckpt_path = candidates[0]
     skip_keys = [
         "resume_full_ckpt",
         "resume_ckpt_path",
