@@ -862,7 +862,7 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
 
         if Use_Row_Col_Loss:
             last_feat = features[-1] if isinstance(features, (list, tuple)) else features
-            if args.depth_decoder == "lite4":
+            if args.depth_decoder == "lite4" or args.depth_decoder == "dpt":
                 aux_loss = rowcol_loss(last_feat)
             else:
                 aux_loss = rowcol_loss(last_feat[:, model.num_prefix_tokens:, :])

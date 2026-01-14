@@ -1,16 +1,16 @@
 task: cls #seg #cls
-id: b201xiaoli
-pos_type: null #relpos alibi null
-method: colrow #abs none colrow rope
-model_size: small #small base
+id: zhuangminghui
+pos_type: relpos #relpos alibi null
+method: none #abs none colrow rope
+model_size: base #small base
 suffix: 0
 is_private: false
 dataset_sources: null
-kernel_sources: null
-resume_full_ckpt: false
+kernel_sources: straghtwizard/cls-base-relpos250
+resume_full_ckpt: true
 resume_source: kernel #dataset kernel
-resume_infer: true
-seed: 29
+resume_infer: false
+seed: 50
 simple:
   # - batch_size: 64
   # - grad_accum_steps: 1

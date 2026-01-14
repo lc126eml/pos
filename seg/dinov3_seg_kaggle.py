@@ -96,9 +96,9 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-abs28/seg/base_abs_pos_rc_False_lr50/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-abs28/seg/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_bs=True,
-    total_run_time_hr=11.11,
+    total_run_time_hr=11.2,
     base_path=base_path_default,
     pos_type=None,
 )
@@ -110,6 +110,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         "resume_ckpt_path",
         "resume_bs",
         "total_run_time_hr",
+        "output_dir",
     ]
     if not args.resume_bs:
         skip_keys.extend(["batch_size", "grad_accum_steps"])
@@ -902,8 +903,9 @@ subdir_name = (
 if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"
 
+output_dir = args.output_dir
 ckpt_output_dir = os.path.join(args.output_dir, "ckpt")
-output_dir = os.path.join(args.output_dir, subdir_name)
+# output_dir = os.path.join(args.output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")

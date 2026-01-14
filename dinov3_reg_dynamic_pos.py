@@ -112,7 +112,7 @@ else:
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = 'alibi', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    pos_type = 'relpos', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=False,
     model_type= "dinov3",
     use_abs_pos_emb=False,
@@ -140,7 +140,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=59,
+    seed=50,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -160,7 +160,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope259/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-relpos250/ckpt/last.pth',
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -170,7 +170,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=11.1,
+    total_run_time_hr=11.2,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )

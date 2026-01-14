@@ -232,7 +232,10 @@ def main():
             raise ValueError(f"Unsupported resume_source: {resume_source}")
         if not source_name:
             raise ValueError("resume_source is set but no source name could be resolved.")
-        resume_ckpt_path = f"/kaggle/input/{source_name}/ckpt/last.pth"
+        if task == "seg":
+            resume_ckpt_path = f"/kaggle/input/{source_name}/seg/ckpt/last.pth"
+        else:
+            resume_ckpt_path = f"/kaggle/input/{source_name}/ckpt/last.pth"
 
     py_path = (BASE_DIR.parent / py_file).resolve()
     py_text = py_path.read_text(encoding="utf-8")

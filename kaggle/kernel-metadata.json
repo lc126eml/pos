@@ -1,7 +1,7 @@
 {
-  "id": "b201xiaoli/cls-small-colrow29",
-  "title": "cls small colrow29",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "zhuangminghui/cls-base-relpos50",
+  "title": "cls base relpos50",
+  "code_file": "../dinov3_reg_dynamic_pos.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -13,6 +13,8 @@
     "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "straghtwizard/cls-base-relpos250"
+  ],
   "model_sources": []
 }
