@@ -43,7 +43,7 @@ zhuangminghui/cls-base-relpos250
 
 zhuangminghui/cls-base-alibi50?
 zhuangminghui/cls-base-relpos50?
-small gpu 15:00
+no gpu
 # 12
 ##  yuanhahah 
 152366228@qq.com
@@ -109,7 +109,7 @@ denghaimeng/seg-base-none28
 
 linyunlk243/seg-base-none28?
 linyunlk243/seg-base-rope28?
-running
+
 
 # sollasi 19
 547164434@qq.com		
@@ -147,12 +147,12 @@ pycjn666	654242py
 
 # phoenixcsw01 27
 1074139914@qq.com	020323csw
-phoenixcsw01/cls-base-rope229
-phoenixcsw01/cls-base-rope228
+phoenixcsw01/cls-base-rope229?
+phoenixcsw01/cls-base-rope228?
 
-phoenixcsw01/cls-base-rope29?
-phoenixcsw01/cls-base-rope28?
-small gpu 15:00
+phoenixcsw01/cls-base-rope29
+phoenixcsw01/cls-base-rope28
+tmr no gpu
 
 # zhangtingfengztf 28
 1767439958@qq.com	Ztf13952865913

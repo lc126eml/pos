@@ -1,6 +1,6 @@
 {
-  "id": "phoenixcsw01/cls-base-rope228",
-  "title": "cls base rope228",
+  "id": "phoenixcsw01/cls-base-rope28",
+  "title": "cls base rope28",
   "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "phoenixcsw01/cls-base-rope28"
+    "phoenixcsw01/cls-base-rope228"
   ],
   "model_sources": []
 }

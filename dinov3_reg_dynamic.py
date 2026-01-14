@@ -161,7 +161,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope28/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-rope228/ckpt/last.pth',
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -171,7 +171,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=2.5,
+    total_run_time_hr=11.1,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )

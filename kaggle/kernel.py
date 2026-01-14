@@ -53,11 +53,10 @@ def _load_kernel_id_from_json():
     return kernel_id
 
 
-def _iter_kernel_ids_from_md(path, args):
-    for line in path.read_text(encoding="utf-8").splitlines():
+def _iter_kernel_ids_from_md(lines, args):
+    for idx, line in enumerate(lines):
         if "/" not in line:
             continue
-        # line = raw_line.strip(" ?\t\r\n")
         if args.delete:
             if not line.startswith("-"):
                 continue
@@ -65,7 +64,7 @@ def _iter_kernel_ids_from_md(path, args):
             continue
             
         line = line.strip(" -?\t\r\n")
-        yield line
+        yield idx, line
 
 
 def _resolve_owner_id(kernel_id, args, cfg):
@@ -94,25 +93,36 @@ def main():
     parser.add_argument("--delete", action="store_true", help="Delete kernel.")
     parser.add_argument("--dry", action="store_true", help="Print commands without running them.")
     parser.add_argument("--v", action="store_true", help="Verbose output.")
+    parser.add_argument(
+        "--prune-md",
+        action="store_true",
+        help="Remove deleted kernel lines from the .md list.",
+    )
     args = parser.parse_args()
-    # if args.dry:
-    #     args.v = True
+    if args.dry:
+        args.v = True
 
     cfg = _load_yaml(BASE_DIR / "config.yaml")
     tokens = _load_yaml(BASE_DIR / "tokens.yaml")
 
     kernel_arg = args.kernel_id
-    kernel_ids = []
+    md_path = None
+    md_lines = None
+    md_trailing_newline = False
+    entries = []
     if kernel_arg and kernel_arg.endswith(".md"):
         md_path = Path(kernel_arg)
         if not md_path.exists():
             raise ValueError(f"Kernel list file not found: {md_path}")
-        kernel_ids = list(_iter_kernel_ids_from_md(md_path, args))
+        md_text = md_path.read_text(encoding="utf-8")
+        md_trailing_newline = md_text.endswith("\n")
+        md_lines = md_text.splitlines()
+        entries = list(_iter_kernel_ids_from_md(md_lines, args))
     else:
         kernel_id = kernel_arg or _load_kernel_id_from_json()
-        kernel_ids = [kernel_id.strip()]
+        entries = [(None, kernel_id.strip())]
 
-    if not kernel_ids:
+    if not entries:
         print("No valid kernel ids found.")
         return
 
@@ -120,7 +130,9 @@ def main():
         if args.v:
             print(message)
 
-    for kernel_id in kernel_ids:
+    to_remove = set()
+    for entry in entries:
+        index, kernel_id = entry
         owner_id = _resolve_owner_id(kernel_id, args, cfg)
         if not owner_id:
             raise ValueError("Missing id: provide --id or set id in kaggle/config.yaml.")
@@ -145,7 +157,21 @@ def main():
         if args.dry:
             vprint("Dry run: command not executed.")
             continue
-        subprocess.check_call(cmd, cwd=BASE_DIR, env=env)
+        result = subprocess.run(cmd, cwd=BASE_DIR, env=env, check=False)
+        if result.returncode != 0:
+            continue
+        if args.delete and args.prune_md and md_path and index is not None:
+            to_remove.add(index)
+
+    if args.delete and args.prune_md and md_path and to_remove:
+        new_lines = [
+            line for idx, line in enumerate(md_lines or []) if idx not in to_remove
+        ]
+        new_text = "\n".join(new_lines)
+        if md_trailing_newline:
+            new_text += "\n"
+        md_path.write_text(new_text, encoding="utf-8")
+        vprint(f"Updated {md_path}, removed {len(to_remove)} line(s).")
 
 
 if __name__ == "__main__":
