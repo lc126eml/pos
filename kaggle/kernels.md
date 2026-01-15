@@ -27,7 +27,9 @@ Tang123456
 
 ## b201xiaoli 
 2360491522@qq.com	dong123.
-b201xiaoli/cls-small-colrow29
+b201xiaoli/cls-base-colrow50
+b201xiaoli/cls-base-colrow51
+no gpu 22:00
 
 # xulijuan 10
 xulijuandh@126.com
@@ -38,12 +40,8 @@ xulijuandh@126.com
 
 ## zhuangminghui 
 2396009152@qq.com	zmh188018
-zhuangminghui/cls-base-alibi250
-zhuangminghui/cls-base-relpos250
 
-zhuangminghui/cls-base-alibi50?
-zhuangminghui/cls-base-relpos50?
-no gpu
+
 # 12
 ##  yuanhahah 
 152366228@qq.com
@@ -51,52 +49,35 @@ no gpu
 
 ## autune
 1271610041@qq.com	020306xaT？
-autune/cls-base-abs59
-autune/cls-base-none59
 
-zhangtingfengztf/cls-base-abs259 ?
-zhangtingfengztf/cls-base-none259 ?
 
 # liucong126 13
 liucong126eml@126.com
 
 ## yangjiamin 
 248172682@qq.com	yjm411yjm
-yangjiamin/cls-base-colrow59
-yangjiamin/cls-base-rope59
-
-jiwei313/cls-base-rope59?
-jiwei313/cls-base-colrow59?
+tmr
 # xulin5522 15
 2450682067@qq.com	xulin1207@
 ## zjl001 
 2013293864@qq.com	Zhu081608
-zjl001/cls-base-none29
-zjl001/cls-base-none28
 
-miratowa1/cls-base-none229?
-miratowa1/cls-base-none228?
+
 # ohyeah00 16
 1715071962@qq.com
 wyh456852
 
 ## zzr123123 
 1449517895@qq.com	Zzr14159
-zzr123123/cls-base-abs29
-zzr123123/cls-base-abs28
 
-qcx2333/cls-base-abs229?
-qcx2333/cls-base-abs228?
+
 # asdsad0000 17
 2131286169@qq.com
 163972xjr
 
 ## smartchaochao 
 smartchaochao@qq.com	xu102599
-smartchaochao/cls-base-colrow28
-smartchaochao/cls-base-colrow29
-starysinger/cls-base-colrow228?
-starysinger/cls-base-colrow229?
+
 
 # du55148 18
 2316488358@qq.com	
@@ -104,12 +85,9 @@ hx2021..@
 
 ## denghaimeng 
 2062883397@qq.com	LHdhm20726
-denghaimeng/seg-base-rope28
-denghaimeng/seg-base-none28
-
-linyunlk243/seg-base-none28?
-linyunlk243/seg-base-rope28?
-
+denghaimeng/seg-base-rope29
+denghaimeng/seg-base-abs29
+little gpu 14:00
 
 # sollasi 19
 547164434@qq.com		
@@ -117,24 +95,40 @@ shufang
 
 ## zongjiaxin 
 1532877627@qq.com	zjx13814652157
-zongjiaxin/seg-base-colrow228
-zongjiaxin/seg-base-abs228
-
-jcy666/seg-base-colrow228?
-jcy666/seg-base-abs228?
+zongjiaxin/seg-base-none29
+zongjiaxin/seg-base-colrow29
+little gpu 15:00
 # cdong121 2
  956808459@qq.com		
 20001222.
+
+## jjjerry12138 
+2905176273@qq.com	2002cheng1
+jjjerry12138/cls-base-none51
+jjjerry12138/cls-base-none50
 
 # jacksisi 20
 3374608651@qq.com
 weareoverwatch6
 
+## zhoujiahui0199 
+1556721646@qq.com	1234567
+zhoujiahui0199/cls-base-abs50
+zhoujiahui0199/cls-base-abs51
+
+
 # pycjn666 21
 pycjn666	654242py
+## cycyxcy 
+1246069481@qq.com	000304cy
+cycyxcy/cls-base-rope51
+cycyxcy/cls-base-rope50
 
 # zhuzichen123 22
 2767643932@qq.com	zhu1zi2chen3
+
+## luanjing 
+13182296316@163.com	lj20020810
 
 # dusi605 23
 1455719765@qq.com	aaa153246789
@@ -147,12 +141,7 @@ pycjn666	654242py
 
 # phoenixcsw01 27
 1074139914@qq.com	020323csw
-phoenixcsw01/cls-base-rope229?
-phoenixcsw01/cls-base-rope228?
 
-phoenixcsw01/cls-base-rope29
-phoenixcsw01/cls-base-rope28
-tmr no gpu
 
 # zhangtingfengztf 28
 1767439958@qq.com	Ztf13952865913

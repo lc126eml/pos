@@ -327,8 +327,16 @@ def main():
             raise ValueError(f"No token found for id: {cfg['id']}")
         env = os.environ.copy()
         env["KAGGLE_API_TOKEN"] = token
+        env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
-        subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
+        if os.name == "nt":
+            subprocess.check_call(
+                ["cmd", "/c", "chcp 65001 >nul && kaggle kernels push -p ."],
+                cwd=BASE_DIR,
+                env=env,
+            )
+        else:
+            subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
 
 
 if __name__ == "__main__":

@@ -133,7 +133,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=7e-4, #base
+    lr=3e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -141,13 +141,13 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=28,
+    seed=50,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
-    rc_alpha=300.0, # base
+    rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
     workers=5,
     randaugment=False,
@@ -160,8 +160,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope228/ckpt/last.pth',
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -661,7 +661,7 @@ class PatchRowColCriterion(nn.Module):
 #         grid_h=grid_h,
 #         grid_w=grid_w
 #     ).to(DEVICE)
-#     print("✅ Row-Column loss initialized.")
+#     print("OK: Row-Column loss initialized.")
 
 class PatchPositionCriterion(nn.Module):
     def __init__(self, feat_dim, hidden_dim=256, num_classes=None):
@@ -866,7 +866,7 @@ import random
 class DynamicResolutionBatchSampler:
     """
     Yields batches of (idx, size) with dynamic batch size so that
-    batch_size * size^2 ≈ base_batch_size * base_img_size^2.
+    batch_size * size^2 approx base_batch_size * base_img_size^2.
     """
 
     def __init__(
@@ -969,7 +969,7 @@ all_class_dirs = [
 selected_class_dirs = sorted(list(set(all_class_dirs)))[offset:args.num_classes+offset]
 class_to_idx = {cls_name: i for i, cls_name in enumerate(selected_class_dirs)}
 
-logger.info(f"✅ Efficiently loading the following {len(selected_class_dirs)} classes: {selected_class_dirs}")
+logger.info(f"OK: Efficiently loading the following {len(selected_class_dirs)} classes: {selected_class_dirs}")
 args.num_classes = len(selected_class_dirs)
 # --- Manually build the list of training samples (images, labels) ---
 train_samples = []
@@ -1077,8 +1077,8 @@ else:
     batch_sampler = DynamicResolutionBatchSampler(
         dataset=train_dataset,
         image_sizes=args.img_sizes,
-        base_batch_size=args.batch_size,    # your “reference” batch size
-        base_img_size=224, #args.img_sizes[0],       # your “reference” resolution (e.g. 224)
+        base_batch_size=args.batch_size,    # your "reference" batch size
+        base_img_size=224, #args.img_sizes[0],       # your "reference" resolution (e.g. 224)
         shuffle=True,
         drop_last=True,
         seed=42,
@@ -1104,7 +1104,7 @@ valid_loader = DataLoader(
 steps_per_epoch = len(train_loader)
 accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
 optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
-logger.info(f"✅ DataLoaders for {args.num_classes} classes created successfully.")
+logger.info(f"OK: DataLoaders for {args.num_classes} classes created successfully.")
 logger.info(f"{steps_per_epoch=}, val_steps: {len(valid_loader)}")
 logger.info(f"Effective batch size: {args.batch_size * accum_steps}")
 
@@ -1165,7 +1165,7 @@ def imshow(inp, title=None):
 # Step 4: Initialize the Model, Loss Function, and Optimizer
 # =================================================================================
 # --- Model ---
-logger.info(f"🤖 Initializing model: {MODEL_NAME} for {args.num_classes} classes...")
+logger.info(f"Initializing model: {MODEL_NAME} for {args.num_classes} classes...")
 model = timm.create_model(
     MODEL_NAME,
     pretrained=False, # As requested: trains the model from scratch
@@ -1220,13 +1220,13 @@ logger.info(f'model.patch_embed.proj{model.patch_embed.proj}')
 # if not args.has_pos and hasattr(model, 'pos_embed') and model.pos_embed is not None:
 #     model.pos_embed.data.zero_()
 #     model.pos_embed.requires_grad = False
-#     logger.info("✅ Positional embedding has been disabled.")
+#     logger.info("OK: Positional embedding has been disabled.")
 
 # if not args.has_pos or args.pos_type is not None:
 #     if hasattr(model, 'pos_embed') and model.pos_embed is not None:
 #         model.pos_embed.data.zero_()
 #         model.pos_embed.requires_grad = False
-#         logger.info("✅ Positional embedding has been disabled.")
+#         logger.info("OK: Positional embedding has been disabled.")
 #     if hasattr(model, 'rope'):
 #         model.rope = None
 
@@ -1354,14 +1354,14 @@ if args.composite_lr:
 else:
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
     # optimizer = optim.AdamW(training_parameters, lr=args.lr, weight_decay=args.weight_decay)
-    logger.info("✅ Model, Loss Function, and Optimizer are ready.")
+    logger.info("OK: Model, Loss Function, and Optimizer are ready.")
 
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-    # logger.info("✅ Model, Loss, Optimizer, and LR Scheduler are ready.")
+    # logger.info("OK: Model, Loss, Optimizer, and LR Scheduler are ready.")
 
     total_steps = args.epochs * optimizer_steps_per_epoch
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=args.eta_min)
-    logger.info("✅ Step-based LR Scheduler is ready.")
+    logger.info("OK: Step-based LR Scheduler is ready.")
 
 
 # %%
@@ -1424,9 +1424,9 @@ if args.train:
     # =================================================================================
     # Step 5: Training and Validation Loop
     # =================================================================================
-    logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
+    logger.info(f"\nStarting training for {MODEL_NAME}...")
 
-    # ✅ Initialize training_history as a dictionary of lists
+    # OK: Initialize training_history as a dictionary of lists
     if args.use_rc_loss or args.use_patch_position_loss:
         training_history = {
             'train_loss': [],
@@ -1618,7 +1618,7 @@ if args.train:
             )
         
 
-        # ✅ Append the results to the correct lists within the dictionary
+        # OK: Append the results to the correct lists within the dictionary
         
         training_history['train_loss'].append(epoch_train_loss)
         training_history['train_acc'].append(epoch_train_acc)
@@ -1665,7 +1665,7 @@ if args.train:
         # if 'scheduler' in locals():
         #     scheduler.step()
 
-    logger.info("🏁 Training complete.")
+    logger.info("Training complete.")
     logger.info(f"Best Accuracy: {best_acc:.4f}")
     logger.info(output_dir)
 
@@ -1673,14 +1673,14 @@ if args.train:
     # Step 6: Save the Results and Model
     # =================================================================================
 
-    # ✅ Step 1: Convert the dictionary directly into a pandas DataFrame
+    # OK: Step 1: Convert the dictionary directly into a pandas DataFrame
 
-    # ✅ Step 2: Add the 'epoch' column at the beginning
+    # OK: Step 2: Add the 'epoch' column at the beginning
     # Create the list of epochs where validation was actually performed
     # epochs_validated = range(5, EPOCHS + 1, 5) 
     # history_df.insert(0, 'epoch', epochs_validated)
 
-    # ✅ Step 3: Save the DataFrame to a CSV file
+    # OK: Step 3: Save the DataFrame to a CSV file
     pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     # times_csv_path = os.path.join(output_dir, f'{subdir_name}_train_epoch_times.csv')
     # logger.info(f"{train_epoch_times=}")
@@ -1692,7 +1692,7 @@ if args.train:
     #     # Save the model's state dictionary
     #     ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
     #     torch.save(model.state_dict(), ckpt_path)
-    #     logger.info(f"✅ Model saved to '{ckpt_path}'")
+    #     logger.info(f"OK: Model saved to '{ckpt_path}'")
 
 if args.val:    
     val_results = {

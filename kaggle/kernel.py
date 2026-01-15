@@ -94,7 +94,7 @@ def main():
     parser.add_argument("--dry", action="store_true", help="Print commands without running them.")
     parser.add_argument("--v", action="store_true", help="Verbose output.")
     parser.add_argument(
-        "--prune-md",
+        "--prune",
         action="store_true",
         help="Remove deleted kernel lines from the .md list.",
     )
@@ -160,10 +160,10 @@ def main():
         result = subprocess.run(cmd, cwd=BASE_DIR, env=env, check=False)
         if result.returncode != 0:
             continue
-        if args.delete and args.prune_md and md_path and index is not None:
+        if args.delete and args.prune and md_path and index is not None:
             to_remove.add(index)
 
-    if args.delete and args.prune_md and md_path and to_remove:
+    if args.delete and args.prune and md_path and to_remove:
         new_lines = [
             line for idx, line in enumerate(md_lines or []) if idx not in to_remove
         ]

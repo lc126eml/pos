@@ -1,19 +1,20 @@
 task: cls #seg #cls
-id: phoenixcsw01
+id: cycyxcy
 pos_type: null #relpos alibi null
-method: none #abs none colrow rope
+method: rope #abs none colrow rope
 model_size: base #small base
 suffix: 0
 is_private: false
 dataset_sources: null
-kernel_sources: phoenixcsw01/cls-base-rope228
-resume_full_ckpt: true
+kernel_sources: null
+resume_full_ckpt: false
 resume_source: kernel #dataset kernel
 resume_infer: true
 seed: 50
 simple:
+  - resume_bs: True
+  - total_run_time_hr: 11.1
   # - batch_size: 64
   # - grad_accum_steps: 1
   # - rc_alpha: 600.0
-  - resume_bs: True
-  - total_run_time_hr: 11.1
+  # - log_interval: 1

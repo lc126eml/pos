@@ -1,7 +1,7 @@
 {
-  "id": "phoenixcsw01/cls-base-rope28",
-  "title": "cls base rope28",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "cycyxcy/cls-base-rope50",
+  "title": "cls base rope50",
+  "code_file": "..\\dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -13,8 +13,6 @@
     "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "phoenixcsw01/cls-base-rope228"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }
