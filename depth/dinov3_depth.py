@@ -66,8 +66,9 @@ args = SimpleNamespace(
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
-    train_sizes=[(224, 224)],  # list of (H, W)
+    train_sizes=[(240, 320)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
+    final_eval_size=(384, 512), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, None),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
@@ -79,7 +80,7 @@ args = SimpleNamespace(
     # lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
-    break_at_epoch=80,
+    break_at_epoch=100,
     has_pos=False,
     weight_decay=0.01,
     overlap=0,
@@ -116,10 +117,11 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path="",
+    resume_full_ckpt=True,
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260113_185903/ckpt/last.pth",
     resume_args=True,
     resume_bs=False,
+    resume_img_size=False,
     total_run_time_hr=None,
     train=True,
     val=True,
@@ -128,8 +130,15 @@ args = SimpleNamespace(
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
 )
-# /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_001419/ckpt/last.pth
-# /home/liucong/codes/pos/logs/depth/small_rc_False_lr10_relative_median_dec_dpt_h224w224/ckpt/last.pth
+print(args)
+if args.lock:
+    # --- Acquire a file lock to ensure exclusive GPU usage ---        
+    lock_path = "/tmp/gpu.lock"
+    lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
+    gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
+    print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
+    gpu_lock.acquire()
+    print("Lock acquired. It is safe to proceed.")
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
     ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
@@ -139,9 +148,12 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "resume_ckpt_path",
             "resume_bs",
             "total_run_time_hr",
+            "break_at_epoch",
         ]
         if not args.resume_bs:
             skip_keys.extend(["batch_size", "grad_accum_steps"])
+        if not args.resume_img_size:
+            skip_keys.extend(["train_sizes", "eval_size", "final_eval_size"])
         ckpt_args = ckpt.get("args", None)
         if ckpt_args is not None:
             for k, v in vars(ckpt_args).items():
@@ -247,14 +259,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path is None:
     logger.info("resume_full_ckpt=True requires resume_ckpt_path to be set. Return to current ckpt path")
     args.resume_ckpt_path = last_ckpt_path
 
-if args.lock:
-    # --- Acquire a file lock to ensure exclusive GPU usage ---        
-    lock_path = "/tmp/gpu.lock"
-    lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
-    gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
-    print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
-    gpu_lock.acquire()
-    print("Lock acquired. It is safe to proceed.")
+
 
 logger.info(output_dir)
 # logger.info(args)
@@ -1292,7 +1297,7 @@ if args.val:
     final_valid_dataset = HyperSim_Simple(
         split='test',
         ROOT=f'{args.data_root}/hypersim_processed/test',
-        resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
+        resolution=(args.final_eval_size[1], args.final_eval_size[0]),
         num_views=1,
         seed=777,
         pair_transform=EvalDepthPreprocessNoResize(
