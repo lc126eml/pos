@@ -94,9 +94,10 @@ def main():
     parser.add_argument("--dry", action="store_true", help="Print commands without running them.")
     parser.add_argument("--v", action="store_true", help="Verbose output.")
     parser.add_argument(
-        "--prune",
-        action="store_true",
-        help="Remove deleted kernel lines from the .md list.",
+        "--no-prune",
+        action="store_false",
+        dest="prune",
+        help="Do not remove deleted kernel lines from the .md list.",
     )
     args = parser.parse_args()
     if args.dry:

@@ -1,13 +1,13 @@
 task: cls #seg #cls
-id: cycyxcy
+id: zhikaiwang
 pos_type: null #relpos alibi null
-method: rope #abs none colrow rope
+method: none #abs none colrow rope
 model_size: base #small base
 suffix: 0
 is_private: false
 dataset_sources: null
-kernel_sources: null
-resume_full_ckpt: false
+kernel_sources: denghaimeng/seg-base-abs229
+resume_full_ckpt: true
 resume_source: kernel #dataset kernel
 resume_infer: true
 seed: 50

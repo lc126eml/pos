@@ -118,7 +118,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260113_185903/ckpt/last.pth",
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007/ckpt/last.pth",
     resume_args=True,
     resume_bs=False,
     resume_img_size=False,
@@ -1062,7 +1062,10 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         if "scaler" in ckpt and ckpt["scaler"] is not None:
             scaler.load_state_dict(ckpt["scaler"])
         if Use_Row_Col_Loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
-            rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
+            try:
+                rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
+            except Exception as exc:
+                logger.warning(f"rowcol_loss weight load failed: {exc}")
         start_epoch = int(ckpt.get("epoch", 0))
         logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
         training_history = ckpt.get("training_history", None)
