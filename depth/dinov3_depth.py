@@ -120,6 +120,8 @@ args = SimpleNamespace(
     resume_full_ckpt=True,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007/ckpt/last.pth",
     resume_args=True,
+    resume_scheduler=True,
+    resume_optimizer=True,
     resume_bs=False,
     resume_img_size=False,
     total_run_time_hr=None,
@@ -147,9 +149,19 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "resume_full_ckpt",
             "resume_ckpt_path",
             "resume_bs",
+            "resume_scheduler",
+            "resume_optimizer",
             "total_run_time_hr",
             "break_at_epoch",
         ]
+        if not args.resume_scheduler:
+            skip_keys.extend([
+                "epochs",
+                "warmup_steps",
+                "warmup_ratio",
+                "eta_min",
+                "composite_lr",
+            ])
         if not args.resume_bs:
             skip_keys.extend(["batch_size", "grad_accum_steps"])
         if not args.resume_img_size:
@@ -1054,19 +1066,25 @@ start_epoch = 0
 if args.resume_full_ckpt and args.resume_ckpt_path:
     if ckpt is not None:
         model.load_state_dict(ckpt.get("model", {}), strict=False)
-        decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
-        if "optimizer" in ckpt:
-            optimizer.load_state_dict(ckpt["optimizer"])
-        if "scheduler" in ckpt and ckpt["scheduler"] is not None:
-            scheduler.load_state_dict(ckpt["scheduler"])
+        decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)        
+        if args.resume_optimizer:
+            if "optimizer" in ckpt:
+                optimizer.load_state_dict(ckpt["optimizer"])
+        else:
+            logger.info("Skipping optimizer state load (resume_optimizer=False).")
+        if args.resume_scheduler:
+            start_epoch = int(ckpt.get("epoch", 0))
+            if "scheduler" in ckpt and ckpt["scheduler"] is not None:
+                scheduler.load_state_dict(ckpt["scheduler"])
+        else:
+            logger.info("Skipping scheduler state load (resume_scheduler=False).")
         if "scaler" in ckpt and ckpt["scaler"] is not None:
             scaler.load_state_dict(ckpt["scaler"])
         if Use_Row_Col_Loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
-            try:
-                rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
-            except Exception as exc:
-                logger.warning(f"rowcol_loss weight load failed: {exc}")
-        start_epoch = int(ckpt.get("epoch", 0))
+            for k in ["row_targets", "col_targets", "row_index_full", "col_index_full"]:
+                if k in ckpt["rowcol_loss"]:
+                    ckpt["rowcol_loss"].pop(k)
+            rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
         logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
         training_history = ckpt.get("training_history", None)
 # 'valid_loss': [], 

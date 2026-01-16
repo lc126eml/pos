@@ -24,7 +24,13 @@
 2026-01-13 02:52:42,834 - INFO -   Best a1:      0.6063 (Epoch 74)
 2026-01-13 02:52:42,834 - INFO -   Best AbsRel:  0.3139 (Epoch 62)
 2026-01-13 02:52:42,834 - INFO -   Best RMSE:    2.7852 (Epoch 24)
-
+/home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h240w320/20260115_182940
+--- Epoch 100 Validation Summary ---
+2026-01-16 01:01:41,641 - INFO -   Train Loss: 2.1099 | train_time: 1119.8s | val_time: 50.4s
+2026-01-16 01:01:41,641 - INFO -  Valid AbsRel: 0.3124 | Valid L1: 2.1013 | Valid RMSE: 2.9183 | Valid a1: 0.6103
+2026-01-16 01:01:42,682 - INFO -   Best a1:      0.6151 (Epoch 93)
+2026-01-16 01:01:42,682 - INFO -   Best AbsRel:  0.3088 (Epoch 93)
+2026-01-16 01:01:42,682 - INFO -   Best RMSE:    2.7852 (Epoch 24)
 # rc
 /home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007
 --- Epoch 80 Validation Summary ---
@@ -35,6 +41,6 @@
 2026-01-15 01:57:58,098 - INFO -   Best AbsRel:  0.2979 (Epoch 64)
 2026-01-15 01:57:58,098 - INFO -   Best RMSE:    2.7655 (Epoch 27)
 
-
+/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h240w320_alpha_20/20260116_090440
 
 

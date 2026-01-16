@@ -98,6 +98,8 @@ args = SimpleNamespace(
     save_full_ckpt=True,
     resume_full_ckpt=True,
     resume_ckpt_path='/kaggle/input/seg-base-abs229/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_scheduler=True,
+    resume_optimizer=True,
     resume_bs=True,
     total_run_time_hr=11.0,
     base_path=base_path_default,
@@ -124,9 +126,19 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         "resume_full_ckpt",
         "resume_ckpt_path",
         "resume_bs",
+        "resume_scheduler",
+        "resume_optimizer",
         "total_run_time_hr",
         "output_dir",
     ]
+    if not args.resume_scheduler:
+        skip_keys.extend([
+            "epochs",
+            "warmup_steps",
+            "warmup_ratio",
+            "eta_min",
+            "composite_lr",
+        ])
     if not args.resume_bs:
         skip_keys.extend(["batch_size", "grad_accum_steps"])
     ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
@@ -1297,13 +1309,22 @@ if args.train:
     if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
         model.load_state_dict(ckpt.get("model", {}), strict=False)
         decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
-        if "optimizer" in ckpt:
-            optimizer.load_state_dict(ckpt["optimizer"])
-        if "scheduler" in ckpt and ckpt["scheduler"] is not None:
-            scheduler.load_state_dict(ckpt["scheduler"])
+        if args.resume_optimizer:
+            if "optimizer" in ckpt:
+                optimizer.load_state_dict(ckpt["optimizer"])
+        else:
+            logger.info("Skipping optimizer state load (resume_optimizer=False).")
+        if args.resume_scheduler:
+            start_epoch = int(ckpt.get("epoch", 0))
+            if "scheduler" in ckpt and ckpt["scheduler"] is not None:
+                scheduler.load_state_dict(ckpt["scheduler"])
+        else:
+            logger.info("Skipping scheduler state load (resume_scheduler=False).")
         if args.use_rc_loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
+            for k in ["row_targets", "col_targets", "row_index_full", "col_index_full"]:
+                if k in ckpt["rowcol_loss"]:
+                    ckpt["rowcol_loss"].pop(k)
             rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
-        start_epoch = int(ckpt.get("epoch", 0))
         logger.info("Resumed full checkpoint from %s at epoch %s", args.resume_ckpt_path, start_epoch)
         training_history = ckpt.get("training_history", None)
 

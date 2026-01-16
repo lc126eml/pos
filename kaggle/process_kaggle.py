@@ -70,14 +70,22 @@ def _infer_from_source_id(source_id):
         seed = int(digits)
     method_with_suffix = rest[: -len(digits)]
     methods = ("rope", "abs", "colrow", "none")
+    pos_types = ("relpos", "alibi")
     method = None
+    pos_type = None
     for candidate in methods:
         if method_with_suffix.startswith(candidate):
             method = candidate
             break
     if method is None:
-        raise ValueError(f"Unable to infer method from source id: {source_id}")
-    return task, model_size, method, seed
+        for candidate in pos_types:
+            if method_with_suffix.startswith(candidate):
+                pos_type = candidate
+                method = "none"
+                break
+    if method is None:
+        raise ValueError(f"Unable to infer method or pos_type from source id: {source_id}")
+    return task, model_size, method, seed, pos_type
 
 
 def _update_args_block(text, updates, add_missing=None):
@@ -182,14 +190,15 @@ def main():
             source_name = _get_source_name(cfg.get("dataset_sources"))
         else:
             raise ValueError(f"Unsupported resume_source: {resume_source}")
-        task, model_size, method, seed = _infer_from_source_id(source_name)
+        task, model_size, method, seed, pos_type = _infer_from_source_id(source_name)
         cfg["task"] = task
         cfg["model_size"] = model_size
         cfg["method"] = method
         cfg["seed"] = seed
+        cfg["pos_type"] = pos_type
         print(
-            "resume_infer: source=%s task=%s model_size=%s method=%s seed=%s"
-            % (source_name, task, model_size, method, seed)
+            "resume_infer: source=%s task=%s model_size=%s method=%s pos_type=%s seed=%s"
+            % (source_name, task, model_size, method, pos_type, seed)
         )
 
     task = cfg["task"]

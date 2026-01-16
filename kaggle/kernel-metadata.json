@@ -1,7 +1,7 @@
 {
-  "id": "zhikaiwang/seg-base-abs29",
-  "title": "seg base abs29",
-  "code_file": "../seg/dinov3_seg_kaggle.py",
+  "id": "ampere888/cls-base-relpos50",
+  "title": "cls base relpos50",
+  "code_file": "../dinov3_reg_dynamic_pos.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,11 +10,11 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "awsaf49/ade20k-dataset"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "denghaimeng/seg-base-abs229"
+    "xuwenhui123/cls-base-relpos250"
   ],
   "model_sources": []
 }

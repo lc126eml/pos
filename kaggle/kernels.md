@@ -95,10 +95,6 @@ shufang
 
 ## jjjerry12138 
 2905176273@qq.com	2002cheng1
-jjjerry12138/cls-base-none251
-jjjerry12138/cls-base-none250
-jjjerry12138/cls-base-none51?
-jjjerry12138/cls-base-none50?
 
 # jacksisi 20
 3374608651@qq.com
@@ -106,62 +102,36 @@ weareoverwatch6
 
 ## zhoujiahui0199 
 1556721646@qq.com	1234567
-zhoujiahui0199/cls-base-abs250
-zhoujiahui0199/cls-base-abs251
-zhoujiahui0199/cls-base-abs50?
-zhoujiahui0199/cls-base-abs51?
 
 
 # pycjn666 21
 pycjn666	654242py
 ## cycyxcy 
 1246069481@qq.com	000304cy
-cycyxcy/cls-base-rope251
-cycyxcy/cls-base-rope250
-cycyxcy/cls-base-rope51?
-cycyxcy/cls-base-rope50?
 
 # zhuzichen123 22
 2767643932@qq.com	zhu1zi2chen3
 
 ## luanjing 
 13182296316@163.com	lj20020810
-luanjing/cls-base-rope252
-luanjing/cls-base-abs252
-luanjing/cls-base-rope52?
-luanjing/cls-base-abs52?
 
 # dusi605 23
 1455719765@qq.com	aaa153246789
 
 ## ssss7777 
 sthwyx@126.com	shishi0708
-ssss7777/cls-base-colrow252
-ssss7777/cls-base-none252
-ssss7777/cls-base-colrow52?
-ssss7777/cls-base-none52?
 
 # sh1weiwu 25
 2980441757@qq.com	weiwei123456..
 
 ## xuwenhui123 
 319267104@qq.com	xwh20020612
-xuwenhui123/cls-base-alibi250
-xuwenhui123/cls-base-relpos250
-
-xuwenhui123/cls-base-relpos50?
-xuwenhui123/cls-base-alibi50?
 
 # ly1122 26
 1610392285@qq.com	ly309112
 
 ## jinzhanbo 
 2922907804@qq.com	811215jzb
-jinzhanbo/cls-base-colrow50
-jinzhanbo/cls-base-colrow51
-b201xiaoli/cls-base-colrow50?
-b201xiaoli/cls-base-colrow51?
-no gpu 22:00
 # phoenixcsw01 27
 1074139914@qq.com	020323csw
 
@@ -186,34 +156,70 @@ $env:KAGGLE_API_TOKEN = "KGAT_5c6ab315de5782ce6c8bf882be33a036"
 
 ## chenhao1213 
 2535599143@qq.com	2535599143@qq.com
-
+chenhao1213/cls-base-none50
+chenhao1213/cls-base-none51
+jjjerry12138/cls-base-none251?
+jjjerry12138/cls-base-none250?
 # miratowa1 3
 1296778893@qq.com	46890325Qq.
 $env:KAGGLE_API_TOKEN = "KGAT_f66576b645d48300e6a5f903c68c6191"
 
 ## ywhicher 
 1443035024@qq.com	Ywq020409
+ywhicher/cls-base-abs50
+ywhicher/cls-base-abs51
+zhoujiahui0199/cls-base-abs250?
+zhoujiahui0199/cls-base-abs251?
+
 # jiwei313 30
 2388364616@qq.com	191226JW
 $env:KAGGLE_API_TOKEN = "KGAT_0a0d15cd2dd802134d9df180b98444b4"
 
 ## qinghui9527 
 930569184@qq.com	95279527
+qinghui9527/cls-base-rope51
+qinghui9527/cls-base-rope50
+cycyxcy/cls-base-rope251?
+cycyxcy/cls-base-rope250?
+
 # qcx2333 31
 1831850884@qq.com	qcx1214
 $env:KAGGLE_API_TOKEN = "KGAT_f47b5206c8e776f42e7d99dcb8ed6012"
 
 ## chengchi1007 
 2895305772@qq.com	100715385che
+chengchi1007/cls-base-rope52
+chengchi1007/cls-base-abs52
+luanjing/cls-base-rope252?
+luanjing/cls-base-abs252?
 # linyunlk243 32
 2499276408@qq.com	Li123456
 $env:KAGGLE_API_TOKEN = "KGAT_6f068ae76e3c608d8592d01349f79f71"
 
 ## yyyyjay 
 1835027462@qq.com	45683968
-
+yyyyjay/cls-base-colrow52
+yyyyjay/cls-base-none52
+ssss7777/cls-base-colrow252?
+ssss7777/cls-base-none252?
 # starysinger 33
 3051554253@qq.com	2245425998zxb
 $env:KAGGLE_API_TOKEN = "KGAT_4f16a523d0248adbe04f501e9a41924b"
 ## quepimao 
 2073718636@qq.com	329312@112
+quepimao/cls-base-colrow50
+quepimao/cls-base-colrow51
+jinzhanbo/cls-base-colrow50?
+jinzhanbo/cls-base-colrow51?
+
+# 5
+## ampere888 
+1529226050@qq.com	202316ap
+ampere888/cls-base-relpos50
+ampere888/cls-base-alibi50
+xuwenhui123/cls-base-alibi250?
+xuwenhui123/cls-base-relpos250?
+
+# 6
+## wzywzy1227 
+2855934153@qq.com	WZy1312025128

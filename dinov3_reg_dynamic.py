@@ -117,7 +117,7 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -141,9 +141,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=50,
+    seed=51,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
@@ -161,7 +161,9 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope50/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-colrow51/ckpt/last.pth',
+    resume_scheduler=True,
+    resume_optimizer=True,
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
@@ -171,7 +173,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=11.0,
+    total_run_time_hr=11.1,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -195,8 +197,17 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         "resume_full_ckpt",
         "resume_ckpt_path",
         "resume_bs",
+        "resume_scheduler",
+        "resume_optimizer",
         "total_run_time_hr",
     ]
+    if not args.resume_scheduler:
+        skip_keys.extend([
+            "epochs",
+            "warmup_steps",
+            "eta_min",
+            "composite_lr",
+        ])
     if not args.resume_bs:
         skip_keys.extend(["batch_size", "grad_accum_steps"])
     resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
@@ -1408,17 +1419,27 @@ if args.train:
         # resume_ckpt = ckpt
         # torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
         model.load_state_dict(resume_ckpt["model"])
-        optimizer.load_state_dict(resume_ckpt["optimizer"])
-        if resume_ckpt.get("scheduler") is not None:
-            scheduler.load_state_dict(resume_ckpt["scheduler"])
+        if args.resume_optimizer:
+            if "optimizer" in resume_ckpt:
+                optimizer.load_state_dict(resume_ckpt["optimizer"])
+        else:
+            logger.info("Skipping optimizer state load (resume_optimizer=False).")
+        if args.resume_scheduler:
+            start_epoch = resume_ckpt.get("epoch", 0)
+            step = resume_ckpt.get("step", 0)
+            if resume_ckpt.get("scheduler") is not None:
+                scheduler.load_state_dict(resume_ckpt["scheduler"])
+        else:
+            logger.info("Skipping scheduler state load (resume_scheduler=False).")
         if resume_ckpt.get("scaler") is not None:
             scaler.load_state_dict(resume_ckpt["scaler"])
         if args.use_rc_loss and resume_ckpt.get("rowcol_loss") is not None:
+            for k in ["row_targets", "col_targets", "row_index_full", "col_index_full"]:
+                if k in resume_ckpt["rowcol_loss"]:
+                    resume_ckpt["rowcol_loss"].pop(k)
             rowcol_loss.load_state_dict(resume_ckpt["rowcol_loss"])
         if args.use_patch_position_loss and resume_ckpt.get("position_loss") is not None:
             position_loss.load_state_dict(resume_ckpt["position_loss"])
-        start_epoch = resume_ckpt.get("epoch", 0)
-        step = resume_ckpt.get("step", 0)
         best_acc = resume_ckpt.get("best_acc", 0.0)
         logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch={start_epoch}, step={step}")
     # =================================================================================
