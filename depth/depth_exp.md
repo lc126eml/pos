@@ -15,6 +15,13 @@
 2026-01-15 18:19:13,197 - INFO -   Best a1:      0.6169 (Epoch 82)
 2026-01-15 18:19:13,197 - INFO -   Best AbsRel:  0.3021 (Epoch 85)
 2026-01-15 18:19:13,197 - INFO -   Best RMSE:    2.7945 (Epoch 82)
+/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h288w384/20260116_154957
+--- Epoch 110 Validation Summary ---
+2026-01-16 20:51:56,999 - INFO -   Train Loss: 1.9421 | train_time: 1730.3s | val_time: 79.6s
+2026-01-16 20:51:56,999 - INFO -  Valid AbsRel: 0.3017 | Valid L1: 2.0436 | Valid RMSE: 2.8433 | Valid a1: 0.6179
+2026-01-16 20:51:58,015 - INFO -   Best a1:      0.6179 (Epoch 110)
+2026-01-16 20:51:58,015 - INFO -   Best AbsRel:  0.3006 (Epoch 105)
+2026-01-16 20:51:58,015 - INFO -   Best RMSE:    2.7945 (Epoch 82)
 
 # none
 /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_091204
@@ -31,6 +38,7 @@
 2026-01-16 01:01:42,682 - INFO -   Best a1:      0.6151 (Epoch 93)
 2026-01-16 01:01:42,682 - INFO -   Best AbsRel:  0.3088 (Epoch 93)
 2026-01-16 01:01:42,682 - INFO -   Best RMSE:    2.7852 (Epoch 24)
+
 # rc
 /home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007
 --- Epoch 80 Validation Summary ---
@@ -41,6 +49,20 @@
 2026-01-15 01:57:58,098 - INFO -   Best AbsRel:  0.2979 (Epoch 64)
 2026-01-15 01:57:58,098 - INFO -   Best RMSE:    2.7655 (Epoch 27)
 
+## alpha_20 bad
 /home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h240w320_alpha_20/20260116_090440
+--- Epoch 100 Validation Summary ---
+2026-01-16 15:36:21,213 - INFO -   Train Loss: 2.0790 | aux_loss: 0.0130 | base_loss: 1.8185 | train_time: 1123.2s | val_time: 50.5s
+2026-01-16 15:36:21,213 - INFO -  Valid AbsRel: 0.3103 | Valid L1: 2.1240 | Valid RMSE: 2.9166 | Valid a1: 0.6153
+--- Best Validation Metrics from History ---
+2026-01-16 15:36:22,262 - INFO -   Best a1:      0.6253 (Epoch 81)
+2026-01-16 15:36:22,262 - INFO -   Best AbsRel:  0.2979 (Epoch 64)
+2026-01-16 15:36:22,262 - INFO -   Best RMSE:    2.7655 (Epoch 27)
 
+## rc_alpha=100 t0
 
+## (224, 224) t6
+
+## l1 alpha_20 t2
+
+## l1 alpha_50 t7

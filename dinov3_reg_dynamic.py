@@ -419,8 +419,8 @@ class PatchRowColRegressionCriterion(nn.Module):
         col_targets = cols_2d.flatten()
 
         # Register as buffers so they move with .to(device)
-        self.register_buffer("row_targets", row_targets)  # (N,)
-        self.register_buffer("col_targets", col_targets)  # (N,)
+        self.register_buffer("row_targets", row_targets, persistent=False)  # (N,)
+        self.register_buffer("col_targets", col_targets, persistent=False)  # (N,)
 
     def forward(self, feats):
         """
@@ -487,8 +487,8 @@ class PatchRowColRegressionCriterionDynamic(nn.Module):
         rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)  # (grid_h, grid_w)
         cols = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)  # (grid_h, grid_w)
 
-        self.register_buffer("row_index_full", rows)  # (grid_h, grid_w)
-        self.register_buffer("col_index_full", cols)  # (grid_h, grid_w)
+        self.register_buffer("row_index_full", rows, persistent=False)  # (grid_h, grid_w)
+        self.register_buffer("col_index_full", cols, persistent=False)  # (grid_h, grid_w)
 
     def forward(self, feats, hp=None, wp=None):
         """
@@ -692,7 +692,7 @@ class PatchPositionCriterion(nn.Module):
         self.ce = nn.CrossEntropyLoss()
 
         # Precompute patch position labels once
-        self.register_buffer("patch_positions", torch.arange(num_classes))  # shape (num_patches,)
+        self.register_buffer("patch_positions", torch.arange(num_classes), persistent=False)  # shape (num_patches,)
         
     def forward(self, feats):
         """
@@ -740,7 +740,7 @@ class PatchPositionRegressionCriterion(nn.Module):
         position_targets = torch.arange(num_classes, dtype=torch.float32)
         if normalize:
             position_targets = position_targets / max(num_classes - 1, 1)
-        self.register_buffer("position_targets", position_targets)  # (N,)
+        self.register_buffer("position_targets", position_targets, persistent=False)  # (N,)
 
     def forward(self, feats):
         """
@@ -786,7 +786,7 @@ class PatchPositionRegressionCriterionDynamic(nn.Module):
         self.loss_fn = nn.SmoothL1Loss()
 
         positions = torch.arange(max_patch_count, dtype=torch.float32)
-        self.register_buffer("position_index_full", positions) 
+        self.register_buffer("position_index_full", positions, persistent=False) 
 
     def forward(self, feats):
         """

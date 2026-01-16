@@ -1,6 +1,6 @@
 {
-  "id": "ampere888/cls-base-relpos50",
-  "title": "cls base relpos50",
+  "id": "ampere888/cls-base-alibi250",
+  "title": "cls base alibi250",
   "code_file": "../dinov3_reg_dynamic_pos.py",
   "language": "python",
   "kernel_type": "script",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "xuwenhui123/cls-base-relpos250"
+    "ampere888/cls-base-alibi50"
   ],
   "model_sources": []
 }

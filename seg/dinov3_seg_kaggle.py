@@ -51,7 +51,7 @@ if _IS_KAGGLE:
     base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
 args = SimpleNamespace(
     model_type="dinov3",
-    use_abs_pos_emb=True,
+    use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
@@ -77,7 +77,7 @@ args = SimpleNamespace(
     overlap=0,
     start_epoch=0,
     seed=29,
-    use_rc_loss=False,
+    use_rc_loss=True,
     huber_beta=0.1,
     rc_alpha=70.0,
     seg_head="upernet",  # "ppmlite", "upernet", "fcn", "linear"
@@ -97,11 +97,11 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-abs229/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-colrow29/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
-    total_run_time_hr=11.0,
+    total_run_time_hr=11.1,
     base_path=base_path_default,
     pos_type=None,
 )
@@ -869,8 +869,8 @@ class PatchRowColRegressionCriterion(nn.Module):
         if normalize:
             rows_2d = rows_2d / (grid_h - 1)
             cols_2d = cols_2d / (grid_w - 1)
-        self.register_buffer("row_targets", rows_2d.flatten())
-        self.register_buffer("col_targets", cols_2d.flatten())
+        self.register_buffer("row_targets", rows_2d.flatten(), persistent=False)
+        self.register_buffer("col_targets", cols_2d.flatten(), persistent=False)
 
     def forward(self, feats):
         B, N, D = feats.shape

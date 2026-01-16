@@ -5,7 +5,15 @@ from typing import Literal, Optional, Dict, Tuple
 
 LossType = Literal["mse", "smooth_l1", "l1"]
 class PatchRowColRegressionCriterion(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w, normalize=True, huber_beta=None):
+    def __init__(
+        self,
+        feat_dim,
+        grid_h,
+        grid_w,
+        normalize=True,
+        huber_beta=None,
+        loss_type: LossType = "smooth_l1",
+    ):
         """
         Predict row and column index of each patch via regression (single resolution).
 
@@ -14,6 +22,8 @@ class PatchRowColRegressionCriterion(nn.Module):
             grid_h (int): Number of patch rows (fixed)
             grid_w (int): Number of patch columns (fixed)
             normalize (bool): If True, normalize row/col targets to [0, 1]
+            huber_beta (float|None): SmoothL1 beta (only used when loss_type="smooth_l1")
+            loss_type (str): "l1", "smooth_l1", or "mse"
         """
         super().__init__()
         self.grid_h = grid_h
@@ -33,10 +43,17 @@ class PatchRowColRegressionCriterion(nn.Module):
             nn.Linear(256, 1)   # scalar col index
         )
 
-        if huber_beta is None:
-            self.loss_fn = nn.SmoothL1Loss()
+        if loss_type == "l1":
+            self.loss_fn = nn.L1Loss()
+        elif loss_type == "smooth_l1":
+            if huber_beta is None:
+                self.loss_fn = nn.SmoothL1Loss()
+            else:
+                self.loss_fn = nn.SmoothL1Loss(beta=huber_beta)
+        elif loss_type == "mse":
+            self.loss_fn = nn.MSELoss()
         else:
-            self.loss_fn = nn.SmoothL1Loss(beta=huber_beta)
+            raise ValueError(f"Unsupported loss_type: {loss_type}")
 
         # Precompute row/col targets once (N = grid_h * grid_w)
         rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
@@ -82,7 +99,14 @@ class PatchRowColRegressionCriterion(nn.Module):
         return (loss_row + loss_col) / 2.0
 
 class PatchRowColRegressionCriterionDynamic(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
+    def __init__(
+        self,
+        feat_dim,
+        grid_h,
+        grid_w,
+        normalize=True,
+        loss_type: LossType = "smooth_l1",
+    ):
         """
         Predict row and column index of each patch via regression,
         supporting dynamic training resolutions.
@@ -93,6 +117,7 @@ class PatchRowColRegressionCriterionDynamic(nn.Module):
             grid_w (int): Max number of patch columns (upper bound)
             normalize (bool): If True, normalize row/col targets to [0, 1]
                               based on the *current* hp/wp for each batch.
+            loss_type (str): "l1", "smooth_l1", or "mse"
         """
         super().__init__()
         self.grid_h = grid_h
@@ -113,7 +138,14 @@ class PatchRowColRegressionCriterionDynamic(nn.Module):
             nn.Linear(256, 1)   # scalar col index
         )
 
-        self.loss_fn = nn.SmoothL1Loss()
+        if loss_type == "l1":
+            self.loss_fn = nn.L1Loss()
+        elif loss_type == "smooth_l1":
+            self.loss_fn = nn.SmoothL1Loss()
+        elif loss_type == "mse":
+            self.loss_fn = nn.MSELoss()
+        else:
+            raise ValueError(f"Unsupported loss_type: {loss_type}")
 
         # Precompute integer row/col indices (max grid) as floats
         rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)  # (grid_h, grid_w)

@@ -2,7 +2,7 @@ import os
 import time
 import atexit
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 
 class PriorityLock:
@@ -41,10 +41,15 @@ class PriorityLock:
             )
             self._cleanup_dead_tokens(tokens)
             if tokens and os.path.join(self.lock_dir, tokens[0]) == self._token_path:
-                self._file_lock.acquire()
-                os.remove(self._token_path)
-                self._token_path = None
-                return
+                try:
+                    self._file_lock.acquire(blocking=False)
+                except Timeout:
+                    time.sleep(self.poll_interval)
+                    continue
+                else:
+                    os.remove(self._token_path)
+                    self._token_path = None
+                    return
             time.sleep(self.poll_interval)
 
     def release(self) -> None:

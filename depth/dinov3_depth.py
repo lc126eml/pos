@@ -1,4 +1,5 @@
 import gc
+import glob
 import math
 import os
 import sys
@@ -68,7 +69,7 @@ args = SimpleNamespace(
     model_size='base',
     train_sizes=[(240, 320)],  # list of (H, W)
     eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
-    final_eval_size=(384, 512), #(384, 512),      # (H, W) eval at native size
+    final_eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, None),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
@@ -87,7 +88,8 @@ args = SimpleNamespace(
     seed=55,
     val_steps=None,
     use_rc_loss=True,
-    rc_alpha=20.0,
+    loss_type="l1",
+    rc_alpha=50.0,
     # warmup_steps_for_aux=100,
     workers=8,
     composite_lr=True,
@@ -119,6 +121,9 @@ args = SimpleNamespace(
     save_full_ckpt=True,
     resume_full_ckpt=True,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007/ckpt/last.pth",
+    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h240w320_alpha_20/20260116_090440/ckpt/last.pth",
+    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
+    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=True,
@@ -131,18 +136,26 @@ args = SimpleNamespace(
     final_sw_window_size=None,
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
+    lock_priority=30,
 )
 print(args)
 if args.lock:
     # --- Acquire a file lock to ensure exclusive GPU usage ---        
     lock_path = "/tmp/gpu.lock"
-    lock_priority = int(os.environ.get("GPU_LOCK_PRIORITY", "10"))
+    lock_priority = args.lock_priority #int(os.environ.get("GPU_LOCK_PRIORITY", args.lock_priority))
     gpu_lock = PriorityLock(lock_dir=lock_path, priority=lock_priority)
     print(f"Attempting to acquire lock on '{lock_path}' (priority={lock_priority})...")
     gpu_lock.acquire()
     print("Lock acquired. It is safe to proceed.")
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
+    if not os.path.exists(args.resume_ckpt_path):
+        resume_dir = os.path.dirname(os.path.dirname(os.path.dirname(args.resume_ckpt_path)))
+        candidates = sorted(
+            glob.glob(os.path.join(resume_dir, "**", "last.pth"), recursive=True)
+        )
+        if candidates:
+            args.resume_ckpt_path = candidates[0]
     ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     if args.resume_args:
         skip_keys = [
@@ -596,7 +609,7 @@ if args.use_rc_loss:
             feat_dim=model.embed_dim,
             grid_h=grid_h,
             grid_w=grid_w,
-            # loss_type=args.loss_type,
+            loss_type=args.loss_type,
             # huber_beta=args.huber_beta,
         ).to(DEVICE)
     else:
@@ -607,7 +620,7 @@ if args.use_rc_loss:
             feat_dim=model.embed_dim,
             grid_h=grid_h,
             grid_w=grid_w,
-            # loss_type=args.loss_type,
+            loss_type=args.loss_type,
             # huber_beta=args.huber_beta,
         ).to(DEVICE)
     training_parameters += list(rowcol_loss.parameters())
@@ -1360,34 +1373,34 @@ if args.val:
         })
 
     # if args.depth_eval_mode == "metric":
-    logger.info("Running final relative (scale+shift aligned) evaluation...")
-    prev_mode = args.depth_eval_mode
-    args.depth_eval_mode = "relative"
-    _, final_rel = validate(
-        model,
-        decoder,
-        final_valid_loader,
-        criterion,
-        feature_layers,
-        max_steps=VAL_STEPS,
-        use_sliding_window=final_use_sw,
-        sw_window_size=final_sw_window,
-        sw_overlap=final_sw_overlap,
-    )
-    args.depth_eval_mode = prev_mode
-    if final_rel:
-        logger.info(
-            f"Final Rel AbsRel: {final_rel['abs_rel']:.4f} | "
-            f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
-            f"Final Rel a1: {final_rel['a1']:.4f}"
-        )
-        final_eval_row.update({
-            "final_full_rel_abs_rel": final_rel["abs_rel"],
-            "final_full_rel_rmse": final_rel["rmse"],
-            "final_full_rel_a1": final_rel["a1"],
-        })
-    final_eval_log = os.path.join(args.output_dir, subdir_name, "final_eval_log.csv")
-    _append_eval_log(final_eval_log, final_eval_row)
+    # logger.info("Running final relative (scale+shift aligned) evaluation...")
+    # prev_mode = args.depth_eval_mode
+    # args.depth_eval_mode = "relative"
+    # _, final_rel = validate(
+    #     model,
+    #     decoder,
+    #     final_valid_loader,
+    #     criterion,
+    #     feature_layers,
+    #     max_steps=VAL_STEPS,
+    #     use_sliding_window=final_use_sw,
+    #     sw_window_size=final_sw_window,
+    #     sw_overlap=final_sw_overlap,
+    # )
+    # args.depth_eval_mode = prev_mode
+    # if final_rel:
+    #     logger.info(
+    #         f"Final Rel AbsRel: {final_rel['abs_rel']:.4f} | "
+    #         f"Final Rel RMSE: {final_rel['rmse']:.4f} | "
+    #         f"Final Rel a1: {final_rel['a1']:.4f}"
+    #     )
+    #     final_eval_row.update({
+    #         "final_full_rel_abs_rel": final_rel["abs_rel"],
+    #         "final_full_rel_rmse": final_rel["rmse"],
+    #         "final_full_rel_a1": final_rel["a1"],
+    #     })
+    # final_eval_log = os.path.join(args.output_dir, subdir_name, "final_eval_log.csv")
+    # _append_eval_log(final_eval_log, final_eval_row)
 else:
     logger.info("Skipping evaluation (args.val=False).")
 
