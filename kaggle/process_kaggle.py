@@ -69,19 +69,19 @@ def _infer_from_source_id(source_id):
     else:
         seed = int(digits)
     method_with_suffix = rest[: -len(digits)]
-    methods = ("rope", "abs", "colrow", "none")
+    methods = ("rope", "abs", "colrow", "none", "patch")
     pos_types = ("relpos", "alibi")
     method = None
     pos_type = None
-    for candidate in methods:
+    for candidate in pos_types:
         if method_with_suffix.startswith(candidate):
-            method = candidate
+            pos_type = candidate
+            method = "none"
             break
-    if method is None:
-        for candidate in pos_types:
+    if pos_type is None:
+        for candidate in methods:
             if method_with_suffix.startswith(candidate):
-                pos_type = candidate
-                method = "none"
+                method = candidate
                 break
     if method is None:
         raise ValueError(f"Unable to infer method or pos_type from source id: {source_id}")
@@ -218,12 +218,15 @@ def main():
     use_rot_pos_emb = False
     use_abs_pos_emb = False
     use_rc_loss = False
+    use_patch_position_loss = False
     if method == "rope":
         use_rot_pos_emb = True
     elif method == "abs":
         use_abs_pos_emb = True
     elif method == "colrow":
         use_rc_loss = True
+    elif method == "patch":
+        use_patch_position_loss = True
     elif method == "none":
         pass
     else:
@@ -254,6 +257,7 @@ def main():
         "use_abs_pos_emb": use_abs_pos_emb,
         "use_rc_loss": use_rc_loss,
     }
+    updates["use_patch_position_loss"] = use_patch_position_loss
     for item in _as_list(cfg.get("simple")):
         if isinstance(item, dict):
             updates.update(item)

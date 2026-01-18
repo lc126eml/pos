@@ -1,7 +1,7 @@
 {
-  "id": "ampere888/cls-base-alibi250",
-  "title": "cls base alibi250",
-  "code_file": "../dinov3_reg_dynamic_pos.py",
+  "id": "ssss7777/cls-base-rope50",
+  "title": "cls base rope50",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "ampere888/cls-base-alibi50"
+    "qinghui9527/cls-base-rope250"
   ],
   "model_sources": []
 }

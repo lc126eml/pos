@@ -67,29 +67,29 @@ args = SimpleNamespace(
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
-    train_sizes=[(240, 320)],  # list of (H, W)
-    eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
-    final_eval_size=(240, 320), #(384, 512),      # (H, W) eval at native size
+    train_sizes=[(224, 224)],  # list of (H, W)
+    eval_size=(240, 224), #(384, 512),      # (H, W) eval at native size
+    final_eval_size=(240, 224), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
-    scale_jitter=(1.0, None),  # upper bound None caps scale at original size
+    scale_jitter=(1.0, 1.2),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
     batch_size=40,
     grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
     lr=1e-4,
-    # lr_aux=1e-5,
+    lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
-    break_at_epoch=100,
+    break_at_epoch=80,
     has_pos=False,
-    weight_decay=0.01,
+    weight_decay=0.05,
     overlap=0,
-    seed=55,
+    seed=50,
     val_steps=None,
     use_rc_loss=True,
-    loss_type="l1",
-    rc_alpha=50.0,
+    loss_type="smooth_l1",
+    rc_alpha=100.0,
     # warmup_steps_for_aux=100,
     workers=8,
     composite_lr=True,
@@ -100,16 +100,19 @@ args = SimpleNamespace(
     debug_loss_interval=1,
     lock=True,
     depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-    log_interval=300,
+    log_interval=500,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
     silog_w=0.1,
     depth_norm="median",  # kept for logging/compat
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
-    eval_crop_mode=None,  # "nyu" to apply Eigen crop
+    eval_crop_mode='crop',  # "nyu" to apply Eigen crop
     eval_dataset="hypersim",  # "hypersim" or "nyu"
     eval_depth_min=1e-3,
     eval_depth_max=None,
+    eval_prescale=1.07,
+    train_depth_valid_thresh=0.1,
+    eval_depth_valid_thresh=0.01,
     use_sliding_window=False,
     sw_window_size=None,
     sw_overlap=0.25,
@@ -119,8 +122,8 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007/ckpt/last.pth",
+    resume_full_ckpt=False,
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_175558/ckpt/last.pth",
     # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h240w320_alpha_20/20260116_090440/ckpt/last.pth",
     # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
     # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
@@ -136,7 +139,7 @@ args = SimpleNamespace(
     final_sw_window_size=None,
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
-    lock_priority=30,
+    lock_priority=60,
 )
 print(args)
 if args.lock:
@@ -166,6 +169,12 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "resume_optimizer",
             "total_run_time_hr",
             "break_at_epoch",
+            "loss_type",
+            "rc_alpha",
+            "train",
+            "val",
+            "eval_crop_mode",
+            "eval_prescale",
         ]
         if not args.resume_scheduler:
             skip_keys.extend([
@@ -304,6 +313,7 @@ try:
             scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
             color_jitter_prob=args.color_jitter_prob,
             normalize=True,
+            depth_valid_thresh=args.train_depth_valid_thresh,
         ),
     )
     valid_dataset = HyperSim_Simple(
@@ -321,8 +331,11 @@ try:
             else EvalDepthPreprocess(
                 target_size=EVAL_SIZE,
                 target_by="height",
+                eval_crop_mode=args.eval_crop_mode,
+                eval_prescale=args.eval_prescale,
                 ensure_multiple_of=args.patch_size,
                 normalize=True,
+                depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         ),
     )
@@ -1318,59 +1331,59 @@ if args.val:
             "final_default_a1": final_default["a1"],
         })
 
-    logger.info("Running final full-resolution evaluation...")
-    final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
-    final_sw_window = None
-    final_sw_overlap = None
-    if final_use_sw:
-        final_sw_window, final_sw_overlap = _resolve_final_sw_params(
-            args.final_sw_window_size,
-            args.final_sw_overlap,
-            args.patch_size,
-        )
-    final_valid_dataset = HyperSim_Simple(
-        split='test',
-        ROOT=f'{args.data_root}/hypersim_processed/test',
-        resolution=(args.final_eval_size[1], args.final_eval_size[0]),
-        num_views=1,
-        seed=777,
-        pair_transform=EvalDepthPreprocessNoResize(
-            ensure_multiple_of=args.patch_size,
-            normalize=True,
-        ),
-    )
-    final_valid_loader = DataLoader(
-        final_valid_dataset, batch_size=1, shuffle=False, num_workers=args.workers,
-        pin_memory=torch.cuda.is_available(), drop_last=False,
-        persistent_workers=(args.workers > 0),
-        worker_init_fn=_seed_worker,
-        generator=data_rng,
-        prefetch_factor=2,
-    )
-    _, final_full = validate(
-        model,
-        decoder,
-        final_valid_loader,
-        criterion,
-        feature_layers,
-        max_steps=VAL_STEPS,
-        use_sliding_window=final_use_sw,
-        sw_window_size=final_sw_window,
-        sw_overlap=final_sw_overlap,
-    )
-    if final_full:
-        logger.info(
-            f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
-            f"Final Full L1: {final_full['l1']:.4f} | "
-            f"Final Full RMSE: {final_full['rmse']:.4f} | "
-            f"Final Full a1: {final_full['a1']:.4f}"
-        )
-        final_eval_row.update({
-            "final_full_abs_rel": final_full["abs_rel"],
-            "final_full_l1": final_full["l1"],
-            "final_full_rmse": final_full["rmse"],
-            "final_full_a1": final_full["a1"],
-        })
+    # logger.info("Running final full-resolution evaluation...")
+    # final_use_sw = bool(getattr(args, "final_use_sliding_window", False))
+    # final_sw_window = None
+    # final_sw_overlap = None
+    # if final_use_sw:
+    #     final_sw_window, final_sw_overlap = _resolve_final_sw_params(
+    #         args.final_sw_window_size,
+    #         args.final_sw_overlap,
+    #         args.patch_size,
+    #     )
+    # final_valid_dataset = HyperSim_Simple(
+    #     split='test',
+    #     ROOT=f'{args.data_root}/hypersim_processed/test',
+    #     resolution=(args.final_eval_size[1], args.final_eval_size[0]),
+    #     num_views=1,
+    #     seed=777,
+    #     pair_transform=EvalDepthPreprocessNoResize(
+    #         ensure_multiple_of=args.patch_size,
+    #         normalize=True,
+    #     ),
+    # )
+    # final_valid_loader = DataLoader(
+    #     final_valid_dataset, batch_size=1, shuffle=False, num_workers=args.workers,
+    #     pin_memory=torch.cuda.is_available(), drop_last=False,
+    #     persistent_workers=(args.workers > 0),
+    #     worker_init_fn=_seed_worker,
+    #     generator=data_rng,
+    #     prefetch_factor=2,
+    # )
+    # _, final_full = validate(
+    #     model,
+    #     decoder,
+    #     final_valid_loader,
+    #     criterion,
+    #     feature_layers,
+    #     max_steps=VAL_STEPS,
+    #     use_sliding_window=final_use_sw,
+    #     sw_window_size=final_sw_window,
+    #     sw_overlap=final_sw_overlap,
+    # )
+    # if final_full:
+    #     logger.info(
+    #         f"Final Full AbsRel: {final_full['abs_rel']:.4f} | "
+    #         f"Final Full L1: {final_full['l1']:.4f} | "
+    #         f"Final Full RMSE: {final_full['rmse']:.4f} | "
+    #         f"Final Full a1: {final_full['a1']:.4f}"
+    #     )
+    #     final_eval_row.update({
+    #         "final_full_abs_rel": final_full["abs_rel"],
+    #         "final_full_l1": final_full["l1"],
+    #         "final_full_rmse": final_full["rmse"],
+    #         "final_full_a1": final_full["a1"],
+    #     })
 
     # if args.depth_eval_mode == "metric":
     # logger.info("Running final relative (scale+shift aligned) evaluation...")

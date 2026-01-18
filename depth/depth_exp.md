@@ -38,7 +38,12 @@
 2026-01-16 01:01:42,682 - INFO -   Best a1:      0.6151 (Epoch 93)
 2026-01-16 01:01:42,682 - INFO -   Best AbsRel:  0.3088 (Epoch 93)
 2026-01-16 01:01:42,682 - INFO -   Best RMSE:    2.7852 (Epoch 24)
-
+/home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h288w384/20260116_210248
+2026-01-17 01:42:33,040 - INFO -   Train Loss: 1.9573 | train_time: 1604.1s | val_time: 72.6s
+2026-01-17 01:42:33,040 - INFO -  Valid AbsRel: 0.3130 | Valid L1: 2.0811 | Valid RMSE: 2.8914 | Valid a1: 0.6121
+2026-01-17 01:42:34,053 - INFO -   Best a1:      0.6151 (Epoch 93)
+2026-01-17 01:42:34,053 - INFO -   Best AbsRel:  0.3088 (Epoch 93)
+2026-01-17 01:42:34,053 - INFO -   Best RMSE:    2.7852 (Epoch 24)
 # rc
 /home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_20/20260114_081007
 --- Epoch 80 Validation Summary ---
@@ -59,10 +64,44 @@
 2026-01-16 15:36:22,262 - INFO -   Best AbsRel:  0.2979 (Epoch 64)
 2026-01-16 15:36:22,262 - INFO -   Best RMSE:    2.7655 (Epoch 27)
 
-## rc_alpha=100 t0
+## rc_alpha=100 t0 bad
+/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_094139
+--- Epoch 90 Validation Summary ---
+2026-01-17 11:55:26,075 - INFO -   Train Loss: 3.3880 | aux_loss: 0.0139 | base_loss: 1.9974 | train_time: 777.6s | val_time: 50.4s
+2026-01-17 11:55:26,075 - INFO -  Valid AbsRel: 0.3067 | Valid L1: 2.0820 | Valid RMSE: 2.8827 | Valid a1: 0.6194
+2026-01-17 11:55:27,073 - INFO -   Best a1:      0.6242 (Epoch 57)
+2026-01-17 11:55:27,073 - INFO -   Best AbsRel:  0.2979 (Epoch 64)
+2026-01-17 11:55:27,073 - INFO -   Best RMSE:    2.7655 (Epoch 27)
+## l1 alpha_10 t2 bad
+--- Epoch 90 Validation Summary ---
+2026-01-17 14:15:05,065 - INFO -   Train Loss: 3.1814 | aux_loss: 0.1188 | base_loss: 1.9931 | train_time: 746.7s | val_time: 50.5s
+2026-01-17 14:15:05,065 - INFO -  Valid AbsRel: 0.3063 | Valid L1: 2.0822 | Valid RMSE: 2.8808 | Valid a1: 0.6201
 
-## (224, 224) t6
+## (240, 240) scale_jitter=(1.0, 1.2) grad_accum_steps=2 t1 bad
+--- Epoch 90 Validation Summary ---
+2026-01-17 16:47:29,816 - INFO -   Train Loss: 2.2384 | aux_loss: 0.0145 | base_loss: 1.9475 | train_time: 831.5s | val_time: 50.4s
+2026-01-17 16:47:29,816 - INFO -  Valid AbsRel: 0.3070 | Valid L1: 2.0833 | Valid RMSE: 2.8753 | Valid a1: 0.6166
 
-## l1 alpha_20 t2
+## train_sizes=[(224, 224)] scale_jitter=(1.0, 1.3) alpha_100 t0
+/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_175558
+--- Epoch 80 Validation Summary ---
+2026-01-18 11:49:31,585 - INFO -   Train Loss: 2.0603 | aux_loss: 0.0010 | base_loss: 1.9582 | train_time: 763.0s | val_time: 50.4s
+2026-01-18 11:49:31,585 - INFO -  Valid AbsRel: 0.2733 | Valid L1: 1.8815 | Valid RMSE: 2.6328 | Valid a1: 0.6528
+2026-01-18 11:49:38,201 - INFO -   Best a1:      0.6630 (Epoch 78)
+2026-01-18 11:49:38,201 - INFO -   Best AbsRel:  0.2673 (Epoch 78)
+2026-01-18 11:49:38,201 - INFO -   Best RMSE:    2.5673 (Epoch 56)
 
-## l1 alpha_50 t7
+eval_prescale=1.07 240, 320
+Final Default AbsRel: 0.2638 | Final Default L1: 1.8895 | Final Default RMSE: 2.6174 | Final Default a1: 0.6630
+eval_prescale=1.07 224
+ Final Default AbsRel: 0.2435 | Final Default L1: 1.8718 | Final Default RMSE: 2.5744 | Final Default a1: 0.6877
+ eval_prescale=1.0 240, 320
+ Final Default AbsRel: 0.2699 | Final Default L1: 1.8707 | Final Default RMSE: 2.6086 | Final Default a1: 0.6544
+
+# scale_jitter=(1.0, 1.2)
+## None  t0
+ /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260118_140916
+
+## RoPE t1
+
+## RC t2

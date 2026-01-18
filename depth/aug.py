@@ -81,18 +81,36 @@ def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
     return (img_t - mean_t) / std_t
 
 
-def _resize_depth_with_mask(depth_1chw: torch.Tensor, size_hw: Tuple[int, int]) -> torch.Tensor:
+def _resize_depth_with_mask(
+    depth_1chw: torch.Tensor,
+    size_hw: Tuple[int, int],
+    *,
+    valid_thresh: float = 0.1,
+    eps: float = 1e-6,
+) -> torch.Tensor:
     """
-    Resize depth with bilinear interpolation while preserving invalid regions.
+    Resize depth with masked renormalization to avoid zero-bleed bias.
     depth_1chw: [1,H,W] -> returns [1,Ht,Wt] with invalid set to 0.
     """
-    d = depth_1chw.unsqueeze(0)  # [1,1,H,W]
+    d = depth_1chw.unsqueeze(0).float()  # [1,1,H,W]
     valid = torch.isfinite(d) & (d > 0)
-    d0 = torch.where(valid, d, torch.zeros_like(d))
+    m = valid.float()
+    dm = d * m
 
-    d_rs = F.interpolate(d0, size=size_hw, mode="bilinear", align_corners=False)
-    m_rs = F.interpolate(valid.float(), size=size_hw, mode="nearest") > 0.5
-    d_rs = torch.where(m_rs, d_rs, torch.zeros_like(d_rs))
+    H, W = d.shape[-2:]
+    Ht, Wt = size_hw
+    is_down = (Ht <= H) and (Wt <= W)
+
+    if is_down:
+        dm_rs = F.interpolate(dm, size=size_hw, mode="area")
+        m_rs = F.interpolate(m, size=size_hw, mode="area")
+    else:
+        dm_rs = F.interpolate(dm, size=size_hw, mode="bilinear", align_corners=False)
+        m_rs = F.interpolate(m, size=size_hw, mode="bilinear", align_corners=False)
+
+    d_rs = dm_rs / (m_rs + eps)
+    valid_rs = m_rs > valid_thresh
+    d_rs = torch.where(valid_rs, d_rs, torch.zeros_like(d_rs))
 
     return d_rs.squeeze(0)  # [1,Ht,Wt]
 
@@ -121,6 +139,7 @@ def train_aug_depth_ar_resize_random_crop(
     mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
     std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
     ensure_multiple_of: Optional[int] = None,  # e.g., 32 (applies to the *resized pre-crop* size)
+    depth_valid_thresh: float = 0.1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Training augmentation (no padding):
@@ -169,7 +188,7 @@ def train_aug_depth_ar_resize_random_crop(
     # Resize (synced). Area-like for downscale, bicubic for upscale.
     resample = Image.BOX if scale < 1.0 else Image.BICUBIC
     pil = pil.resize((newW, newH), resample=resample)
-    d = _resize_depth_with_mask(d, (newH, newW))
+    d = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
 
     # Random crop (synced)
     top = 0 if newH == Ht else random.randint(0, newH - Ht)
@@ -229,14 +248,18 @@ def eval_preprocess_depth_keep_ar(
     target_size: Tuple[int, int],
     *,
     target_by: str = "height",          # "height" (most common) or "long_side"
+    eval_crop_mode: str = "pad",         # "pad", "crop", or "crop_or_pad"
+    eval_prescale: float = 1.0,
     ensure_multiple_of: Optional[int] = 32,
     normalize: bool = True,
     mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
     std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+    depth_valid_thresh: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
     """
-    Validation/Test preprocessing (no padding):
+    Validation/Test preprocessing:
       - Deterministic resize keeping aspect ratio
+      - Optional center crop/pad to target_size
       - Optional padding to ensure multiple-of for network stride
       - Single forward pass on the resized tensor
       - (Typically) upsample prediction back to original (H,W) externally for metrics
@@ -260,12 +283,13 @@ def eval_preprocess_depth_keep_ar(
     W0, H0 = pil.size
     Ht, Wt = target_size
 
+    prescale = max(1e-6, float(eval_prescale))
     if target_by == "height":
-        newH = int(Ht)
+        newH = int(round(Ht * prescale))
         scale = newH / H0
         newW = int(round(W0 * scale))
     elif target_by == "long_side":
-        long_target = int(max(Ht, Wt))
+        long_target = int(round(max(Ht, Wt) * prescale))
         long0 = max(H0, W0)
         scale = long_target / long0
         newH = int(round(H0 * scale))
@@ -276,7 +300,38 @@ def eval_preprocess_depth_keep_ar(
     # Deterministic resize (synced)
     resample = Image.BOX if scale < 1.0 else Image.BICUBIC
     pil_rs = pil.resize((newW, newH), resample=resample)
-    d_rs = _resize_depth_with_mask(d, (newH, newW))
+    d_rs = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
+    resize_h = newH
+    resize_w = newW
+
+    crop_top = crop_left = 0
+    pad_left = pad_top = pad_right = pad_bottom = 0
+    if eval_crop_mode not in ("pad", "crop", "crop_or_pad"):
+        raise ValueError(f"eval_crop_mode must be 'pad', 'crop', or 'crop_or_pad', got {eval_crop_mode}")
+    if eval_crop_mode == "crop" or (eval_crop_mode == "crop_or_pad" and newH >= Ht and newW >= Wt):
+        top = max(0, (newH - Ht) // 2)
+        left = max(0, (newW - Wt) // 2)
+        pil_rs = TF.crop(pil_rs, top=top, left=left, height=Ht, width=Wt)
+        d_rs = d_rs[:, top:top + Ht, left:left + Wt]
+        crop_top = top
+        crop_left = left
+        newH, newW = Ht, Wt
+    elif eval_crop_mode in ("pad", "crop_or_pad"):
+        if newH < Ht or newW < Wt:
+            pad_h = max(0, Ht - newH)
+            pad_w = max(0, Wt - newW)
+            pad_top = pad_h // 2
+            pad_left = pad_w // 2
+            pad_bottom = pad_h - pad_top
+            pad_right = pad_w - pad_left
+            mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
+            if len(mean_v) == 1:
+                mean_v = mean_v * 3
+            pad_fill = tuple(int(round(m * 255.0)) for m in mean_v[:3])
+            pil_rs = TF.pad(pil_rs, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
+            d_rs = F.pad(d_rs, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0.0)
+            newH = newH + pad_top + pad_bottom
+            newW = newW + pad_left + pad_right
 
     pad_h = 0
     pad_w = 0
@@ -294,10 +349,14 @@ def eval_preprocess_depth_keep_ar(
     meta = {
         "orig_h": float(H0), "orig_w": float(W0),
         "resized_h": float(newH), "resized_w": float(newW),
-        "scale_h": float(newH) / float(H0),
-        "scale_w": float(newW) / float(W0),
+        "resize_h": float(resize_h), "resize_w": float(resize_w),
+        "scale_h": float(resize_h) / float(H0),
+        "scale_w": float(resize_w) / float(W0),
         "pad_h": float(pad_h), "pad_w": float(pad_w),
         "padded_h": float(newH + pad_h), "padded_w": float(newW + pad_w),
+        "crop_top": float(crop_top), "crop_left": float(crop_left),
+        "pad_left": float(pad_left), "pad_top": float(pad_top),
+        "pad_right": float(pad_right), "pad_bottom": float(pad_bottom),
     }
     img_t = _pil_to_tensor01(pil_rs)
     if normalize:
@@ -367,6 +426,7 @@ class TrainDepthAug:
         mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
         ensure_multiple_of: Optional[int] = None,
+        depth_valid_thresh: float = 0.1,
     ) -> None:
         self.target_size = target_size
         self.hflip_prob = hflip_prob
@@ -392,6 +452,7 @@ class TrainDepthAug:
         self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
         self._std_t = torch.tensor(std_v).view(3, 1, 1)
         self.ensure_multiple_of = ensure_multiple_of
+        self.depth_valid_thresh = depth_valid_thresh
 
     def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor]:
         img_t, depth_t = train_aug_depth_ar_resize_random_crop(
@@ -411,6 +472,7 @@ class TrainDepthAug:
             noise_std=self.noise_std,
             normalize=False,
             ensure_multiple_of=self.ensure_multiple_of,
+            depth_valid_thresh=self.depth_valid_thresh,
         )
         if self.normalize:
             mean_t = self._mean_t.to(dtype=img_t.dtype)
@@ -425,13 +487,18 @@ class EvalDepthPreprocess:
         target_size: Tuple[int, int],
         *,
         target_by: str = "height",
+        eval_crop_mode: str = "pad",
+        eval_prescale: float = 1.0,
         ensure_multiple_of: Optional[int] = 32,
         normalize: bool = True,
         mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
+        depth_valid_thresh: float = 0.0,
     ) -> None:
         self.target_size = target_size
         self.target_by = target_by
+        self.eval_crop_mode = eval_crop_mode
+        self.eval_prescale = eval_prescale
         self.ensure_multiple_of = ensure_multiple_of
         self.normalize = normalize
         mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
@@ -442,6 +509,7 @@ class EvalDepthPreprocess:
             std_v = std_v * 3
         self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
         self._std_t = torch.tensor(std_v).view(3, 1, 1)
+        self.depth_valid_thresh = depth_valid_thresh
 
     def __call__(
         self, image: ImageLike, depth: DepthLike
@@ -451,8 +519,11 @@ class EvalDepthPreprocess:
             depth,
             self.target_size,
             target_by=self.target_by,
+            eval_crop_mode=self.eval_crop_mode,
+            eval_prescale=self.eval_prescale,
             ensure_multiple_of=self.ensure_multiple_of,
             normalize=False,
+            depth_valid_thresh=self.depth_valid_thresh,
         )
         if self.normalize:
             mean_t = self._mean_t.to(dtype=img_t.dtype)

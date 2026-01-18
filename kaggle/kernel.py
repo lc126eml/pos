@@ -58,7 +58,7 @@ def _iter_kernel_ids_from_md(lines, args):
         if "/" not in line:
             continue
         if args.delete:
-            if not line.startswith("-"):
+            if not (line.startswith("-") or line.endswith("-")):
                 continue
         elif '?' in line:
             continue

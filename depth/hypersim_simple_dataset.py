@@ -48,6 +48,7 @@ class HyperSim_Simple(Dataset):
                 self.pair_transform = TrainDepthAug(
                     target_size=target_size,
                     normalize=True,
+                    depth_valid_thresh=0.1,
                 )
             else:
                 self.pair_transform = EvalDepthPreprocess(
@@ -55,6 +56,7 @@ class HyperSim_Simple(Dataset):
                     target_by="height",
                     ensure_multiple_of=32,
                     normalize=True,
+                    depth_valid_thresh=0.0,
                 )
         else:
             self.pair_transform = pair_transform

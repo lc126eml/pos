@@ -1,19 +1,19 @@
 task: cls #seg #cls
-id: ampere888
+id: ssss7777
 pos_type: null #relpos alibi null
-method: none #abs none colrow rope
+method: none #abs none colrow rope patch
 model_size: base #small base
-suffix: 2
+suffix: 0
 is_private: false
 dataset_sources: null
-kernel_sources: ampere888/cls-base-alibi50
+kernel_sources: qinghui9527/cls-base-rope250
 resume_full_ckpt: true
 resume_source: kernel #dataset kernel
 resume_infer: true
-seed: 50
+seed: 29
 simple:
   - resume_bs: True
-  - total_run_time_hr: 11.1
+  - total_run_time_hr: 9.0
   # - batch_size: 64
   # - grad_accum_steps: 1
   # - rc_alpha: 600.0
