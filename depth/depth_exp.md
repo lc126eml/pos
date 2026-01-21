@@ -1,3 +1,5 @@
+lr=5e-5 < lr=1e-4
+
 # rot
 /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h224w224/20260112_214906
 --- Epoch 80 Validation Summary ---
@@ -108,20 +110,32 @@ eval_prescale=1.07 224
 2026-01-19 07:41:54,147 - INFO -   Best AbsRel:  0.2749 (Epoch 75)
 2026-01-19 07:41:54,147 - INFO -   Best RMSE:    2.7380 (Epoch 59)
 ## RoPE
+/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h224w224/20260119_074235/
 --- Epoch 80 Validation Summary ---
 2026-01-20 02:31:52,292 - INFO -   Train Loss: 1.8572 | train_time: 803.3s | val_time: 57.5s
 2026-01-20 02:31:52,292 - INFO -  Valid AbsRel: 0.2831 | Valid L1: 2.0853 | Valid RMSE: 2.8450 | Valid a1: 0.6459
 2026-01-20 02:32:00,163 - INFO -   Best a1:      0.6484 (Epoch 70)
 2026-01-20 02:32:00,163 - INFO -   Best AbsRel:  0.2779 (Epoch 71)
 2026-01-20 02:32:00,163 - INFO -   Best RMSE:    2.7807 (Epoch 29)
-## RC t2
+## RC
+/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260120_023246
 --- Epoch 80 Validation Summary ---
 2026-01-20 20:15:46,749 - INFO -   Train Loss: 1.8093 | aux_loss: 0.0009 | base_loss: 1.7185 | train_time: 745.5s | val_time: 40.5s
 2026-01-20 20:15:46,749 - INFO -  Valid AbsRel: 0.2475 | Valid L1: 1.9006 | Valid RMSE: 2.6339 | Valid a1: 0.6868
 2026-01-20 20:15:55,705 - INFO -   Best a1:      0.6884 (Epoch 67)
 2026-01-20 20:15:55,705 - INFO -   Best AbsRel:  0.2462 (Epoch 69)
 2026-01-20 20:15:55,706 - INFO -   Best RMSE:    2.5925 (Epoch 49)
-# scale_jitter=(1.0, 1.2) lr=5e-5 t0
-
-# scale_jitter=(1.0, 1.2) lr=3e-4 t1
+# scale_jitter=(1.0, 1.2) lr=5e-5
+'/home/liucong/codes/pos/logs/depth/base_rc_False_lr5_relative_median_dec_dpt_h224w224/20260120_225221
+--- Epoch 80 Validation Summary ---
+2026-01-21 16:32:53,031 - INFO -   Train Loss: 2.0293 | train_time: 743.4s | val_time: 40.2s
+2026-01-21 16:32:53,031 - INFO -  Valid AbsRel: 0.2849 | Valid L1: 2.0643 | Valid RMSE: 2.8079 | Valid a1: 0.6419
+2026-01-21 16:33:01,951 - INFO -   Best a1:      0.6441 (Epoch 73)
+2026-01-21 16:33:01,951 - INFO -   Best AbsRel:  0.2821 (Epoch 73)
+2026-01-21 16:33:01,951 - INFO -   Best RMSE:    2.7684 (Epoch 17)
+# scale_jitter=(1.0, 1.2) lr=3e-4
 nan
+
+# lr=2e-4 silog_w=0.0 t0
+
+# lr=1e-4 silog_w=0.0 t2

@@ -1,0 +1,45 @@
+available_ids:
+  - wenyangtang
+  - qqmail4092
+exhausted_ids:
+  - sinayliu
+  - autune
+
+sleep_time_hr: 6
+poll_interval_minutes: 10
+running_nodes:
+  - id: b201xiaoli
+    left_gpu_time: 0
+    notebooks:
+      - kernel_id: b201xiaoli/seg-base-none-lr5e-5-60
+        run_id: 5
+        total_runs: 8
+        start_time: 2026-01-21 13:38:38
+        resumed_from: null
+        history_ids:
+      - kernel_id: b201xiaoli/seg-base-none-lr5e-5-60
+        run_id: 5
+        total_runs: 8
+        start_time: 2026-01-21 13:38:38
+        resumed_from: null
+        history_ids:
+  - id: jcy666
+    left_gpu_time: 0
+    notebooks:
+      - kernel_id: jcy666/seg-base-none-lr3e-4-60
+        run_id: 5
+        total_runs: 8
+        start_time: 2026-01-21 13:38:38
+        resumed_from: null
+        history_ids:
+      - kernel_id: jcy666/seg-base-none-lr3e-5-60
+        run_id: 5
+        total_runs: 8
+        start_time: 2026-01-21 13:38:38
+        resumed_from: null
+        history_ids:
+
+finished_notebooks:
+    - kernel_id: autune/seg-base-none-lre-4-60
+      total_runs: 8
+      history_ids:
