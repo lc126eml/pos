@@ -1,21 +1,21 @@
 task: seg #seg #cls
-id: jcy666
+id: xulijuan
 pos_type: null #relpos alibi null
 method: none #abs none colrow rope patch
 model_size: base #small base
-suffix: 0
-desc: "lr3e-5"
+suffix: 2
+desc: "d"
 is_private: false
 dataset_sources: null
-kernel_sources: null
-resume_full_ckpt: false
+kernel_sources: zhuangminghui/cls-base-relpos226
+resume_full_ckpt: true
 resume_source: kernel #dataset kernel
 resume_infer: true
 seed: 60
 simple:
   - resume_bs: True
   - total_run_time_hr: 12.0
-  - lr: 3.0e-5
+  # - lr: 3.0e-5
   # - lr: 5.0e-6
   # - batch_size: 64
   # - grad_accum_steps: 1

@@ -72,8 +72,6 @@ def _infer_from_source_id(source_id):
     else:
         seed = int(digits)
     rest_no_digits = rest[: -len(digits)].rstrip("-")
-    if "-" not in rest_no_digits:
-        raise ValueError(f"Unable to infer desc from source id: {source_id}")
     methods = ("rope", "abs", "colrow", "none", "patch")
     pos_types = ("relpos", "alibi")
     method = None
@@ -92,9 +90,22 @@ def _infer_from_source_id(source_id):
                 method = candidate
                 desc = rest_no_digits[len(prefix):]
                 break
+        if method is None:
+            for candidate in methods:
+                if rest_no_digits == candidate:
+                    method = candidate
+                    desc = None
+                    break
+    if pos_type is None and method is None:
+        for candidate in pos_types:
+            if rest_no_digits == candidate:
+                pos_type = candidate
+                method = "none"
+                desc = None
+                break
     if method is None:
         raise ValueError(f"Unable to infer method or pos_type from source id: {source_id}")
-    if not desc:
+    if desc == "":
         raise ValueError(f"Unable to infer desc from source id: {source_id}")
     return task, model_size, method, seed, pos_type, desc, suffix
 

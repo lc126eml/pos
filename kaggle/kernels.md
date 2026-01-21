@@ -34,17 +34,18 @@ b201xiaoli/seg-base-none-lr5e-5-60
 +28h
 # xulijuan 10
 xulijuandh@126.com
-xulijuan/cls-base-patch129
+xulijuan/cls-base-alibi-desc-226
+xulijuan/cls-base-relpos-desc-226
+67 epoch
+zhuangminghui/cls-base-relpos226?
+zhuangminghui/cls-base-alibi226?
+
 #  11
 ## qqmail4092
 409274141@qq.com
 
 ## zhuangminghui 
 2396009152@qq.com	zmh188018
-zhuangminghui/cls-base-relpos226
-zhuangminghui/cls-base-alibi226
-zhuangminghui/cls-base-relpos26?
-zhuangminghui/cls-base-alibi26?
 
 # 12
 ##  yuanhahah 

@@ -38,6 +38,21 @@ running_nodes:
         start_time: 2026-01-21 13:38:38
         resumed_from: null
         history_ids:
+  - id: xulijuan
+    left_gpu_time: 0
+    notebooks:
+      - kernel_id: xulijuan/cls-base-alibi-desc-226
+        run_id: 2
+        total_runs: 8
+        start_time: 2026-01-21 20:19:30
+        resumed_from: null
+        history_ids:
+      - kernel_id: xulijuan/cls-base-relpos-desc-226
+        run_id: 2
+        total_runs: 8
+        start_time: 2026-01-21 20:19:35
+        resumed_from: null
+        history_ids:
 
 finished_notebooks:
     - kernel_id: autune/seg-base-none-lre-4-60

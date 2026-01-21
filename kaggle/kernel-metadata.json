@@ -1,7 +1,7 @@
 {
-  "id": "jcy666/seg-base-none-lr3e-5-60",
-  "title": "seg base none lr3e 5 60",
-  "code_file": "../seg/dinov3_seg_kaggle.py",
+  "id": "xulijuan/cls-base-relpos-desc-226",
+  "title": "cls base relpos desc 226",
+  "code_file": "../dinov3_reg_dynamic_pos.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,9 +10,11 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "awsaf49/ade20k-dataset"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "zhuangminghui/cls-base-relpos226"
+  ],
   "model_sources": []
 }

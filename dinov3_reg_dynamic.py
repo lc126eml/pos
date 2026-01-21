@@ -174,7 +174,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=12.0,
+    total_run_time_hr=2.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
