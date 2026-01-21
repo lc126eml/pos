@@ -2,6 +2,7 @@
 # =================================================================================
 # Step 1: Install and Import Necessary Libraries
 # =================================================================================
+import glob
 import math
 import os
 import torch
@@ -30,6 +31,7 @@ import gc
 import time
 import argparse
 import logging
+train_start_time = time.time()
 # try:
 #     from filelock import FileLock
 # except ImportError:
@@ -132,7 +134,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=7e-4, #base
+    lr=3e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -140,7 +142,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=50,
+    seed=26,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -160,7 +162,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-alibi50/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-alibi26/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -170,14 +172,28 @@ args = SimpleNamespace(
     log_interval=100,
     csv_interval=1,
     show_peak_gpu_mem=True,
-    save_ckpt=False,
+    # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=9.1,
+    total_run_time_hr=12.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
 resume_ckpt=None
 if args.resume_full_ckpt and args.resume_ckpt_path:
+    if not os.path.exists(args.resume_ckpt_path):
+        resume_dir = os.path.dirname(args.resume_ckpt_path)
+        parts = os.path.normpath(resume_dir).split(os.sep)
+        if os.path.isabs(resume_dir):
+            prefix_parts = parts[1:4]
+            search_root = os.path.join(os.sep, *prefix_parts)
+        else:
+            prefix_parts = parts[:3]
+            search_root = os.path.join(*prefix_parts)
+        candidates = sorted(
+            glob.glob(os.path.join(search_root, "**", "last.pth"), recursive=True)
+        )
+        if candidates:
+            args.resume_ckpt_path = candidates[0]
     skip_keys = [
         "resume_full_ckpt",
         "resume_ckpt_path",
@@ -213,10 +229,10 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
-if args.model_size == 'small':
-    args.total_run_time_hr=11.67
+if args.model_size == "base":
+    args.rc_alpha = 600.0
 else:
-    args.total_run_time_hr=11.11
+    args.rc_alpha = 300.0
 
 offset = 0
 # args.batch_size = 64
@@ -246,7 +262,7 @@ autocast_dtype = torch.bfloat16 if use_bf16 else torch.float16
 use_amp = use_bf16
 print(f"Using device: {DEVICE}", use_bf16, autocast_dtype)
 # Speed tweaks (P100-friendly)
-if torch.cuda.is_available():
+if torch.cuda.is_available() and use_bf16:
     if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
         torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -3606,8 +3622,8 @@ class PatchRowColRegressionCriterion(nn.Module):
         col_targets = cols_2d.flatten()
 
         # Register as buffers so they move with .to(device)
-        self.register_buffer("row_targets", row_targets)  # (N,)
-        self.register_buffer("col_targets", col_targets)  # (N,)
+        self.register_buffer("row_targets", row_targets, persistent=False)  # (N,)
+        self.register_buffer("col_targets", col_targets, persistent=False)  # (N,)
 
     def forward(self, feats):
         """
@@ -3674,8 +3690,8 @@ class PatchRowColRegressionCriterionDynamic(nn.Module):
         rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)  # (grid_h, grid_w)
         cols = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)  # (grid_h, grid_w)
 
-        self.register_buffer("row_index_full", rows)  # (grid_h, grid_w)
-        self.register_buffer("col_index_full", cols)  # (grid_h, grid_w)
+        self.register_buffer("row_index_full", rows, persistent=False)  # (grid_h, grid_w)
+        self.register_buffer("col_index_full", cols, persistent=False)  # (grid_h, grid_w)
 
     def forward(self, feats, hp=None, wp=None):
         """
@@ -3879,7 +3895,7 @@ class PatchPositionCriterion(nn.Module):
         self.ce = nn.CrossEntropyLoss()
 
         # Precompute patch position labels once
-        self.register_buffer("patch_positions", torch.arange(num_classes))  # shape (num_patches,)
+        self.register_buffer("patch_positions", torch.arange(num_classes), persistent=False)  # shape (num_patches,)
         
     def forward(self, feats):
         """
@@ -3927,7 +3943,7 @@ class PatchPositionRegressionCriterion(nn.Module):
         position_targets = torch.arange(num_classes, dtype=torch.float32)
         if normalize:
             position_targets = position_targets / max(num_classes - 1, 1)
-        self.register_buffer("position_targets", position_targets)  # (N,)
+        self.register_buffer("position_targets", position_targets, persistent=False)  # (N,)
 
     def forward(self, feats):
         """
@@ -3973,7 +3989,7 @@ class PatchPositionRegressionCriterionDynamic(nn.Module):
         self.loss_fn = nn.SmoothL1Loss()
 
         positions = torch.arange(max_patch_count, dtype=torch.float32)
-        self.register_buffer("position_index_full", positions) 
+        self.register_buffer("position_index_full", positions, persistent=False) 
 
     def forward(self, feats):
         """
@@ -4674,7 +4690,6 @@ if args.train:
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []
-    train_start_time = time.time()
     for epoch in range(start_epoch, args.epochs):
         epoch_train_start = time.time()
         # --- Training Phase ---
@@ -4855,16 +4870,14 @@ if args.train:
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
         if args.total_run_time_hr is not None:
+            elapsed = time.time() - train_start_time
             max_run_time_sec = args.total_run_time_hr * 3600
-            if (time.time() - train_start_time) >= max_run_time_sec:
+            if elapsed + (train_time + val_time) + 300 >= max_run_time_sec:
                 logger.info(
                     "Stopping training: elapsed time exceeded %.2fh.",
                     args.total_run_time_hr,
                 )
                 break
-        elif (time.time() - train_start_time) >= (11.0 * 3600):
-            logger.info("Stopping training: total running time exceeded 11 hours.")
-            break
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()
@@ -4896,11 +4909,11 @@ if args.train:
     #     writer = csv.writer(csv_file)
     #     for epoch_time in train_epoch_times:
     #         writer.writerow([epoch_time])
-    if args.save_ckpt:
-        # Save the model's state dictionary
-        ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
-        torch.save(model.state_dict(), ckpt_path)
-        logger.info(f"✅ Model saved to '{ckpt_path}'")
+    # if args.save_ckpt:
+    #     # Save the model's state dictionary
+    #     ckpt_path = os.path.join(ckpt_output_dir,  f'{subdir_name}{MODEL_NAME}_final.pth')
+    #     torch.save(model.state_dict(), ckpt_path)
+    #     logger.info(f"✅ Model saved to '{ckpt_path}'")
 
 if args.val:    
     val_results = {

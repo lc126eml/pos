@@ -60,32 +60,43 @@ def _infer_from_source_id(source_id):
     if len(parts) != 3:
         raise ValueError(f"Unsupported source id format: {source_id}")
     task, model_size, rest = parts
+    desc = None
     match = re.search(r"(\d+)$", rest)
     if not match:
         raise ValueError(f"Unable to infer seed from source id: {source_id}")
     digits = match.group(1)
+    suffix = None
     if len(digits) == 3:
+        suffix = int(digits[0])
         seed = int(digits[1:])
     else:
         seed = int(digits)
-    method_with_suffix = rest[: -len(digits)]
+    rest_no_digits = rest[: -len(digits)].rstrip("-")
+    if "-" not in rest_no_digits:
+        raise ValueError(f"Unable to infer desc from source id: {source_id}")
     methods = ("rope", "abs", "colrow", "none", "patch")
     pos_types = ("relpos", "alibi")
     method = None
     pos_type = None
     for candidate in pos_types:
-        if method_with_suffix.startswith(candidate):
+        prefix = f"{candidate}-"
+        if rest_no_digits.startswith(prefix):
             pos_type = candidate
             method = "none"
+            desc = rest_no_digits[len(prefix):]
             break
     if pos_type is None:
         for candidate in methods:
-            if method_with_suffix.startswith(candidate):
+            prefix = f"{candidate}-"
+            if rest_no_digits.startswith(prefix):
                 method = candidate
+                desc = rest_no_digits[len(prefix):]
                 break
     if method is None:
         raise ValueError(f"Unable to infer method or pos_type from source id: {source_id}")
-    return task, model_size, method, seed, pos_type
+    if not desc:
+        raise ValueError(f"Unable to infer desc from source id: {source_id}")
+    return task, model_size, method, seed, pos_type, desc, suffix
 
 
 def _update_args_block(text, updates, add_missing=None):
@@ -190,15 +201,21 @@ def main():
             source_name = _get_source_name(cfg.get("dataset_sources"))
         else:
             raise ValueError(f"Unsupported resume_source: {resume_source}")
-        task, model_size, method, seed, pos_type = _infer_from_source_id(source_name)
+        task, model_size, method, seed, pos_type, desc, suffix = _infer_from_source_id(source_name)
         cfg["task"] = task
         cfg["model_size"] = model_size
         cfg["method"] = method
         cfg["seed"] = seed
         cfg["pos_type"] = pos_type
+        if desc is not None:
+            cfg["desc"] = desc
+        else:
+            cfg["desc"] = "desc"
+        # if suffix is not None:
+        #     cfg["suffix"] = suffix
         print(
-            "resume_infer: source=%s task=%s model_size=%s method=%s pos_type=%s seed=%s"
-            % (source_name, task, model_size, method, pos_type, seed)
+            "resume_infer: source=%s task=%s model_size=%s method=%s pos_type=%s desc=%s suffix=%s seed=%s"
+            % (source_name, task, model_size, method, pos_type, desc, suffix, seed)
         )
 
     task = cfg["task"]
@@ -287,16 +304,20 @@ def main():
     json_data["is_private"] = _bool_to_str(cfg["is_private"])
     json_data["code_file"] = os.path.relpath(py_path, BASE_DIR)
 
+    desc = cfg.get("desc")
+    if not desc:
+        desc = "desc"
+        # raise ValueError("Missing desc in kaggle/config.yaml.")
     suffix = cfg.get("suffix") or ""
     if pos_type is not None:
         kernel_id = (
             f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
-            f"{pos_type}{suffix}{cfg['seed']}"
+            f"{pos_type}-{desc}-{suffix}{cfg['seed']}"
         )
     else:
         kernel_id = (
             f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
-            f"{cfg['method']}{suffix}{cfg['seed']}"
+            f"{cfg['method']}-{desc}-{suffix}{cfg['seed']}"
         )
     json_data["id"] = kernel_id
     json_data["title"] = kernel_id.split("/", 1)[1].replace("-", " ")

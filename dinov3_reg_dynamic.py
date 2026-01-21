@@ -31,6 +31,7 @@ import gc
 import time
 import argparse
 import logging
+train_start_time = time.time()
 # try:
 #     from filelock import FileLock
 # except ImportError:
@@ -117,7 +118,7 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -141,8 +142,8 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=50,
-    use_patch_position_loss=False,
+    seed=29,
+    use_patch_position_loss=True,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
@@ -161,7 +162,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope250/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-patch129/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -173,7 +174,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=9.0,
+    total_run_time_hr=12.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -1487,7 +1488,6 @@ if args.train:
     log_interval = getattr(args, "log_interval", 50)
     csv_interval = getattr(args, "csv_interval", 1) 
     # train_epoch_times = []
-    train_start_time = time.time()
     for epoch in range(start_epoch, args.epochs):
         epoch_train_start = time.time()
         # --- Training Phase ---
@@ -1668,16 +1668,14 @@ if args.train:
             logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
 
         if args.total_run_time_hr is not None:
+            elapsed = time.time() - train_start_time
             max_run_time_sec = args.total_run_time_hr * 3600
-            if (time.time() - train_start_time) >= max_run_time_sec:
+            if elapsed + (train_time + val_time) + 600 >= max_run_time_sec:
                 logger.info(
                     "Stopping training: elapsed time exceeded %.2fh.",
                     args.total_run_time_hr,
                 )
                 break
-        elif (time.time() - train_start_time) >= (11.0 * 3600):
-            logger.info("Stopping training: total running time exceeded 11 hours.")
-            break
         # gc.collect()
         # if torch.cuda.is_available():
         #     torch.cuda.empty_cache()

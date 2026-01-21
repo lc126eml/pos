@@ -1,7 +1,7 @@
 {
-  "id": "ssss7777/cls-base-rope50",
-  "title": "cls base rope50",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "jcy666/seg-base-none-lr3e-5-60",
+  "title": "seg base none lr3e 5 60",
+  "code_file": "../seg/dinov3_seg_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,11 +10,9 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "ambityga/imagenet100"
+    "awsaf49/ade20k-dataset"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "qinghui9527/cls-base-rope250"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

@@ -25,6 +25,7 @@ from PIL import Image
 
 import torchvision.transforms.functional as TF
 from torchvision.transforms import ColorJitter
+train_start_time = time.time()
 # from importlib.metadata import version, PackageNotFoundError
 # ver = version("timm").split('.')[-1]
 # print(ver)
@@ -52,31 +53,31 @@ if _IS_KAGGLE:
 args = SimpleNamespace(
     model_type="dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
     batch_size=16,
-    grad_accum_steps=2,
+    grad_accum_steps=1,
     train_img_size=336,
-    eval_img_size=512,
+    eval_img_size=368,
     use_ms_flip_eval=False,
-    scale_jitter=(1.0, None),
-    use_cat_max_ratio=False,
+    scale_jitter=(1.0, 1.3),
+    use_cat_max_ratio=True,
     cat_max_ratio=0.75,
     cat_max_ratio_tries=10,
-    ms_scales=(0.75, 1.0, 1.25),
+    ms_scales=(0.90, 1.0, 1.15),
     eval_crop_mode="crop_or_pad",
     final_ms_flip_eval=True,
-    lr=1e-5,
+    lr=3e-05,
     lr_aux=1e-5,
-    eta_min=5e-6,
+    eta_min=1e-7,
     composite_lr=True,
     warmup_steps=500,
     weight_decay=0.01,
-    epochs=30,
+    epochs=130,
     overlap=0,
     start_epoch=0,
-    seed=29,
+    seed=60,
     use_rc_loss=False,
     use_patch_position_loss=False,
     huber_beta=0.1,
@@ -92,17 +93,17 @@ args = SimpleNamespace(
     lock=False if _IS_KAGGLE else True,
     clip_value=1.0,
     output_dir=root_dir,
-    log_interval=1,
+    log_interval=300,
     csv_interval=3,
     show_peak_gpu_mem=True,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-rope229/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
-    resume_scheduler=False,
+    resume_full_ckpt=False,
+    resume_ckpt_path=None, #seg/base_abs_pos_rc_False_lr50
+    resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
-    total_run_time_hr=11.0,
+    total_run_time_hr=12.0,
     base_path=base_path_default,
     pos_type=None,
 )
@@ -153,9 +154,9 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_rc_loss = False
 
-if args.eval_img_size != args.train_img_size:
-    print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
-    args.eval_img_size = args.train_img_size
+# if args.eval_img_size != args.train_img_size:
+#     print("Best practice is to keep eval_img_size == train_img_size; overriding.", flush=True)
+#     args.eval_img_size = args.train_img_size
 if hasattr(args, "seg_head"):
     args.seg_head = str(args.seg_head).lower()
 
@@ -1304,7 +1305,6 @@ def fast_confusion_matrix(pred: torch.Tensor, target: torch.Tensor, num_classes:
 ckpt_path = None
 if args.train:
     logger.info("Starting training for %s", MODEL_NAME)
-    train_start_time = time.time()
     start_epoch = 0
     training_history = None
     if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
@@ -1586,8 +1586,8 @@ if args.train:
 
         if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
-            max_run_time_sec = args.total_run_time_hr * 3600
-            if elapsed >= max_run_time_sec:
+            max_run_time_sec = args.total_run_time_hr * 3600            
+            if elapsed + (train_time + val_time) + 900 >= max_run_time_sec:
                 logger.info(
                     "Stopping training: elapsed %.0fs reached limit %.2fh.",
                     elapsed,
@@ -1660,7 +1660,7 @@ if args.train:
         else:
             logger.info("Best checkpoint not found; skipping best MS+Flip evaluation.")
 
-        final_eval_log = os.path.join(output_dir, "final_eval_log.csv")
+        final_eval_log = os.path.join(output_dir, f"{subdir_name}_final_eval.csv")
         _append_eval_log(final_eval_log, final_eval_row)
     history_df = pd.DataFrame(training_history)
     history_df.to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)

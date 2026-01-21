@@ -98,10 +98,30 @@ eval_prescale=1.07 224
  eval_prescale=1.0 240, 320
  Final Default AbsRel: 0.2699 | Final Default L1: 1.8707 | Final Default RMSE: 2.6086 | Final Default a1: 0.6544
 
-# scale_jitter=(1.0, 1.2)
-## None  t0
+# scale_jitter=(1.0, 1.2) lr=1e-4
+## None 
  /home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h224w224/20260118_140916
-
-## RoPE t1
-
+--- Epoch 80 Validation Summary ---
+2026-01-19 07:41:53,108 - INFO -   Train Loss: 1.9646 | train_time: 744.7s | val_time: 40.5s
+2026-01-19 07:41:53,108 - INFO -  Valid AbsRel: 0.2759 | Valid L1: 2.0443 | Valid RMSE: 2.7822 | Valid a1: 0.6495
+2026-01-19 07:41:54,147 - INFO -   Best a1:      0.6530 (Epoch 66)
+2026-01-19 07:41:54,147 - INFO -   Best AbsRel:  0.2749 (Epoch 75)
+2026-01-19 07:41:54,147 - INFO -   Best RMSE:    2.7380 (Epoch 59)
+## RoPE
+--- Epoch 80 Validation Summary ---
+2026-01-20 02:31:52,292 - INFO -   Train Loss: 1.8572 | train_time: 803.3s | val_time: 57.5s
+2026-01-20 02:31:52,292 - INFO -  Valid AbsRel: 0.2831 | Valid L1: 2.0853 | Valid RMSE: 2.8450 | Valid a1: 0.6459
+2026-01-20 02:32:00,163 - INFO -   Best a1:      0.6484 (Epoch 70)
+2026-01-20 02:32:00,163 - INFO -   Best AbsRel:  0.2779 (Epoch 71)
+2026-01-20 02:32:00,163 - INFO -   Best RMSE:    2.7807 (Epoch 29)
 ## RC t2
+--- Epoch 80 Validation Summary ---
+2026-01-20 20:15:46,749 - INFO -   Train Loss: 1.8093 | aux_loss: 0.0009 | base_loss: 1.7185 | train_time: 745.5s | val_time: 40.5s
+2026-01-20 20:15:46,749 - INFO -  Valid AbsRel: 0.2475 | Valid L1: 1.9006 | Valid RMSE: 2.6339 | Valid a1: 0.6868
+2026-01-20 20:15:55,705 - INFO -   Best a1:      0.6884 (Epoch 67)
+2026-01-20 20:15:55,705 - INFO -   Best AbsRel:  0.2462 (Epoch 69)
+2026-01-20 20:15:55,706 - INFO -   Best RMSE:    2.5925 (Epoch 49)
+# scale_jitter=(1.0, 1.2) lr=5e-5 t0
+
+# scale_jitter=(1.0, 1.2) lr=3e-4 t1
+nan

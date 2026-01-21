@@ -21,8 +21,18 @@
     - [seed=59](#seed59-2)
 - [base](#base)
   - [AbsPE](#abspe-1)
-    - [zzr123123/cls-base-abs228](#zzr123123cls-base-abs228)
-    - [zzr123123/cls-base-abs229](#zzr123123cls-base-abs229)
+    - [sinayliu/cls-base-abs50](#sinayliucls-base-abs50)
+    - [sinayliu/cls-base-abs51](#sinayliucls-base-abs51)
+    - [denghaimeng/cls-base-abs152](#denghaimengcls-base-abs152)
+    - [zhangtingfengztf/cls-base-none350](#zhangtingfengztfcls-base-none350)
+    - [zhangtingfengztf/cls-base-none351](#zhangtingfengztfcls-base-none351)
+    - [luanjing/cls-base-none152](#luanjingcls-base-none152)
+    - [jinzhanbo/cls-base-colrow350](#jinzhanbocls-base-colrow350)
+    - [jinzhanbo/cls-base-colrow351](#jinzhanbocls-base-colrow351)
+    - [luanjing/cls-base-colrow152](#luanjingcls-base-colrow152)
+    - [denghaimeng/cls-base-rope152](#denghaimengcls-base-rope152)
+    - [smartchaochao/cls-base-rope151](#smartchaochaocls-base-rope151)
+    - [smartchaochao/cls-base-rope150](#smartchaochaocls-base-rope150)
 
 
 # small
@@ -94,17 +104,43 @@ wenyangtang/imagenet-small-rc
 Train Loss: 0.5993 | Aux Loss: 0.0011 | Base Loss: 0.2777 | Train Acc: 0.9221 | Valid Acc: 0.7200
 Best Accuracy: 0.7202
 
-
 # base
 ## AbsPE
 
-### zzr123123/cls-base-abs228
-base_abs_pos_overlap_0_rc_False_alpha_600lr70_s28.csv
-Train Loss: 1.6701 | Train Acc: 0.5606 | Valid Acc: 0.4432 | train_time: 2370.5s | val_time: 26.8s
-Best Accuracy: 0.4454
+### sinayliu/cls-base-abs50
+0.237841651	0.936076939	0.579599977	2371.856316	27.13275433
 
-### zzr123123/cls-base-abs229
-base_abs_pos_overlap_0_rc_False_alpha_600lr70_s29.csv
-Train Loss: 1.6479 | Train Acc: 0.5656 | Valid Acc: 0.4390 | train_time: 2372.7s | val_time: 26.8s
-Best Accuracy: 0.4396
+### sinayliu/cls-base-abs51
+0.205383256	0.94479233	0.586199999	2400.904654	27.77643204
+
+### denghaimeng/cls-base-abs152
+0.133362517	0.969623089	0.566599965	2373.718566
+
+ ### zhangtingfengztf/cls-base-none350
+0.254755884	0.931753874	0.557399988	2378.142009	27.15587854
+
+ ### zhangtingfengztf/cls-base-none351
+ 0.288951635	0.921869278	0.546400011	2366.575129	26.79268241
+
+### luanjing/cls-base-none152
+0.125011474	0.971784651	0.556400001	2372.97083	29.72930169
+
+### jinzhanbo/cls-base-colrow350
+0.728125691	0.914353848	0.724599957	2391.610577	27.32547092
+
+### jinzhanbo/cls-base-colrow351
+0.697208643	0.928892314	0.720999956	2411.936993	27.77830696
+
+### luanjing/cls-base-colrow152
+0.824765563	0.920300007	0.709199965	2377.724379	29.48022437
+
+
+### denghaimeng/cls-base-rope152
+0.09755639	0.976215422	0.620400012	2596.61759	32.16709471
+
+### smartchaochao/cls-base-rope151
+0.115926519	0.971815407	0.626999974	2599.581197	32.18054485
+
+### smartchaochao/cls-base-rope150
+0.110057667	0.973015428	0.624000013	2621.189191	32.41515899
 
