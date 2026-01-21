@@ -221,7 +221,7 @@ def main():
         if desc is not None:
             cfg["desc"] = desc
         else:
-            cfg["desc"] = "desc"
+            cfg["desc"] = "d"
         # if suffix is not None:
         #     cfg["suffix"] = suffix
         print(
@@ -317,7 +317,7 @@ def main():
 
     desc = cfg.get("desc")
     if not desc:
-        desc = "desc"
+        desc = "d"
         # raise ValueError("Missing desc in kaggle/config.yaml.")
     suffix = cfg.get("suffix") or ""
     if pos_type is not None:

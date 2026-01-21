@@ -1,7 +1,7 @@
 {
-  "id": "xulijuan/cls-base-relpos-desc-226",
-  "title": "cls base relpos desc 226",
-  "code_file": "../dinov3_reg_dynamic_pos.py",
+  "id": "wenyangtang/seg-base-rope-d-60",
+  "title": "seg base rope d 60",
+  "code_file": "..\\seg\\dinov3_seg_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,11 +10,9 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "ambityga/imagenet100"
+    "awsaf49/ade20k-dataset"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "zhuangminghui/cls-base-relpos226"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

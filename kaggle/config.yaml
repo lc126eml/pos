@@ -1,14 +1,14 @@
 task: seg #seg #cls
-id: xulijuan
+id: wenyangtang
 pos_type: null #relpos alibi null
-method: none #abs none colrow rope patch
+method: rope #abs none colrow rope patch
 model_size: base #small base
-suffix: 2
+suffix: 0
 desc: "d"
 is_private: false
 dataset_sources: null
-kernel_sources: zhuangminghui/cls-base-relpos226
-resume_full_ckpt: true
+kernel_sources: null
+resume_full_ckpt: false
 resume_source: kernel #dataset kernel
 resume_infer: true
 seed: 60

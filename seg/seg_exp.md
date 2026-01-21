@@ -74,6 +74,29 @@ zjl001/seg-base-rope21
 Epoch 57/130 Summary
 Train Loss: 1.6729 | Train Acc: 0.5777 | Valid Acc: 0.5653 | Valid mIoU: 0.0693 | train_time: 1350.6s | val_time: 39.4s 57
 
-lr 5e-6 < lr 1e-5 < lr 5e-4; eta_min=1e-07>eta_min=5e-06
-scale_jitter=(1.0, 1.3) ms_scales=(0.9, 1.0, 1.15) good
+
 ## use_cat_max_ratio=True
+
+### autune/seg-base-none-lr1e-4-60
+Train Loss: 1.3852 | Train Acc: 0.6223 | Valid Acc: 0.6040 | Valid mIoU: 0.1208 | train_time: 1272.1s | val_time: 36.4s
+Best MS+Flip Acc: 0.6173 | Best MS+Flip mIoU: 0.1248
+### autune/seg-base-none-lr2e-4-60
+Train Loss: 1.4330 | Train Acc: 0.6110 | Valid Acc: 0.6009 | Valid mIoU: 0.1190 | train_time: 1270.4s | val_time: 36.3s
+Best MS+Flip Acc: 0.6056 | Best MS+Flip mIoU: 0.1229
+### jcy666/seg-base-none-lr3e-4-60
+Train Loss: 1.4577 | Train Acc: 0.6054 | Valid Acc: 0.5975 | Valid mIoU: 0.1170 | train_time: 1278.6s | val_time: 36.9s
+Best MS+Flip Acc: 0.6033 | Best MS+Flip mIoU: 0.1196
+### jcy666/seg-base-none-lr3e-5-60
+Train Loss: 1.4217 | Train Acc: 0.6201 | Valid Acc: 0.6046 | Valid mIoU: 0.1113 | train_time: 1272.7s | val_time: 36.5s
+Best MS+Flip Acc: 0.6086 | Best MS+Flip mIoU: 0.1128
+### b201xiaoli/seg-base-none-lr5e-5-60
+Train Loss: 1.3830 | Train Acc: 0.6263 | Valid Acc: 0.6091 | Valid mIoU: 0.1212 | train_time: 1269.5s | val_time: 36.2s
+Best MS+Flip Acc: 0.6139 | Best MS+Flip mIoU: 0.1222
+### b201xiaoli/seg-base-none-lr7e-5-60
+Train Loss: 1.3707 | Train Acc: 0.6272 | Valid Acc: 0.6108 | Valid mIoU: 0.1239 | train_time: 1270.7s | val_time: 36.3s
+Best MS+Flip Acc: 0.6171 | Best MS+Flip mIoU: 0.1265
+
+lr 5e-6 < lr 1e-5 < lr 5e-4; eta_min=1e-07>eta_min=5e-06
+3e-5<3e-4 <2e-4 < 1e-4<5e-5<7e-5
+scale_jitter=(1.0, 1.3) ms_scales=(0.9, 1.0, 1.15) good
+

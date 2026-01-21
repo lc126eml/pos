@@ -53,7 +53,7 @@ if _IS_KAGGLE:
 args = SimpleNamespace(
     model_type="dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=150,
     batch_size=16,
@@ -68,7 +68,7 @@ args = SimpleNamespace(
     ms_scales=(0.90, 1.0, 1.15),
     eval_crop_mode="crop_or_pad",
     final_ms_flip_eval=True,
-    lr=3e-05,
+    lr=7e-05,
     lr_aux=1e-5,
     eta_min=1e-7,
     composite_lr=True,
