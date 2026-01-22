@@ -1,102 +1,100 @@
 available_ids:
-  - wenyangtang
-  - qqmail4092
-  - yuanhahah
-  - liucong126
-  - xulin5522
-  - ohyeah00
-  - asdsad0000
-  - du55148
-  - sollasi
-  - cdong121
-  - jacksisi
-  - pycjn666
-  - zhuzichen123
-  - dusi605
+- asdsad0000
+- du55148
+- sollasi
+- cdong121
+- jacksisi
+- pycjn666
+- zhuzichen123
+- dusi605
+- ohyeah00
+- liucong126
 exhausted_ids:
-  - sinayliu
-  - autune
-
-sleep_time_hr: 11
-poll_interval_minutes: 10
+- sinayliu
+- autune
+- b201xiaoli
+- jcy666
+sleep_time_hr: 0
+poll_interval_minutes: 5
 running_nodes:
-  - id: liucong12601
-    left_gpu_time: 30
-    notebooks:
-      - kernel_id: liucong12601/seg-base-abs-d-60
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-      - kernel_id: liucong12601/seg-base-abs-d-61
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-  - id: wenyangtang
-    left_gpu_time: 30
-    notebooks:
-      - kernel_id: wenyangtang/seg-base-rope-d-61
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-      - kernel_id: wenyangtang/seg-base-rope-d-60
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-  - id: b201xiaoli
-    left_gpu_time: 4
-    notebooks:
-      - kernel_id: b201xiaoli/seg-base-none-d-61
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-      - kernel_id: b201xiaoli/seg-base-none-d-60
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-  - id: jcy666
-    left_gpu_time: 4
-    notebooks:
-      - kernel_id: jcy666/seg-base-colrow-d-61
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-      - kernel_id: jcy666/seg-base-colrow-d-60
-        run_id: 0
-        total_runs: 8
-        start_time: 2026-01-21 22:40:12
-        resumed_from: null
-        history_ids:
-  - id: xulijuan
-    left_gpu_time: 5
-    notebooks:
-      - kernel_id: xulijuan/cls-base-alibi-desc-226
-        run_id: 2
-        total_runs: 8
-        start_time: 2026-01-21 20:19:30
-        resumed_from: null
-        history_ids:
-      - kernel_id: xulijuan/cls-base-relpos-desc-226
-        run_id: 2
-        total_runs: 8
-        start_time: 2026-01-21 20:19:35
-        resumed_from: null
-        history_ids:
-
+- id: liucong12601
+  left_gpu_time: 5.752082870000002
+  notebooks:
+  - kernel_id: liucong12601/seg-base-abs-d-160
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: liucong12601/seg-base-abs-d-60
+    history_ids: []
+  - kernel_id: liucong12601/seg-base-abs-d-161
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: liucong12601/seg-base-abs-d-61
+    history_ids: []
+- id: wenyangtang
+  left_gpu_time: 5.752082870000002
+  notebooks:
+  - kernel_id: wenyangtang/seg-base-rope-d-161
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: wenyangtang/seg-base-rope-d-61
+    history_ids: []
+  - kernel_id: wenyangtang/seg-base-rope-d-160
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: wenyangtang/seg-base-rope-d-60
+    history_ids: []
+- id: qqmail4092
+  left_gpu_time: 30
+  notebooks:
+  - kernel_id: qqmail4092/cls-base-alibi-desc-426
+    run_id: 4
+    total_runs: 8
+    start_time: 2026-01-22 10:17:05
+    resumed_from: xulijuan/cls-base-alibi-desc-326
+    history_ids:
+    - xulijuan/cls-base-alibi-desc-226
+  - kernel_id: qqmail4092/cls-base-relpos-desc-426
+    run_id: 4
+    total_runs: 8
+    start_time: 2026-01-22 10:17:10
+    resumed_from: xulijuan/cls-base-relpos-desc-326
+    history_ids:
+    - xulijuan/cls-base-relpos-desc-226
+- id: yuanhahah
+  left_gpu_time: 30
+  notebooks:
+  - kernel_id: yuanhahah/seg-base-none-d-161
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: b201xiaoli/seg-base-none-d-61
+    history_ids: []
+  - kernel_id: yuanhahah/seg-base-none-d-160
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 11:08:31'
+    resumed_from: b201xiaoli/seg-base-none-d-60
+    history_ids: []
+- id: xulin5522
+  left_gpu_time: 30
+  notebooks:
+  - kernel_id: xulin5522/seg-base-colrow-d-161
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 10:47:38'
+    resumed_from: jcy666/seg-base-colrow-d-61
+    history_ids: []
+  - kernel_id: xulin5522/seg-base-colrow-d-160
+    run_id: 1
+    total_runs: 8
+    start_time: '2026-01-22 11:08:31'
+    resumed_from: jcy666/seg-base-colrow-d-60
+    history_ids: []
 finished_notebooks:
-    - kernel_id: autune/seg-base-none-lre-4-60
-      total_runs: 8
-      history_ids:
+- kernel_id: autune/seg-base-none-lre-4-60
+  total_runs: 8
+  history_ids: null

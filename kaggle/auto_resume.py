@@ -62,6 +62,8 @@ def _now_naive():
 def _parse_time(value):
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value)
     if isinstance(value, str):
@@ -147,10 +149,15 @@ def _prepare_cfg_from_resume(base_cfg, resumed_from, run_id, target_id):
 def _push_kernel(cfg):
     cfg_path = BASE_DIR / "config.yaml"
     _write_yaml(cfg_path, cfg)
-    subprocess.check_call(
+    result = subprocess.run(
         ["python", str(BASE_DIR / "process_kaggle.py"), "--run", "--concise"],
         cwd=BASE_DIR,
+        check=False,
+        capture_output=True,
+        text=True,
     )
+    output = (result.stdout or "") + (result.stderr or "")
+    return result.returncode == 0, output.strip()
 
 
 def _move_finished(notebook, finished_notebooks):
@@ -158,6 +165,39 @@ def _move_finished(notebook, finished_notebooks):
     for key in ("start_time", "run_id", "resumed_from"):
         finished.pop(key, None)
     finished_notebooks.append(finished)
+
+
+def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids):
+    node_notebooks = node.get("notebooks") or []
+    for candidate in running_nodes:
+        if candidate is node:
+            continue
+        candidate_notebooks = candidate.get("notebooks") or []
+        if len(candidate_notebooks) < 2:
+            candidate_notebooks.append(notebook)
+            candidate["notebooks"] = candidate_notebooks
+            if notebook in node_notebooks:
+                node_notebooks.remove(notebook)
+                node["notebooks"] = node_notebooks
+            if not node_notebooks:
+                running_nodes.remove(node)
+                exhausted_ids.append(node.get("id"))
+            return candidate
+
+    if not available_ids:
+        logging.warning("No available ids left to resume.")
+        return None
+    new_id = available_ids.pop(0)
+    target_node = {"id": new_id, "left_gpu_time": 30, "notebooks": []}
+    target_node["notebooks"].append(notebook)
+    running_nodes.append(target_node)
+    if notebook in node_notebooks:
+        node_notebooks.remove(notebook)
+        node["notebooks"] = node_notebooks
+    if not node_notebooks:
+        running_nodes.remove(node)
+        exhausted_ids.append(node.get("id"))
+    return target_node
 
 
 def main():
@@ -226,26 +266,40 @@ def main():
                         continue
 
                     start_time = _parse_time(notebook.get("start_time"))
+                    before_left = float(node.get("left_gpu_time", 30))
                     if start_time is None:
-                        start_time = now
-                        notebook["start_time"] = _format_time(start_time)
-                    elapsed_hr = (now - start_time).total_seconds() / 3600
-                    left_gpu_time = float(node.get("left_gpu_time", 30)) - elapsed_hr
-                    node["left_gpu_time"] = left_gpu_time
+                        if verbose:
+                            logging.warning(
+                                "Missing start_time for %s; skipping left_gpu_time update",
+                                notebook.get("kernel_id"),
+                            )
+                        left_gpu_time = before_left
+                    else:
+                        elapsed_hr = (now - start_time).total_seconds() / 3600
+                        left_gpu_time = before_left - elapsed_hr
+                        node["left_gpu_time"] = left_gpu_time
+                        if verbose:
+                            logging.info(
+                                "Updated left_gpu_time for %s: %.2f -> %.2f (elapsed %.2f h)",
+                                node.get("id"),
+                                before_left,
+                                left_gpu_time,
+                                elapsed_hr,
+                            )
 
                     target_node = node
                     if left_gpu_time <= 0:
-                        if not available_ids:
-                            logging.warning("No available ids left to resume.")
+                        target_node = _move_to_new_node(
+                            node, notebook, running_nodes, available_ids, exhausted_ids
+                        )
+                        if target_node is None:
                             continue
-                        new_id = available_ids.pop(0)
-                        target_node = {"id": new_id, "left_gpu_time": 30, "notebooks": []}
-                        target_node["notebooks"].append(notebook)
-                        running_nodes.append(target_node)
-                        notebooks.remove(notebook)
-                        if not notebooks:
-                            running_nodes.remove(node)
-                            exhausted_ids.append(node.get("id"))
+                        if verbose:
+                            logging.info(
+                                "Moved notebook to node: %s -> %s",
+                                node.get("id"),
+                                target_node.get("id"),
+                            )
 
                     resumed_from_id = notebook.get("resumed_from")
                     if not resumed_from_id:
@@ -260,12 +314,48 @@ def main():
                     )
                     new_kernel_id = _build_kernel_id(cfg)
                     notebook["kernel_id"] = new_kernel_id
-                    kcfg["kernel_id"] = new_kernel_id
                     notebook["start_time"] = _format_time(now)
+                    if verbose:
+                        logging.info(
+                            "Updated kernel_id for notebook: %s",
+                            new_kernel_id,
+                        )
 
                     if verbose:
                         logging.info("Submitting kernel: %s", new_kernel_id)
-                    _push_kernel(cfg)
+                    ok, output = _push_kernel(cfg)
+                    if not ok:
+                        quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
+                        if quota_msg in output:
+                            target_node = _move_to_new_node(
+                                target_node,
+                                notebook,
+                                running_nodes,
+                                available_ids,
+                                exhausted_ids,
+                            )
+                            if target_node is None:
+                                continue
+                            if verbose:
+                                logging.info(
+                                    "Quota reached. Moved notebook to node: %s",
+                                    target_node.get("id"),
+                                )
+                            cfg["id"] = target_node.get("id")
+                            new_kernel_id = _build_kernel_id(cfg)
+                            notebook["kernel_id"] = new_kernel_id
+                            notebook["start_time"] = _format_time(now)
+                            if verbose:
+                                logging.info(
+                                    "Updated kernel_id for notebook: %s",
+                                    new_kernel_id,
+                                )
+                            if verbose:
+                                logging.info("Submitting kernel: %s", new_kernel_id)
+                            ok, output = _push_kernel(cfg)
+                        if not ok:
+                            logging.error(output)
+                            continue
                     changed = True
 
             node["notebooks"] = notebooks

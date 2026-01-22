@@ -1,7 +1,7 @@
 {
-  "id": "wenyangtang/seg-base-rope-d-60",
-  "title": "seg base rope d 60",
-  "code_file": "..\\seg\\dinov3_seg_kaggle.py",
+  "id": "xulin5522/seg-base-colrow-d-160",
+  "title": "seg base colrow d 160",
+  "code_file": "../seg/dinov3_seg_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -13,6 +13,8 @@
     "awsaf49/ade20k-dataset"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "jcy666/seg-base-colrow-d-60"
+  ],
   "model_sources": []
 }

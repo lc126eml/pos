@@ -65,7 +65,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(240, 224), #(384, 512),      # (H, W) eval at native size
@@ -77,7 +77,7 @@ args = SimpleNamespace(
     grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
-    lr=1e-4,
+    lr=2e-4,
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
@@ -139,7 +139,7 @@ args = SimpleNamespace(
     final_sw_window_size=None,
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
-    lock_priority=60,
+    lock_priority=30,
 )
 print(args)
 if args.lock:
