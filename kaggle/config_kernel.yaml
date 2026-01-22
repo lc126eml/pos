@@ -14,8 +14,8 @@ exhausted_ids:
 - autune
 - b201xiaoli
 - jcy666
-sleep_time_hr: 0
-poll_interval_minutes: 5
+sleep_time_hr: 10
+poll_interval_minutes: 10
 running_nodes:
 - id: liucong12601
   left_gpu_time: 5.752082870000002
@@ -55,15 +55,13 @@ running_nodes:
     total_runs: 8
     start_time: 2026-01-22 10:17:05
     resumed_from: xulijuan/cls-base-alibi-desc-326
-    history_ids:
-    - xulijuan/cls-base-alibi-desc-226
+    history_ids: []
   - kernel_id: qqmail4092/cls-base-relpos-desc-426
     run_id: 4
     total_runs: 8
     start_time: 2026-01-22 10:17:10
     resumed_from: xulijuan/cls-base-relpos-desc-326
-    history_ids:
-    - xulijuan/cls-base-relpos-desc-226
+    history_ids: []
 - id: yuanhahah
   left_gpu_time: 30
   notebooks:

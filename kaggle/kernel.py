@@ -25,6 +25,11 @@ def _load_yaml(path):
         return yaml.safe_load(f) or {}
 
 
+def _write_yaml(path, data):
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+
 def _get_token(tokens_data, owner_id):
     if not tokens_data:
         return None
@@ -107,11 +112,30 @@ def main():
     tokens = _load_yaml(BASE_DIR / "tokens.yaml")
 
     kernel_arg = args.kernel_id
+    yaml_path = None
     md_path = None
     md_lines = None
     md_trailing_newline = False
     entries = []
-    if kernel_arg and kernel_arg.endswith(".md"):
+    if kernel_arg and kernel_arg.endswith((".yaml", ".yml")):
+        yaml_path = Path(kernel_arg)
+        if not yaml_path.exists():
+            raise ValueError(f"Kernel list file not found: {yaml_path}")
+        ycfg = _load_yaml(yaml_path)
+        running_nodes = ycfg.get("running_nodes") or []
+        if args.delete:
+            for node_idx, node in enumerate(running_nodes):
+                for nb_idx, notebook in enumerate(node.get("notebooks") or []):
+                    for hist_idx, hist_id in enumerate(notebook.get("history_ids") or []):
+                        if hist_id:
+                            entries.append(((node_idx, nb_idx, hist_idx), str(hist_id)))
+        else:
+            for node in running_nodes:
+                for notebook in node.get("notebooks") or []:
+                    kernel_id = notebook.get("kernel_id")
+                    if kernel_id:
+                        entries.append((None, str(kernel_id)))
+    elif kernel_arg and kernel_arg.endswith(".md"):
         md_path = Path(kernel_arg)
         if not md_path.exists():
             raise ValueError(f"Kernel list file not found: {md_path}")
@@ -132,6 +156,7 @@ def main():
             print(message)
 
     to_remove = set()
+    to_remove_yaml = []
     for entry in entries:
         index, kernel_id = entry
         owner_id = _resolve_owner_id(kernel_id, args, cfg)
@@ -163,6 +188,8 @@ def main():
             continue
         if args.delete and args.prune and md_path and index is not None:
             to_remove.add(index)
+        if args.delete and yaml_path and index is not None:
+            to_remove_yaml.append(index)
 
     if args.delete and args.prune and md_path and to_remove:
         new_lines = [
@@ -173,6 +200,22 @@ def main():
             new_text += "\n"
         md_path.write_text(new_text, encoding="utf-8")
         vprint(f"Updated {md_path}, removed {len(to_remove)} line(s).")
+
+    if args.delete and yaml_path and to_remove_yaml:
+        for node_idx, nb_idx, hist_idx in sorted(to_remove_yaml, reverse=True):
+            running_nodes = ycfg.get("running_nodes") or []
+            if node_idx >= len(running_nodes):
+                continue
+            notebooks = running_nodes[node_idx].get("notebooks") or []
+            if nb_idx >= len(notebooks):
+                continue
+            history_ids = notebooks[nb_idx].get("history_ids") or []
+            if hist_idx >= len(history_ids):
+                continue
+            history_ids.pop(hist_idx)
+            notebooks[nb_idx]["history_ids"] = history_ids
+        _write_yaml(yaml_path, ycfg)
+        vprint(f"Updated {yaml_path}, removed {len(to_remove_yaml)} history_ids.")
 
 
 if __name__ == "__main__":

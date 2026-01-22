@@ -212,6 +212,11 @@ def main():
         action="store_true",
         help="Suppress poll status details.",
     )
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="Do not run kaggle commands; only report them.",
+    )
     args = parser.parse_args()
     verbose = not args.quiet
 
@@ -240,7 +245,12 @@ def main():
                 kernel_id = notebook.get("kernel_id")
                 if not kernel_id:
                     continue
-                status, detail = _kernel_status(kernel_id, tokens)
+                if args.dry:
+                    if verbose:
+                        logging.info("Dry run: kaggle kernels status %s", kernel_id)
+                    status, detail = "unknown", ""
+                else:
+                    status, detail = _kernel_status(kernel_id, tokens)
                 if verbose:
                     logging.info("%s: %s", kernel_id, status)
                 if status == "running":
@@ -323,7 +333,14 @@ def main():
 
                     if verbose:
                         logging.info("Submitting kernel: %s", new_kernel_id)
-                    ok, output = _push_kernel(cfg)
+                    if args.dry:
+                        logging.info(
+                            "Dry run: python %s --run --concise",
+                            str(BASE_DIR / "process_kaggle.py"),
+                        )
+                        ok, output = True, ""
+                    else:
+                        ok, output = _push_kernel(cfg)
                     if not ok:
                         quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
                         if quota_msg in output:
@@ -352,7 +369,14 @@ def main():
                                 )
                             if verbose:
                                 logging.info("Submitting kernel: %s", new_kernel_id)
-                            ok, output = _push_kernel(cfg)
+                            if args.dry:
+                                logging.info(
+                                    "Dry run: python %s --run --concise",
+                                    str(BASE_DIR / "process_kaggle.py"),
+                                )
+                                ok, output = True, ""
+                            else:
+                                ok, output = _push_kernel(cfg)
                         if not ok:
                             logging.error(output)
                             continue
