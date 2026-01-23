@@ -1,17 +1,17 @@
 task: seg
-id: xulin5522
+id: jacksisi
 pos_type: null
-method: colrow
+method: none
 model_size: base
-suffix: 1
+suffix: 4
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: jcy666/seg-base-colrow-d-60
+kernel_sources: yuanhahah/seg-base-none-d-261
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
-seed: 60
+seed: 61
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

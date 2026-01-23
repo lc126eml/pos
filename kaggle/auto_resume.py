@@ -170,7 +170,7 @@ def _move_finished(notebook, finished_notebooks):
 def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids):
     node_notebooks = node.get("notebooks") or []
     for candidate in running_nodes:
-        if candidate is node:
+        if candidate is node or float(candidate.get("left_gpu_time", 0)) <= 0:
             continue
         candidate_notebooks = candidate.get("notebooks") or []
         if len(candidate_notebooks) < 2:
@@ -222,16 +222,18 @@ def main():
 
     config_path = Path(args.config)
     kcfg = _load_yaml(config_path)
-    tokens = _load_yaml(BASE_DIR / "tokens.yaml")
-    base_cfg = _load_yaml(BASE_DIR / "config.yaml")
 
     sleep_time_hr = float(kcfg.get("sleep_time_hr", 0))
-    poll_interval_minutes = float(kcfg.get("poll_interval_minutes", 10))
 
     if sleep_time_hr > 0:
         time.sleep(sleep_time_hr * 3600)
 
     while True:
+        kcfg = _load_yaml(config_path)
+        tokens = _load_yaml(BASE_DIR / "tokens.yaml")
+        base_cfg = _load_yaml(BASE_DIR / "config.yaml")
+        poll_interval_minutes = float(kcfg.get("poll_interval_minutes", 10))
+
         now = _now_naive()
         changed = False
         running_nodes = kcfg.get("running_nodes") or []
@@ -268,13 +270,6 @@ def main():
                     notebook["history_ids"] = history_ids
                     notebook["resumed_from"] = kernel_id
 
-                    total_runs = int(notebook.get("total_runs", 0))
-                    if notebook["run_id"] == total_runs:
-                        _move_finished(notebook, finished_notebooks)
-                        notebooks.remove(notebook)
-                        changed = True
-                        continue
-
                     start_time = _parse_time(notebook.get("start_time"))
                     before_left = float(node.get("left_gpu_time", 30))
                     if start_time is None:
@@ -296,6 +291,13 @@ def main():
                                 left_gpu_time,
                                 elapsed_hr,
                             )
+
+                    total_runs = int(notebook.get("total_runs", 0))
+                    if notebook["run_id"] == total_runs:
+                        _move_finished(notebook, finished_notebooks)
+                        notebooks.remove(notebook)
+                        changed = True
+                        continue
 
                     target_node = node
                     if left_gpu_time <= 0:
@@ -392,6 +394,7 @@ def main():
         if changed:
             _write_yaml(config_path, kcfg)
 
+        del kcfg
         time.sleep(poll_interval_minutes * 60)
 
 

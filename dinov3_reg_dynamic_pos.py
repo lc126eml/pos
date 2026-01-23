@@ -114,7 +114,7 @@ else:
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = 'alibi', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    pos_type = 'relpos', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=False,
     model_type= "dinov3",
     use_abs_pos_emb=False,
@@ -162,7 +162,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-alibi-desc-326/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-relpos-desc-526/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,

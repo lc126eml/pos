@@ -123,12 +123,17 @@ def main():
             raise ValueError(f"Kernel list file not found: {yaml_path}")
         ycfg = _load_yaml(yaml_path)
         running_nodes = ycfg.get("running_nodes") or []
+        finished_notebooks = ycfg.get("finished_notebooks") or []
         if args.delete:
             for node_idx, node in enumerate(running_nodes):
                 for nb_idx, notebook in enumerate(node.get("notebooks") or []):
                     for hist_idx, hist_id in enumerate(notebook.get("history_ids") or []):
                         if hist_id:
                             entries.append(((node_idx, nb_idx, hist_idx), str(hist_id)))
+            for nb_idx, notebook in enumerate(ycfg.get("finished_notebooks") or []):
+                for hist_idx, hist_id in enumerate(notebook.get("history_ids") or []):
+                    if hist_id:
+                        entries.append(((node_idx, nb_idx, hist_idx), str(hist_id)))
         else:
             for node in running_nodes:
                 for notebook in node.get("notebooks") or []:

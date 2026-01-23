@@ -1,98 +1,89 @@
 available_ids:
-- asdsad0000
-- du55148
-- sollasi
-- cdong121
-- jacksisi
 - pycjn666
+- liucong126
 - zhuzichen123
 - dusi605
 - ohyeah00
-- liucong126
 exhausted_ids:
 - sinayliu
 - autune
 - b201xiaoli
 - jcy666
-sleep_time_hr: 10
+- liucong12601
+- wenyangtang
+- qqmail4092
+- yuanhahah
+- xulin5522
+sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: liucong12601
-  left_gpu_time: 5.752082870000002
+- id: asdsad0000
+  left_gpu_time: 6.006628572222219
   notebooks:
-  - kernel_id: liucong12601/seg-base-abs-d-160
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: liucong12601/seg-base-abs-d-60
-    history_ids: []
-  - kernel_id: liucong12601/seg-base-abs-d-161
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: liucong12601/seg-base-abs-d-61
-    history_ids: []
-- id: wenyangtang
-  left_gpu_time: 5.752082870000002
-  notebooks:
-  - kernel_id: wenyangtang/seg-base-rope-d-161
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: wenyangtang/seg-base-rope-d-61
-    history_ids: []
-  - kernel_id: wenyangtang/seg-base-rope-d-160
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: wenyangtang/seg-base-rope-d-60
-    history_ids: []
-- id: qqmail4092
-  left_gpu_time: 30
-  notebooks:
-  - kernel_id: qqmail4092/cls-base-alibi-desc-426
+  - kernel_id: asdsad0000/seg-base-abs-d-360
     run_id: 4
     total_runs: 8
-    start_time: 2026-01-22 10:17:05
-    resumed_from: xulijuan/cls-base-alibi-desc-326
+    start_time: '2026-01-23 10:35:25'
+    resumed_from: asdsad0000/seg-base-abs-d-260
     history_ids: []
-  - kernel_id: qqmail4092/cls-base-relpos-desc-426
+  - kernel_id: asdsad0000/seg-base-abs-d-361
     run_id: 4
     total_runs: 8
-    start_time: 2026-01-22 10:17:10
-    resumed_from: xulijuan/cls-base-relpos-desc-326
+    start_time: '2026-01-23 10:35:25'
+    resumed_from: asdsad0000/seg-base-abs-d-261
     history_ids: []
-- id: yuanhahah
+- id: du55148
+  left_gpu_time: 6.006628572222219
+  notebooks:
+  - kernel_id: du55148/seg-base-rope-d-361
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-23 10:35:25'
+    resumed_from: du55148/seg-base-rope-d-261
+    history_ids: []
+  - kernel_id: du55148/seg-base-rope-d-360
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-23 10:35:25'
+    resumed_from: du55148/seg-base-rope-d-260
+    history_ids: []
+- id: sollasi
+  left_gpu_time: 16
+  notebooks: []
+- id: cdong121
   left_gpu_time: 30
   notebooks:
-  - kernel_id: yuanhahah/seg-base-none-d-161
-    run_id: 1
+  - kernel_id: cdong121/seg-base-colrow-d-361
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: b201xiaoli/seg-base-none-d-61
+    start_time: '2026-01-23 10:35:25'
+    resumed_from: xulin5522/seg-base-colrow-d-261
     history_ids: []
-  - kernel_id: yuanhahah/seg-base-none-d-160
-    run_id: 1
+  - kernel_id: cdong121/seg-base-colrow-d-460
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-22 11:08:31'
-    resumed_from: b201xiaoli/seg-base-none-d-60
+    start_time: '2026-01-23 11:13:12'
+    resumed_from: xulin5522/seg-base-colrow-d-260
     history_ids: []
-- id: xulin5522
+- id: jacksisi
   left_gpu_time: 30
   notebooks:
-  - kernel_id: xulin5522/seg-base-colrow-d-161
-    run_id: 1
+  - kernel_id: jacksisi/seg-base-none-d-460
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-22 10:47:38'
-    resumed_from: jcy666/seg-base-colrow-d-61
+    start_time: '2026-01-23 11:13:12'
+    resumed_from: yuanhahah/seg-base-none-d-260
     history_ids: []
-  - kernel_id: xulin5522/seg-base-colrow-d-160
-    run_id: 1
+  - kernel_id: jacksisi/seg-base-none-d-461
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-22 11:08:31'
-    resumed_from: jcy666/seg-base-colrow-d-60
+    start_time: '2026-01-23 11:15:59'
+    resumed_from: yuanhahah/seg-base-none-d-261
     history_ids: []
 finished_notebooks:
-- kernel_id: autune/seg-base-none-lre-4-60
-  total_runs: 8
-  history_ids: null
+- kernel_id: sollasi/cls-base-alibi-desc-626
+  total_runs: 7
+  history_ids:
+- kernel_id: sollasi/cls-base-relpos-desc-626
+  total_runs: 7
+  history_ids:

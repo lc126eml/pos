@@ -11,37 +11,22 @@ kaggle kernels delete -y
 # liucong12601
 liucong12601@126.com
 $env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
-liucong12601/seg-base-abs-d-60
-liucong12601/seg-base-abs-d-61
 
 #  0
 ## sinayliu
 liucongy@sina.com
-no gpu
 
 ## jcy666  
 2446067653@qq.com	jcyniu666
-jcy666/seg-base-colrow-d-61
-jcy666/seg-base-colrow-d-60
-+28h
 # 1
 ##  wenyangtang
 13082556807@163.com
 Tang123456
-wenyangtang/seg-base-rope-d-61
-wenyangtang/seg-base-rope-d-60
 
 ## b201xiaoli 
 2360491522@qq.com	dong123.
-b201xiaoli/seg-base-none-d-60
-b201xiaoli/seg-base-none-d-61
-+28h
 # xulijuan 10
 xulijuandh@126.com
-xulijuan/cls-base-alibi-desc-326
-xulijuan/cls-base-relpos-desc-326
-xulijuan/cls-base-alibi-desc-226?
-xulijuan/cls-base-relpos-desc-226?
 67 epoch
 
 #  11

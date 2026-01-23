@@ -139,8 +139,25 @@ nan
 # lr=2e-4 silog_w=0.0
 ## None
 ### /home/liucong/codes/pos/logs/depth/base_rc_False_lr20_relative_median_dec_dpt_h224w224/20260121_163522
-
-## RoPE t1
-
+--- Epoch 80 Validation Summary ---
+2026-01-22 10:09:22,204 - INFO -   Train Loss: 1.8414 | train_time: 744.0s | val_time: 40.6s
+2026-01-22 10:09:22,204 - INFO -  Valid AbsRel: 0.2880 | Valid L1: 2.1037 | Valid RMSE: 2.8631 | Valid a1: 0.6325
+--- Best Validation Metrics from History ---
+2026-01-22 10:09:27,594 - INFO -   Best a1:      0.6344 (Epoch 64)
+2026-01-22 10:09:27,594 - INFO -   Best AbsRel:  0.2859 (Epoch 74)
+2026-01-22 10:09:27,594 - INFO -   Best RMSE:    2.7828 (Epoch 8)
+## RoPE
+--- Epoch 80 Validation Summary ---
+/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr20_relative_median_dec_dpt_h224w224/20260122_100928
+2026-01-23 05:01:25,827 - INFO -   Train Loss: 1.8861 | train_time: 796.3s | val_time: 43.9s
+2026-01-23 05:01:25,827 - INFO -  Valid AbsRel: 0.2870 | Valid L1: 2.0893 | Valid RMSE: 2.8438 | Valid a1: 0.6339
+2026-01-23 05:01:31,092 - INFO -   Best a1:      0.6398 (Epoch 70)
+2026-01-23 05:01:31,092 - INFO -   Best AbsRel:  0.2828 (Epoch 69)
+2026-01-23 05:01:31,092 - INFO -   Best RMSE:    2.8209 (Epoch 25)
 ## Colrow t2
+/home/liucong/codes/pos/logs/depth/base_rc_True_lr20_relative_median_dec_dpt_h224w224_alpha_100/20260123_050135
+break
 
+# lr=1e-4 silog_w=0.0 t0
+
+# lr=7e-5 silog_w=0.0 t1

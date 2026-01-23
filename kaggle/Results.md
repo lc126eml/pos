@@ -34,6 +34,8 @@
     - [smartchaochao/cls-base-rope151](#smartchaochaocls-base-rope151)
     - [smartchaochao/cls-base-rope150](#smartchaochaocls-base-rope150)
     - [xulijuan/cls-base-patch129](#xulijuancls-base-patch129)
+    - [sollasi/cls-base-alibi-desc-626](#sollasicls-base-alibi-desc-626)
+    - [sollasi/cls-base-relpos-desc-626](#sollasicls-base-relpos-desc-626)
 
 
 # small
@@ -145,7 +147,14 @@ Best Accuracy: 0.7202
 ### smartchaochao/cls-base-rope150
 0.110057667	0.973015428	0.624000013	2621.189191	32.41515899
 
-
 ### xulijuan/cls-base-patch129
 0.550262451	0.958607733	0.717799962	2390.245458	27.61198211	
 130	264161	0.155561313	0.000657836
+
+### sollasi/cls-base-alibi-desc-626
+0.107592069	0.97344619	0.582799971	2416.06446	29.73661327
+Best Accuracy: 0.5864
+
+### sollasi/cls-base-relpos-desc-626
+0.052876361	0.987784624	0.613399982	2417.187462	27.6414361
+Best Accuracy: 0.6168
