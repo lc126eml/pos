@@ -68,12 +68,12 @@ args = SimpleNamespace(
     use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
-    eval_size=(240, 224), #(384, 512),      # (H, W) eval at native size
-    final_eval_size=(240, 224), #(384, 512),      # (H, W) eval at native size
+    eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
+    final_eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
     color_jitter_prob=0.5,
     scale_jitter=(1.0, 1.2),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=40,
+    batch_size=24,
     grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
@@ -85,9 +85,9 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=50,
+    seed=60,
     val_steps=None,
-    use_rc_loss=False,
+    use_rc_loss=True,
     loss_type="smooth_l1",
     rc_alpha=100.0,
     # warmup_steps_for_aux=100,
@@ -101,6 +101,7 @@ args = SimpleNamespace(
     lock=True,
     depth_decoder="dpt",  # "simple", "lite4", or "dpt"
     log_interval=500,
+    show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
     silog_w=0.0,
     depth_norm="median",  # kept for logging/compat
@@ -124,9 +125,6 @@ args = SimpleNamespace(
     save_full_ckpt=True,
     resume_full_ckpt=False,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_175558/ckpt/last.pth",
-    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h240w320_alpha_20/20260116_090440/ckpt/last.pth",
-    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
-    # resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_False_lr10_relative_median_dec_dpt_h240w320/20260116_090440/ckpt/last.pth",
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=True,
@@ -259,6 +257,7 @@ subdir_name = (
     f"_{args.depth_eval_mode}_{args.depth_norm}"
     f"_dec_{args.depth_decoder}"
     f"_h{TRAIN_SIZE[0]}w{TRAIN_SIZE[1]}"
+    f"_s{args.seed}"
 )
 if args.use_rc_loss:
     subdir_name += f"_alpha_{int(args.rc_alpha)}"
@@ -866,6 +865,8 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
     """Trains the model for one epoch."""
     model.train()
     decoder.train()
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
     running_loss_t = torch.zeros((), device=DEVICE)
     base_loss_t = torch.zeros((), device=DEVICE)
     aux_loss_sum_t = torch.zeros((), device=DEVICE)
@@ -882,24 +883,24 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         aux_loss = None
         do_step = ((i + 1) % accum_steps == 0) or (i + 1 == len(loader))
         opt_step = (i // accum_steps) + 1
-        debug_this_step = args.debug_loss_stats and do_step and (opt_step % args.debug_loss_interval == 0)
+        # debug_this_step = args.debug_loss_stats and do_step and (opt_step % args.debug_loss_interval == 0)
         with torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp):
             pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
             # gt_depths = torch.nan_to_num(gt_depths, nan=0.0, posinf=0.0, neginf=0.0)
             raw_pred_depths = pred_depths
             pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
             valid = (gt_depths > 0) #& torch.isfinite(gt_depths) & torch.isfinite(pred_depths)
-            if (valid.sum() == 0) or (pred_depths.sum() < 1e-8):
-                logger.warning(f"valid: {valid.sum()}")
-                logger.warning(f"pred sum: {pred_depths.sum()}")
-                nan_count = torch.isnan(raw_pred_depths).sum().item()
-                posinf_count = torch.isposinf(raw_pred_depths).sum().item()
-                neginf_count = torch.isneginf(raw_pred_depths).sum().item()
-                logger.warning(
-                    f"pred nan/inf: nan={nan_count} +inf={posinf_count} -inf={neginf_count}"
-                )
-                logger.warning("Skipping batch: no valid depth pixels after sanitization.")
-                sys.exit(0)
+            # if (valid.sum() == 0) or (pred_depths.sum() < 1e-8):
+            #     logger.warning(f"valid: {valid.sum()}")
+            #     logger.warning(f"pred sum: {pred_depths.sum()}")
+            #     nan_count = torch.isnan(raw_pred_depths).sum().item()
+            #     posinf_count = torch.isposinf(raw_pred_depths).sum().item()
+            #     neginf_count = torch.isneginf(raw_pred_depths).sum().item()
+            #     logger.warning(
+            #         f"pred nan/inf: nan={nan_count} +inf={posinf_count} -inf={neginf_count}"
+            #     )
+            #     logger.warning("Skipping batch: no valid depth pixels after sanitization.")
+            #     sys.exit(0)
             base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
             loss = base_loss
 
@@ -917,72 +918,77 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
         base_loss_t += base_loss.detach() * bs
 
         loss_scaled = loss / accum_steps
-        if debug_this_step:
-            loss_val = loss.detach().float().item()
-            if not math.isfinite(loss_val):
-                logger.warning(f"[debug] loss_nonfinite={loss_val}")
+        # if debug_this_step:
+        #     loss_val = loss.detach().float().item()
+        #     if not math.isfinite(loss_val):
+        #         logger.warning(f"[debug] loss_nonfinite={loss_val}")
         scaler.scale(loss_scaled).backward()
-        if debug_this_step:
-            with torch.no_grad():
-                vm = valid.float()
-                denom = vm.sum().clamp_min(1)
-                gt_mean = (gt_depths * vm).sum() / denom
-                pred_mean = (pred_depths * vm).sum() / denom
-                gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
-                pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
-                valid_count = int(vm.sum().item())
-                pred_min = pred_depths.min().item()
-                pred_max = pred_depths.max().item()
-                pred_mean_raw = pred_depths.mean().item()
-                nan_count = torch.isnan(raw_pred_depths).sum().item()
-                posinf_count = torch.isposinf(raw_pred_depths).sum().item()
-                neginf_count = torch.isneginf(raw_pred_depths).sum().item()
-            logger.info(
-                f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
-                f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
-            )
-            logger.info(
-                f"[debug] valid_count={valid_count} pred_min={pred_min:.6g} "
-                f"pred_max={pred_max:.6g} pred_mean_raw={pred_mean_raw:.6g}"
-            )
-            logger.info(
-                f"[debug] pred_nan={nan_count} pred_posinf={posinf_count} pred_neginf={neginf_count}"
-            )
+        # if debug_this_step:
+        #     with torch.no_grad():
+        #         vm = valid.float()
+        #         denom = vm.sum().clamp_min(1)
+        #         gt_mean = (gt_depths * vm).sum() / denom
+        #         pred_mean = (pred_depths * vm).sum() / denom
+        #         gt_var = ((gt_depths - gt_mean) ** 2 * vm).sum() / denom
+        #         pred_var = ((pred_depths - pred_mean) ** 2 * vm).sum() / denom
+        #         valid_count = int(vm.sum().item())
+        #         pred_min = pred_depths.min().item()
+        #         pred_max = pred_depths.max().item()
+        #         pred_mean_raw = pred_depths.mean().item()
+        #         nan_count = torch.isnan(raw_pred_depths).sum().item()
+        #         posinf_count = torch.isposinf(raw_pred_depths).sum().item()
+        #         neginf_count = torch.isneginf(raw_pred_depths).sum().item()
+        #     logger.info(
+        #         f"[debug] gt_mean={gt_mean.item():.4f} gt_var={gt_var.item():.4f} "
+        #         f"pred_mean={pred_mean.item():.4f} pred_var={pred_var.item():.4f}"
+        #     )
+        #     logger.info(
+        #         f"[debug] valid_count={valid_count} pred_min={pred_min:.6g} "
+        #         f"pred_max={pred_max:.6g} pred_mean_raw={pred_mean_raw:.6g}"
+        #     )
+        #     logger.info(
+        #         f"[debug] pred_nan={nan_count} pred_posinf={posinf_count} pred_neginf={neginf_count}"
+        #     )
         if do_step:
             grad_norm = None
             if args.clip_value is not None:
                 scaler.unscale_(optimizer)
                 grad_norm = torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
-            if debug_this_step and grad_norm is not None:
-                logger.info(f"[debug] grad_norm={float(grad_norm):.6g}")
+            # if debug_this_step and grad_norm is not None:
+            #     logger.info(f"[debug] grad_norm={float(grad_norm):.6g}")
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
-            if debug_this_step:
-                has_nan = any(
-                    torch.isnan(p).any().item()
-                    for p in training_parameters
-                    if p is not None
-                )
-                if has_nan:
-                    logger.warning("Detected NaN in parameters after optimizer step.")
+            # if debug_this_step:
+            #     has_nan = any(
+            #         torch.isnan(p).any().item()
+            #         for p in training_parameters
+            #         if p is not None
+            #     )
+            #     if has_nan:
+            #         logger.warning("Detected NaN in parameters after optimizer step.")
         
         running_loss_t += loss.detach() * bs
         total_samples += bs            
 
         if (i + 1) % log_interval == 0:
             avg_loss = (running_loss_t / max(total_samples, 1)).float().item()
-            mem_str = ""
-            if torch.cuda.is_available():
-                mem_alloc = torch.cuda.memory_allocated() / (1024 ** 2)
-                mem_reserved = torch.cuda.memory_reserved() / (1024 ** 2)
-                mem_str = f" mem={mem_alloc:.0f}/{mem_reserved:.0f}MB"
+            # mem_str = ""
+            # if torch.cuda.is_available():
+            #     mem_alloc = torch.cuda.memory_allocated() / (1024 ** 2)
+            #     mem_reserved = torch.cuda.memory_reserved() / (1024 ** 2)
+            #     mem_str = f" mem={mem_alloc:.0f}/{mem_reserved:.0f}MB"
+            peak_str = ""
+            if args.show_peak_gpu_mem and torch.cuda.is_available():
+                peak_alloc = torch.cuda.max_memory_allocated() / (1024 ** 2)
+                peak_reserved = torch.cuda.max_memory_reserved() / (1024 ** 2)
+                peak_str = f" peak={peak_alloc:.0f}/{peak_reserved:.0f}MB"
             if aux_loss is not None:
                 avg_aux = (aux_loss_sum_t / max(total_samples, 1)).float().item()
-                pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}{mem_str}")
+                pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}{peak_str}")
             else:
-                pbar.set_postfix_str(f"loss={avg_loss:.4f}{mem_str}")
+                pbar.set_postfix_str(f"loss={avg_loss:.4f}{peak_str}")
     
     denom = max(total_samples, 1)
     avg_loss = (running_loss_t / denom).float().item()

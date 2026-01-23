@@ -1,17 +1,17 @@
-task: seg
+task: depth
 id: jacksisi
 pos_type: null
-method: none
+method: colrow
 model_size: base
-suffix: 4
-desc: d
+suffix: 0
+desc: rc200
 is_private: false
 dataset_sources: null
-kernel_sources: yuanhahah/seg-base-none-d-261
-resume_full_ckpt: true
+kernel_sources: null
+resume_full_ckpt: false
 resume_source: kernel
 resume_infer: false
-seed: 61
+seed: 50
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

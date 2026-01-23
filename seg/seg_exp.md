@@ -96,6 +96,49 @@ Best MS+Flip Acc: 0.6139 | Best MS+Flip mIoU: 0.1222
 Train Loss: 1.3707 | Train Acc: 0.6272 | Valid Acc: 0.6108 | Valid mIoU: 0.1239 | train_time: 1270.7s | val_time: 36.3s
 Best MS+Flip Acc: 0.6171 | Best MS+Flip mIoU: 0.1265
 
+### kernel_id: jacksisi/seg-base-none-d-560
+0.717464447	0.791200459	0.646057904	0.175850362	1274.446535	36.67424655
+final_ms_flip_acc	final_ms_flip_miou
+0.652945817	0.179681435
+
+### kernel_id: jacksisi/seg-base-none-d-561
+0.721958697	0.790141284	0.641946673	0.170735449	1272.759403	36.4370389
+final_ms_flip_acc	final_ms_flip_miou
+0.650624096	0.176641956
+
+### kernel_id: sollasi/seg-base-abs-d-561
+0.711122453	0.792918146	0.645678759	0.172757909	1282.235662	37.03127623
+final_ms_flip_acc	final_ms_flip_miou
+0.65581578	0.178854316
+  
+### kernel_id: pycjn666/seg-base-abs-d-560
+0.690060616	0.798131824	0.649446189	0.179131553	1288.646698	38.18957925
+final_ms_flip_acc	final_ms_flip_miou
+0.657997966	0.184328616
+
+### kernel_id: pycjn666/seg-base-rope-d-560
+0.614112616	0.817926288	0.652353942	0.177536353	1346.161674	39.60817814
+final_ms_flip_acc	final_ms_flip_miou
+0.661408484	0.183233008
+
+### kernel_id: sollasi/seg-base-rope-d-561
+0.632707238	0.813044667	0.648901403	0.180312529	1347.441547	39.55108166
+final_ms_flip_acc	final_ms_flip_miou
+0.657597303	0.182482556
+  
+### kernel_id: cdong121/seg-base-colrow-d-561
+2.762125492	0.777760744	0.65525347	0.180490613	1289.57689	37.02048373
+final_ms_flip_acc	final_ms_flip_miou
+0.663193285	0.184788272
+  
+### kernel_id: cdong121/seg-base-colrow-d-560
+1.353509188	0.780703843	0.659483433	0.184741974	1282.478611	36.31470776
+final_ms_flip_acc	final_ms_flip_miou
+0.666284919	0.187009454
+  
+  
+  
+
 lr 5e-6 < lr 1e-5 < lr 5e-4; eta_min=1e-07>eta_min=5e-06
 3e-5<3e-4 <2e-4 < 1e-4<5e-5<7e-5
 scale_jitter=(1.0, 1.3) ms_scales=(0.9, 1.0, 1.15) good

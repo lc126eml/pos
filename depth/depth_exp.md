@@ -158,6 +158,57 @@ nan
 /home/liucong/codes/pos/logs/depth/base_rc_True_lr20_relative_median_dec_dpt_h224w224_alpha_100/20260123_050135
 break
 
-# lr=1e-4 silog_w=0.0 t0
-
+# lr=1e-4 silog_w=0.0
+--- Epoch 80 Validation Summary ---
+2026-01-24 03:14:39,802 - INFO -   Train Loss: 1.7559 | train_time: 743.1s | val_time: 40.5s
+2026-01-24 03:14:39,802 - INFO -  Valid AbsRel: 0.2791 | Valid L1: 2.0421 | Valid RMSE: 2.7841 | Valid a1: 0.6438
+--- Best Validation Metrics from History ---
+2026-01-24 03:14:48,517 - INFO -   Best a1:      0.6469 (Epoch 65)
+2026-01-24 03:14:48,517 - INFO -   Best AbsRel:  0.2760 (Epoch 70)
+2026-01-24 03:14:48,517 - INFO -   Best RMSE:    2.7516 (Epoch 8)
 # lr=7e-5 silog_w=0.0 t1
+
+
+# lr ablation
+## lr 1e-5 sh1weiwu/depth-base-none-lr1e-5-50
+Valid AbsRel: 0.3198 | Valid L1: 1.4911 | Valid RMSE: 2.0734 | Valid a1: 0.6004
+Valid AbsRel: 0.3211 | Valid L1: 1.5037 | Valid RMSE: 2.0840 | Valid a1: 0.5993
+40802.9s	217	2026-01-24 02:26:21,153 - INFO -   Best a1:      0.6004 (Epoch 18)
+40802.9s	218	2026-01-24 02:26:21,153 - INFO -   Best AbsRel:  0.3198 (Epoch 18)
+40802.9s	219	2026-01-24 02:26:21,153 - INFO -   Best RMSE:    2.0734 (Epoch 18)
+
+## sh1weiwu/depth-base-none-lr3e-5-50
+Valid AbsRel: 0.3099 | Valid L1: 1.4539 | Valid RMSE: 2.0247 | Valid a1: 0.6201
+40845.3s	217	2026-01-24 02:26:20,987 - INFO -   Best a1:      0.6204 (Epoch 15)
+40845.3s	218	2026-01-24 02:26:20,988 - INFO -   Best AbsRel:  0.3076 (Epoch 16)
+40845.3s	219	2026-01-24 02:26:20,988 - INFO -   Best RMSE:    2.0041 (Epoch 18)
+
+## ly1122/depth-base-none-lr8e-5-50
+Valid AbsRel: 0.3001 | Valid L1: 1.4219 | Valid RMSE: 1.9911 | Valid a1: 0.6263
+40885.8s	217	2026-01-24 02:29:11,079 - INFO -   Best a1:      0.6312 (Epoch 12)
+40885.8s	218	2026-01-24 02:29:11,079 - INFO -   Best AbsRel:  0.3001 (Epoch 19)
+40885.8s	219	2026-01-24 02:29:11,079 - INFO -   Best RMSE:    1.9911 (Epoch 19)
+
+## ly1122/depth-base-none-lr1e-4-50
+Valid AbsRel: 0.3047 | Valid L1: 1.4272 | Valid RMSE: 1.9977 | Valid a1: 0.6249
+40938.8s	217	2026-01-24 02:29:25,591 - INFO -   Best a1:      0.6249 (Epoch 19)
+40938.8s	218	2026-01-24 02:29:25,591 - INFO -   Best AbsRel:  0.3038 (Epoch 15)
+40938.8s	219	2026-01-24 02:29:25,591 - INFO -   Best RMSE:    1.9947 (Epoch 15)
+
+## liucong126/depth-base-none-lr5e-5-50
+Valid AbsRel: 0.3136 | Valid L1: 1.4808 | Valid RMSE: 2.0552 | Valid a1: 0.6142
+41599.8s	216	2026-01-24 02:38:01,332 - INFO -   Best a1:      0.6142 (Epoch 19)
+41599.8s	217	2026-01-24 02:38:01,332 - INFO -   Best AbsRel:  0.3136 (Epoch 19)
+41599.8s	218	2026-01-24 02:38:01,332 - INFO -   Best RMSE:    2.0552 (Epoch 19)
+
+## liucong126/depth-base-none-lr7e-5-50
+alid AbsRel: 0.2983 | Valid L1: 1.4189 | Valid RMSE: 1.9872 | Valid a1: 0.6292
+41489.0s	217	2026-01-24 02:35:14,116 - INFO -   Best a1:      0.6297 (Epoch 15)
+41489.0s	218	2026-01-24 02:35:14,116 - INFO -   Best AbsRel:  0.2983 (Epoch 19)
+41489.0s	219	2026-01-24 02:35:14,116 - INFO -   Best RMSE:    1.9772 (Epoch 18)
+
+
+# rc weight ablation
+
+# s60
+## t0

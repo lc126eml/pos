@@ -63,7 +63,7 @@ args = SimpleNamespace(
     use_ms_flip_eval=False,
     scale_jitter=(1.0, 1.3),
     use_cat_max_ratio=True,
-    cat_max_ratio=0.75,
+    cat_max_ratio=0.70,
     cat_max_ratio_tries=10,
     ms_scales=(0.90, 1.0, 1.15),
     eval_crop_mode="crop_or_pad",
@@ -77,7 +77,7 @@ args = SimpleNamespace(
     epochs=130,
     overlap=0,
     start_epoch=0,
-    seed=61,
+    seed=62,
     use_rc_loss=False,
     use_patch_position_loss=False,
     huber_beta=0.1,
@@ -98,8 +98,8 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-none-d-261/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_full_ckpt=False,
+    resume_ckpt_path=None, #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -927,7 +927,7 @@ run_tag = time.strftime("%Y%m%d_%H%M%S")
 subdir_name = (
     f"{args.model_size}"
     f"{'_abs_pos' if args.use_abs_pos_emb else ''}"
-    f"{'_rot_pos' if args.use_rot_pos_emb else ''}_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}"
+    f"{'_rot_pos' if args.use_rot_pos_emb else ''}_rc_{args.use_rc_loss}_lr{int(args.lr/1e-5)}_s{args.seed}"
 )
 if args.use_rc_loss:
     subdir_name += f"_overlap_{args.overlap}_alpha_{int(args.rc_alpha)}"

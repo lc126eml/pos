@@ -129,11 +129,11 @@ def main():
                 for nb_idx, notebook in enumerate(node.get("notebooks") or []):
                     for hist_idx, hist_id in enumerate(notebook.get("history_ids") or []):
                         if hist_id:
-                            entries.append(((node_idx, nb_idx, hist_idx), str(hist_id)))
+                            entries.append((("running", node_idx, nb_idx, hist_idx), str(hist_id)))
             for nb_idx, notebook in enumerate(ycfg.get("finished_notebooks") or []):
                 for hist_idx, hist_id in enumerate(notebook.get("history_ids") or []):
                     if hist_id:
-                        entries.append(((node_idx, nb_idx, hist_idx), str(hist_id)))
+                        entries.append((("finished", nb_idx, hist_idx), str(hist_id)))
         else:
             for node in running_nodes:
                 for notebook in node.get("notebooks") or []:
@@ -207,18 +207,39 @@ def main():
         vprint(f"Updated {md_path}, removed {len(to_remove)} line(s).")
 
     if args.delete and yaml_path and to_remove_yaml:
-        for node_idx, nb_idx, hist_idx in sorted(to_remove_yaml, reverse=True):
+        def _yaml_sort_key(item):
+            section = item[0]
+            if section == "running":
+                _, node_idx, nb_idx, hist_idx = item
+                return (0, node_idx, nb_idx, hist_idx)
+            _, nb_idx, hist_idx = item
+            return (1, nb_idx, hist_idx)
+
+        for item in sorted(to_remove_yaml, key=_yaml_sort_key, reverse=True):
             running_nodes = ycfg.get("running_nodes") or []
-            if node_idx >= len(running_nodes):
-                continue
-            notebooks = running_nodes[node_idx].get("notebooks") or []
-            if nb_idx >= len(notebooks):
-                continue
-            history_ids = notebooks[nb_idx].get("history_ids") or []
-            if hist_idx >= len(history_ids):
-                continue
-            history_ids.pop(hist_idx)
-            notebooks[nb_idx]["history_ids"] = history_ids
+            finished_notebooks = ycfg.get("finished_notebooks") or []
+            section = item[0]
+            if section == "running":
+                _, node_idx, nb_idx, hist_idx = item
+                if node_idx >= len(running_nodes):
+                    continue
+                notebooks = running_nodes[node_idx].get("notebooks") or []
+                if nb_idx >= len(notebooks):
+                    continue
+                history_ids = notebooks[nb_idx].get("history_ids") or []
+                if hist_idx >= len(history_ids):
+                    continue
+                history_ids.pop(hist_idx)
+                notebooks[nb_idx]["history_ids"] = history_ids
+            else:
+                _, nb_idx, hist_idx = item
+                if nb_idx >= len(finished_notebooks):
+                    continue
+                history_ids = finished_notebooks[nb_idx].get("history_ids") or []
+                if hist_idx >= len(history_ids):
+                    continue
+                history_ids.pop(hist_idx)
+                finished_notebooks[nb_idx]["history_ids"] = history_ids
         _write_yaml(yaml_path, ycfg)
         vprint(f"Updated {yaml_path}, removed {len(to_remove_yaml)} history_ids.")
 

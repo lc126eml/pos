@@ -11,6 +11,8 @@ kaggle kernels delete -y
 # liucong12601
 liucong12601@126.com
 $env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
+liucong12601/depth-base-colrow-rc30-50
+liucong12601/depth-base-colrow-rc70-50
 
 #  0
 ## sinayliu
@@ -26,6 +28,8 @@ Tang123456
 ## b201xiaoli 
 2360491522@qq.com	dong123.
 # xulijuan 10
+xulijuan/depth-base-colrow-rc50-50
+xulijuan/depth-base-colrow-rc150-50
 xulijuandh@126.com
 67 epoch
 
@@ -91,6 +95,8 @@ shufang
 # jacksisi 20
 3374608651@qq.com
 weareoverwatch6
+jacksisi/depth-base-colrow-rc120-50
+jacksisi/depth-base-colrow-rc200-50
 
 ## zhoujiahui0199 
 1556721646@qq.com	1234567

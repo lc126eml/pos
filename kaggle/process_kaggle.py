@@ -182,6 +182,10 @@ def _get_args_values(text, keys):
     return values
 
 
+def _has_args_key(text, key):
+    return _get_args_values(text, [key]).get(key) is not None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Update Kaggle kernel config and training args.")
     parser.add_argument(
@@ -239,6 +243,8 @@ def main():
         py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":
         py_file = Path("dinov3_reg_dynamic.py")
+    elif task == "depth":
+        py_file = Path("depth") / "dinov3_depth_kaggle.py"
     else:
         raise ValueError(f"Unsupported task: {task}")
 
@@ -285,24 +291,32 @@ def main():
         "use_abs_pos_emb": use_abs_pos_emb,
         "use_rc_loss": use_rc_loss,
     }
-    updates["use_patch_position_loss"] = use_patch_position_loss
+    if _has_args_key(py_text, "use_patch_position_loss"):
+        updates["use_patch_position_loss"] = use_patch_position_loss
     for item in _as_list(cfg.get("simple")):
         if isinstance(item, dict):
             updates.update(item)
-    updates["pos_type"] = pos_type
-    add_missing = {"pos_type"}
+    add_missing = set()
+    if _has_args_key(py_text, "pos_type"):
+        updates["pos_type"] = pos_type
+        add_missing.add("pos_type")
     if pos_type is not None:
         updates.update(
             {
                 "use_rot_pos_emb": False,
                 "use_abs_pos_emb": False,
                 "use_rc_loss": False,
-                "dynamic_img_size": False,
-                "use_patch_position_loss": False,
-                "val": False,
             }
         )
-        add_missing.update({"dynamic_img_size", "use_patch_position_loss", "val"})
+        if _has_args_key(py_text, "dynamic_img_size"):
+            updates["dynamic_img_size"] = False
+            add_missing.add("dynamic_img_size")
+        if _has_args_key(py_text, "use_patch_position_loss"):
+            updates["use_patch_position_loss"] = False
+            add_missing.add("use_patch_position_loss")
+        if _has_args_key(py_text, "val"):
+            updates["val"] = False
+            add_missing.add("val")
 
     before_args = _get_args_values(py_text, updates.keys())
     py_text = _update_args_block(py_text, updates, add_missing=add_missing)
@@ -339,6 +353,18 @@ def main():
         _unique_extend(dataset_sources, ["awsaf49/ade20k-dataset"])
     elif task == "cls":
         _unique_extend(dataset_sources, ["ambityga/imagenet100"])
+    elif task == "depth":
+        _unique_extend(
+            dataset_sources,
+            [
+                "liucong12601/hsm-train-part01",
+                "liucong12601/hsm-train-part02",
+                "liucong12601/hsm-train-part03",
+                "liucong12601/hsm-train-part04",
+                "liucong12601/hsm-train-part05",
+                "liucong12601/hsm-test-val",
+            ],
+        )
     _unique_extend(dataset_sources, _as_list(cfg.get("dataset_sources")))
     json_data["dataset_sources"] = dataset_sources
 
