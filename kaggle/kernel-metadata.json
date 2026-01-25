@@ -1,7 +1,7 @@
 {
-  "id": "jacksisi/depth-base-colrow-rc200-50",
-  "title": "depth base colrow rc200 50",
-  "code_file": "../depth/dinov3_depth_kaggle.py",
+  "id": "starysinger/cls-base-colrow-rc200-152",
+  "title": "cls base colrow rc200 152",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,14 +10,11 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "liucong12601/hsm-train-part01",
-    "liucong12601/hsm-train-part02",
-    "liucong12601/hsm-train-part03",
-    "liucong12601/hsm-train-part04",
-    "liucong12601/hsm-train-part05",
-    "liucong12601/hsm-test-val"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "starysinger/cls-base-colrow-rc200-52"
+  ],
   "model_sources": []
 }

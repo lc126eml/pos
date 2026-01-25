@@ -134,7 +134,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=3e-4, #base
+    lr=2e-4, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -142,9 +142,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=29,
-    use_patch_position_loss=True,
-    use_rc_loss=False,
+    seed=52,
+    use_patch_position_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
@@ -162,7 +162,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-patch129/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-colrow-rc200-52/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -174,7 +174,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     # save_ckpt=False,
     compile_model=False,
-    total_run_time_hr=2.0,
+    total_run_time_hr=12.0,
     # --- Dataset Paths ---
     root_dir=root_dir,
 )
@@ -1024,21 +1024,21 @@ def make_train_transform(size: int):
         T.RandomResizedCrop(size, interpolation=InterpolationMode.BICUBIC, antialias=True),
         T.RandomHorizontalFlip(),
     ]
-    if args.randaugment:
-        t_list.append(
-            T.RandAugment(
-                num_ops=args.randaugment_n,
-                magnitude=args.randaugment_m,
-                interpolation=InterpolationMode.BICUBIC,
-                fill=(128, 128, 128),
-            )
-        )
+    # if args.randaugment:
+    #     t_list.append(
+    #         T.RandAugment(
+    #             num_ops=args.randaugment_n,
+    #             magnitude=args.randaugment_m,
+    #             interpolation=InterpolationMode.BICUBIC,
+    #             fill=(128, 128, 128),
+    #         )
+    #     )
     t_list.extend([
         T.ToTensor(),
         T.Normalize(mean=img_mean, std=img_std),
     ])
-    if args.random_erasing:
-        t_list.append(T.RandomErasing(p=args.re_prob))
+    # if args.random_erasing:
+    #     t_list.append(T.RandomErasing(p=args.re_prob))
     return T.Compose(t_list)
 
 size_to_transform = {

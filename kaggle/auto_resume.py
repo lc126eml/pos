@@ -24,9 +24,13 @@ Expected config_kernel.yaml fields:
 - poll_interval_minutes: float
 - available_ids: [owner_id, ...]
 - exhausted_ids: [owner_id, ...]
+- tpu:
+  - available_ids: [owner_id, ...]
+  - exhausted_ids: [owner_id, ...]
 - running_nodes:
   - id: owner_id
-    left_gpu_time: float
+    tpu_node: bool (optional; default false)
+    left_time: float
     notebooks:
       - kernel_id: owner/task-model-tag-desc-suffixseed
         total_runs: int
@@ -167,10 +171,14 @@ def _move_finished(notebook, finished_notebooks):
     finished_notebooks.append(finished)
 
 
-def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids):
+def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids, is_tpu):
     node_notebooks = node.get("notebooks") or []
     for candidate in running_nodes:
-        if candidate is node or float(candidate.get("left_gpu_time", 0)) <= 0:
+        if candidate is node:
+            continue
+        if bool(candidate.get("tpu_node", False)) != is_tpu:
+            continue
+        if float(candidate.get("left_time", 0)) <= 0:
             continue
         candidate_notebooks = candidate.get("notebooks") or []
         if len(candidate_notebooks) < 2:
@@ -188,7 +196,8 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
         logging.warning("No available ids left to resume.")
         return None
     new_id = available_ids.pop(0)
-    target_node = {"id": new_id, "left_gpu_time": 30, "notebooks": []}
+    target_node = {"id": new_id, "tpu_node": is_tpu, "notebooks": []}
+    target_node["left_time"] = 20 if is_tpu else 30
     target_node["notebooks"].append(notebook)
     running_nodes.append(target_node)
     if notebook in node_notebooks:
@@ -239,10 +248,16 @@ def main():
         running_nodes = kcfg.get("running_nodes") or []
         available_ids = kcfg.get("available_ids") or []
         exhausted_ids = kcfg.get("exhausted_ids") or []
+        tpu_cfg = kcfg.get("tpu") or {}
+        tpu_available_ids = tpu_cfg.get("available_ids") or []
+        tpu_exhausted_ids = tpu_cfg.get("exhausted_ids") or []
         finished_notebooks = kcfg.get("finished_notebooks") or []
 
         for node in list(running_nodes):
             notebooks = node.get("notebooks") or []
+            is_tpu = bool(node.get("tpu_node", False))
+            if "left_time" not in node:
+                node["left_time"] = 20 if is_tpu else 30
             for notebook in list(notebooks):
                 kernel_id = notebook.get("kernel_id")
                 if not kernel_id:
@@ -271,24 +286,24 @@ def main():
                     notebook["resumed_from"] = kernel_id
 
                     start_time = _parse_time(notebook.get("start_time"))
-                    before_left = float(node.get("left_gpu_time", 30))
+                    before_left = float(node.get("left_time", 20 if is_tpu else 30))
                     if start_time is None:
                         if verbose:
                             logging.warning(
-                                "Missing start_time for %s; skipping left_gpu_time update",
+                                "Missing start_time for %s; skipping left_time update",
                                 notebook.get("kernel_id"),
                             )
-                        left_gpu_time = before_left
+                        left_time = before_left
                     else:
                         elapsed_hr = (now - start_time).total_seconds() / 3600
-                        left_gpu_time = before_left - elapsed_hr
-                        node["left_gpu_time"] = left_gpu_time
+                        left_time = before_left - elapsed_hr
+                        node["left_time"] = left_time
                         if verbose:
                             logging.info(
-                                "Updated left_gpu_time for %s: %.2f -> %.2f (elapsed %.2f h)",
+                                "Updated left_time for %s: %.2f -> %.2f (elapsed %.2f h)",
                                 node.get("id"),
                                 before_left,
-                                left_gpu_time,
+                                left_time,
                                 elapsed_hr,
                             )
 
@@ -300,10 +315,25 @@ def main():
                         continue
 
                     target_node = node
-                    if left_gpu_time <= 0:
-                        target_node = _move_to_new_node(
-                            node, notebook, running_nodes, available_ids, exhausted_ids
-                        )
+                    if left_time <= 0:
+                        if is_tpu:
+                            target_node = _move_to_new_node(
+                                node,
+                                notebook,
+                                running_nodes,
+                                tpu_available_ids,
+                                tpu_exhausted_ids,
+                                True,
+                            )
+                        else:
+                            target_node = _move_to_new_node(
+                                node,
+                                notebook,
+                                running_nodes,
+                                available_ids,
+                                exhausted_ids,
+                                False,
+                            )
                         if target_node is None:
                             continue
                         if verbose:
@@ -324,6 +354,7 @@ def main():
                         notebook["run_id"],
                         target_node.get("id"),
                     )
+                    cfg["tpu"] = bool(target_node.get("tpu_node", False))
                     new_kernel_id = _build_kernel_id(cfg)
                     notebook["kernel_id"] = new_kernel_id
                     notebook["start_time"] = _format_time(now)
@@ -346,13 +377,24 @@ def main():
                     if not ok:
                         quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
                         if quota_msg in output:
-                            target_node = _move_to_new_node(
-                                target_node,
-                                notebook,
-                                running_nodes,
-                                available_ids,
-                                exhausted_ids,
-                            )
+                            if is_tpu:
+                                target_node = _move_to_new_node(
+                                    target_node,
+                                    notebook,
+                                    running_nodes,
+                                    tpu_available_ids,
+                                    tpu_exhausted_ids,
+                                    True,
+                                )
+                            else:
+                                target_node = _move_to_new_node(
+                                    target_node,
+                                    notebook,
+                                    running_nodes,
+                                    available_ids,
+                                    exhausted_ids,
+                                    False,
+                                )
                             if target_node is None:
                                 continue
                             if verbose:
@@ -361,6 +403,7 @@ def main():
                                     target_node.get("id"),
                                 )
                             cfg["id"] = target_node.get("id")
+                            cfg["tpu"] = bool(target_node.get("tpu_node", False))
                             new_kernel_id = _build_kernel_id(cfg)
                             notebook["kernel_id"] = new_kernel_id
                             notebook["start_time"] = _format_time(now)
@@ -389,6 +432,10 @@ def main():
         kcfg["running_nodes"] = running_nodes
         kcfg["available_ids"] = available_ids
         kcfg["exhausted_ids"] = exhausted_ids
+        if tpu_cfg:
+            tpu_cfg["available_ids"] = tpu_available_ids
+            tpu_cfg["exhausted_ids"] = tpu_exhausted_ids
+            kcfg["tpu"] = tpu_cfg
         kcfg["finished_notebooks"] = finished_notebooks
 
         if changed:

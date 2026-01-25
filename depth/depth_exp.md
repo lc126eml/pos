@@ -167,8 +167,12 @@ break
 2026-01-24 03:14:48,517 - INFO -   Best AbsRel:  0.2760 (Epoch 70)
 2026-01-24 03:14:48,517 - INFO -   Best RMSE:    2.7516 (Epoch 8)
 # lr=7e-5 silog_w=0.0 t1
-
-
+--- Epoch 80 Validation Summary ---
+2026-01-24 20:51:38,090 - INFO -   Train Loss: 1.7021 | train_time: 743.2s | val_time: 40.3s
+2026-01-24 20:51:38,090 - INFO -  Valid AbsRel: 0.2780 | Valid L1: 2.0042 | Valid RMSE: 2.7307 | Valid a1: 0.6476
+2026-01-24 20:51:43,003 - INFO -   Best a1:      0.6488 (Epoch 71)
+2026-01-24 20:51:43,003 - INFO -   Best AbsRel:  0.2769 (Epoch 47)
+2026-01-24 20:51:43,003 - INFO -   Best RMSE:    2.7239 (Epoch 64)
 # lr ablation
 ## lr 1e-5 sh1weiwu/depth-base-none-lr1e-5-50
 Valid AbsRel: 0.3198 | Valid L1: 1.4911 | Valid RMSE: 2.0734 | Valid a1: 0.6004
@@ -210,5 +214,35 @@ alid AbsRel: 0.2983 | Valid L1: 1.4189 | Valid RMSE: 1.9872 | Valid a1: 0.6292
 
 # rc weight ablation
 
+### liucong12601/depth-base-colrow-rc30-50
+Valid AbsRel: 0.2934 | Valid L1: 1.3688 | Valid RMSE: 1.9233 | Valid a1: 0.6378
+41103.4s	217	2026-01-24 16:22:10,206 - INFO -   Best a1:      0.6378 (Epoch 19)
+41103.4s	218	2026-01-24 16:22:10,206 - INFO -   Best AbsRel:  0.2934 (Epoch 19)
+41103.4s	219	2026-01-24 16:22:10,206 - INFO -   Best RMSE:    1.9233 (Epoch 19)
+### liucong12601/depth-base-colrow-rc70-50
+Valid AbsRel: 0.2953 | Valid L1: 1.3796 | Valid RMSE: 1.9413 | Valid a1: 0.6367
+41114.9s	217	2026-01-24 16:22:43,665 - INFO -   Best a1:      0.6397 (Epoch 18)
+41114.9s	218	2026-01-24 16:22:43,665 - INFO -   Best AbsRel:  0.2929 (Epoch 18)
+41114.9s	219	2026-01-24 16:22:43,666 - INFO -   Best RMSE:    1.9312 (Epoch 18)
+### xulijuan/depth-base-colrow-rc50-50
+Valid AbsRel: 0.2889 | Valid L1: 1.3636 | Valid RMSE: 1.9171 | Valid a1: 0.6439
+41012.8s	217	2026-01-24 16:19:12,474 - INFO -   Best a1:      0.6439 (Epoch 19)
+41012.8s	218	2026-01-24 16:19:12,474 - INFO -   Best AbsRel:  0.2889 (Epoch 19)
+41012.8s	219	2026-01-24 16:19:12,474 - INFO -   Best RMSE:    1.9171 (Epoch 19)
+### xulijuan/depth-base-colrow-rc150-50
+Valid AbsRel: 0.2947 | Valid L1: 1.3478 | Valid RMSE: 1.8983 | Valid a1: 0.6425
+41378.7s	217	2026-01-24 16:25:44,342 - INFO -   Best a1:      0.6425 (Epoch 19)
+41378.7s	218	2026-01-24 16:25:44,342 - INFO -   Best AbsRel:  0.2938 (Epoch 16)
+41378.7s	219	2026-01-24 16:25:44,342 - INFO -   Best RMSE:    1.8983 (Epoch 19)
+### jacksisi/depth-base-colrow-rc120-50
+Valid AbsRel: 0.2926 | Valid L1: 1.3479 | Valid RMSE: 1.8995 | Valid a1: 0.6432
+40722.9s	217	2026-01-24 16:17:40,867 - INFO -   Best a1:      0.6432 (Epoch 19)
+40722.9s	218	2026-01-24 16:17:40,867 - INFO -   Best AbsRel:  0.2926 (Epoch 19)
+40722.9s	219	2026-01-24 16:17:40,868 - INFO -   Best RMSE:    1.8995 (Epoch 19)
+### jacksisi/depth-base-colrow-rc200-50
+Valid AbsRel: 0.2876 | Valid L1: 1.3322 | Valid RMSE: 1.8866 | Valid a1: 0.6466
+40864.9s	217	2026-01-24 16:20:21,548 - INFO -   Best a1:      0.6466 (Epoch 19)
+40864.9s	218	2026-01-24 16:20:21,548 - INFO -   Best AbsRel:  0.2876 (Epoch 19)
+40864.9s	219	2026-01-24 16:20:21,548 - INFO -   Best RMSE:    1.8866 (Epoch 19)
 # s60
 ## t0

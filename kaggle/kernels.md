@@ -11,8 +11,8 @@ kaggle kernels delete -y
 # liucong12601
 liucong12601@126.com
 $env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
-liucong12601/depth-base-colrow-rc30-50
-liucong12601/depth-base-colrow-rc70-50
+liucong12601/cls-base-none-lr8e-5-53
+liucong12601/cls-base-none-lr7e-5-53
 
 #  0
 ## sinayliu
@@ -28,8 +28,8 @@ Tang123456
 ## b201xiaoli 
 2360491522@qq.com	dong123.
 # xulijuan 10
-xulijuan/depth-base-colrow-rc50-50
-xulijuan/depth-base-colrow-rc150-50
+xulijuan/cls-base-none-lr3e-4-53
+xulijuan/cls-base-none-lr1e-4-53
 xulijuandh@126.com
 67 epoch
 
@@ -95,8 +95,8 @@ shufang
 # jacksisi 20
 3374608651@qq.com
 weareoverwatch6
-jacksisi/depth-base-colrow-rc120-50
-jacksisi/depth-base-colrow-rc200-50
+jacksisi/cls-base-none-lr5e-5-53
+jacksisi/cls-base-none-lr2e-4-53
 
 ## zhoujiahui0199 
 1556721646@qq.com	1234567
@@ -137,6 +137,8 @@ sthwyx@126.com	shishi0708
 
 ## geminiyy 
 824166939@qq.com	yy824166939
+yinmengmeng 
+1301098952@qq.com	yinmengmeng03
 
 # 28
 ## zhangtingfengztf
@@ -144,39 +146,50 @@ sthwyx@126.com	shishi0708
 
 ## zhikaiwang 
 3056941657@qq.com	20020626wzk
-
+zht121233 
+1209805985@qq.com	Zht121233
 # straghtwizard 29
 1151315805@qq.com	KG@wzm123456
 $env:KAGGLE_API_TOKEN = "KGAT_5c6ab315de5782ce6c8bf882be33a036"
 
 ## chenhao1213 
 2535599143@qq.com	2535599143@qq.com
+rqmiraitowa 
+2576964895@qq.com	rqsmy654321
 # miratowa1 3
 1296778893@qq.com	46890325Qq.
 $env:KAGGLE_API_TOKEN = "KGAT_f66576b645d48300e6a5f903c68c6191"
 
 ## ywhicher 
 1443035024@qq.com	Ywq020409
-
+cfy002 
+1939306270@qq.com	CFYwycs.123
 # jiwei313 30
 2388364616@qq.com	191226JW
 $env:KAGGLE_API_TOKEN = "KGAT_0a0d15cd2dd802134d9df180b98444b4"
 
 ## qinghui9527 
 930569184@qq.com	95279527
-
+rushly 
+1149571164@qq.com	ly20021109
 # qcx2333 31
 1831850884@qq.com	qcx1214
 $env:KAGGLE_API_TOKEN = "KGAT_f47b5206c8e776f42e7d99dcb8ed6012"
 
 ## chengchi1007 
 2895305772@qq.com	100715385che
+srmmmm 
+2043569591@qq.com	srm776105
 # linyunlk243 32
 2499276408@qq.com	Li123456
 $env:KAGGLE_API_TOKEN = "KGAT_6f068ae76e3c608d8592d01349f79f71"
 
 ## yyyyjay 
 1835027462@qq.com	45683968
+
+houwen 
+3376439295@qq.com	Kfbytd1234
+
 # starysinger 33
 3051554253@qq.com	2245425998zxb
 $env:KAGGLE_API_TOKEN = "KGAT_4f16a523d0248adbe04f501e9a41924b"
@@ -184,14 +197,57 @@ $env:KAGGLE_API_TOKEN = "KGAT_4f16a523d0248adbe04f501e9a41924b"
 ## quepimao 
 2073718636@qq.com	329312@112
 
+ttzyty 
+2631351179@qq.com	143526704
+
 # 5
 ## ampere888 
 1529226050@qq.com	202316ap
+
+## cheaterchow 
+zhxdc1314@163.com	zh20010402
+
+top1pcl 
+3127383731@qq.com	20436chaolei
 
 # 6
 ## wzywzy1227 
 2855934153@qq.com	WZy1312025128
 
+## elong1202
+908277849@qq.com	chenelong2000
+yangyangchengcheng 
+1063066745@qq.com	Yc,020526
 
 # 7 lemonlaila 
 2019151183@qq.com	yinyong
+
+## cshlhs 
+1606287049@qq.com	cong0411
+
+kanwenbin 
+1823511259@qq.com	1234567
+
+#8
+
+## yccwff 
+1379438574@qq.com	congge666
+
+## tangjudge 
+1936305287@qq.com	Tjq20011020
+
+## hysz0821 
+2294488074@qq.com	wz2000123
+
+#9
+## asssmer 
+1956285850@qq.com	ycz121416
+
+## cq1234 
+2258201223@qq.com	1234567
+
+## huoqiuxia
+2075921753@qq.com	nanashi124
+
+
+

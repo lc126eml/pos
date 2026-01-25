@@ -1,17 +1,20 @@
-task: depth
-id: jacksisi
+task: cls
+id: starysinger
 pos_type: null
 method: colrow
 model_size: base
-suffix: 0
+suffix: 1
 desc: rc200
 is_private: false
 dataset_sources: null
-kernel_sources: null
-resume_full_ckpt: false
+kernel_sources: starysinger/cls-base-colrow-rc200-52
+resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
-seed: 50
+tpu: false
+tpu_workers: 0
+tpu_threads: 1
+seed: 52
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

@@ -235,6 +235,7 @@ def main():
 
     task = cfg["task"]
     pos_type = cfg.get("pos_type")
+    use_tpu = bool(cfg.get("tpu", False))
     if pos_type is not None:
         if task != "cls":
             raise ValueError("pos_type is only supported for cls task.")
@@ -242,7 +243,10 @@ def main():
     elif task == "seg":
         py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":
-        py_file = Path("dinov3_reg_dynamic.py")
+        if use_tpu:
+            py_file = Path("dinov3_reg_dynamic_tpu.py")
+        else:
+            py_file = Path("dinov3_reg_dynamic.py")
     elif task == "depth":
         py_file = Path("depth") / "dinov3_depth_kaggle.py"
     else:
@@ -291,6 +295,11 @@ def main():
         "use_abs_pos_emb": use_abs_pos_emb,
         "use_rc_loss": use_rc_loss,
     }
+    if use_tpu:
+        if _has_args_key(py_text, "tpu_workers"):
+            updates["tpu_workers"] = cfg.get("tpu_workers")
+        if _has_args_key(py_text, "tpu_threads"):
+            updates["tpu_threads"] = cfg.get("tpu_threads")
     if _has_args_key(py_text, "use_patch_position_loss"):
         updates["use_patch_position_loss"] = use_patch_position_loss
     for item in _as_list(cfg.get("simple")):
@@ -328,6 +337,8 @@ def main():
     json_data = dict(before_json)
     json_data["is_private"] = _bool_to_str(cfg["is_private"])
     json_data["code_file"] = os.path.relpath(py_path, BASE_DIR)
+    json_data["enable_tpu"] = _bool_to_str(use_tpu)
+    json_data["enable_gpu"] = _bool_to_str(not use_tpu)
 
     desc = cfg.get("desc")
     if not desc:
@@ -385,7 +396,7 @@ def main():
         for key in sorted(updates.keys()):
             print(f"  {key}: {before_args.get(key)} -> {after_args.get(key)}")
         print("JSON changes:")
-        for key in ["is_private", "id", "title", "dataset_sources", "kernel_sources"]:
+        for key in ["is_private", "id", "title", "dataset_sources", "kernel_sources", "enable_tpu", "enable_gpu"]:
             print(f"  {key}: {before_json.get(key)} -> {json_data.get(key)}")
 
     if args_ns.run:
