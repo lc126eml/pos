@@ -158,6 +158,7 @@ def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_l
     with lock_ctx:
         kcfg = _load_yaml(config_kernel_path)
         running_nodes = kcfg.get("running_nodes") or []
+        tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
         node_id = cfg["id"]
         is_tpu = bool(cfg.get("tpu", False))
         tpu_cfg = kcfg.get("tpu") or {}
@@ -171,19 +172,19 @@ def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_l
                 kcfg["tpu"] = tpu_cfg
             else:
                 kcfg["available_ids"] = available_ids
+        nodes = tpu_running_nodes if is_tpu else running_nodes
         node = None
-        for item in running_nodes:
-            if item.get("id") == node_id and bool(item.get("tpu_node", False)) == is_tpu:
+        for item in nodes:
+            if item.get("id") == node_id:
                 node = item
                 break
         if node is None:
             node = {
                 "id": node_id,
-                "tpu_node": is_tpu,
                 "left_time": 20 if is_tpu else 30,
                 "notebooks": [],
             }
-            running_nodes.append(node)
+            nodes.append(node)
         notebooks = node.get("notebooks")
         if notebooks is None:
             notebooks = []
@@ -201,6 +202,7 @@ def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_l
         notebooks.append(notebook)
         node["notebooks"] = notebooks
         kcfg["running_nodes"] = running_nodes
+        kcfg["tpu_running_nodes"] = tpu_running_nodes
         _write_yaml(config_kernel_path, kcfg)
 
 
@@ -363,12 +365,11 @@ def main():
         config_kernel_path = BASE_DIR / "config_kernel.yaml"
         kcfg = _load_yaml(config_kernel_path)
         running_nodes = kcfg.get("running_nodes") or []
+        tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
         selected_from_available = False
         if use_tpu:
             chosen = None
-            for node in running_nodes:
-                if not bool(node.get("tpu_node", False)):
-                    continue
+            for node in tpu_running_nodes:
                 if float(node.get("left_time", 0) or 0) <= 0:
                     continue
                 if node.get("notebooks"):
@@ -385,8 +386,6 @@ def main():
         else:
             chosen = None
             for node in running_nodes:
-                if bool(node.get("tpu_node", False)):
-                    continue
                 if float(node.get("left_time", 0) or 0) <= 0:
                     continue
                 notebooks = node.get("notebooks") or []
@@ -415,7 +414,10 @@ def main():
         else:
             py_file = Path("dinov3_reg_dynamic.py")
     elif task == "depth":
-        py_file = Path("depth") / "dinov3_depth_kaggle.py"
+        if use_tpu:
+            py_file = Path("depth") / "dinov3_depth_kaggle_tpu.py"
+        else:
+            py_file = Path("depth") / "dinov3_depth_kaggle.py"
     else:
         raise ValueError(f"Unsupported task: {task}")
 

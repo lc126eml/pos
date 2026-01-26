@@ -1,10 +1,10 @@
-task: cls
-id: zjl001
-pos_type: relpos # alibi relpos
+task: depth
+id: 
+pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
 model_size: base
 suffix: 0
-desc: d
+desc: lr7e-5
 is_private: false
 dataset_sources: null
 kernel_sources: null

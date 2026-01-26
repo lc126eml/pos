@@ -12,7 +12,5 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 liucong12601/cls-base-rope-d-50
 sinayliu/cls-base-abs-d-50
 pycjn666/cls-base-colrow-d-50
-
 jjjerry12138/cls-base-alibi-d-50
 zjl001/cls-base-relpos-d-50
-

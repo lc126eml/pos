@@ -1,7 +1,7 @@
 {
-  "id": "zjl001/cls-base-relpos-d-50",
-  "title": "cls base relpos d 50",
-  "code_file": "../dinov3_reg_dynamic_pos.py",
+  "id": "yuanhahah/depth-base-none-lr7e-5-50",
+  "title": "depth base none lr7e 5 50",
+  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,7 +10,12 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "ambityga/imagenet100"
+    "liucong12601/hsm-train-part01",
+    "liucong12601/hsm-train-part02",
+    "liucong12601/hsm-train-part03",
+    "liucong12601/hsm-train-part04",
+    "liucong12601/hsm-train-part05",
+    "liucong12601/hsm-test-val"
   ],
   "competition_sources": [],
   "kernel_sources": [],

@@ -29,9 +29,18 @@ Expected config_kernel.yaml fields:
 - tpu:
   - available_ids: [owner_id, ...]
   - exhausted_ids: [owner_id, ...]
-- running_nodes:
+- running_nodes:  # GPU nodes
   - id: owner_id
-    tpu_node: bool (optional; default false)
+    left_time: float
+    notebooks:
+      - kernel_id: owner/task-model-tag-desc-suffixseed
+        total_runs: int
+        run_id: int
+        start_time: ISO8601 string or unix timestamp
+        resumed_from: kernel_id or null
+        history_ids: [kernel_id, ...]
+- tpu_running_nodes:  # TPU nodes
+  - id: owner_id
     left_time: float
     notebooks:
       - kernel_id: owner/task-model-tag-desc-suffixseed
@@ -179,8 +188,6 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
     for candidate in running_nodes:
         if candidate is node:
             continue
-        if bool(candidate.get("tpu_node", False)) != is_tpu:
-            continue
         if float(candidate.get("left_time", 0)) <= 0:
             continue
         candidate_notebooks = candidate.get("notebooks") or []
@@ -199,7 +206,7 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
         logging.warning("No available ids left to resume.")
         return None
     new_id = available_ids.pop(0)
-    target_node = {"id": new_id, "tpu_node": is_tpu, "notebooks": []}
+    target_node = {"id": new_id, "notebooks": []}
     target_node["left_time"] = 20 if is_tpu else 30
     target_node["notebooks"].append(notebook)
     running_nodes.append(target_node)
@@ -228,6 +235,16 @@ def main():
         "--dry",
         action="store_true",
         help="Do not run kaggle commands; only report them.",
+    )
+    parser.add_argument(
+        "--tpu",
+        action="store_true",
+        help="Process TPU running nodes only.",
+    )
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Process GPU running nodes only.",
     )
     parser.add_argument(
         "--no-lock",
@@ -259,6 +276,7 @@ def main():
             now = _now_naive()
             changed = False
             running_nodes = kcfg.get("running_nodes") or []
+            tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
             available_ids = kcfg.get("available_ids") or []
             exhausted_ids = kcfg.get("exhausted_ids") or []
             tpu_cfg = kcfg.get("tpu") or {}
@@ -266,187 +284,176 @@ def main():
             tpu_exhausted_ids = tpu_cfg.get("exhausted_ids") or []
             finished_notebooks = kcfg.get("finished_notebooks") or []
             finished_tpu_notebooks = kcfg.get("finished_tpu_notebooks") or []
+            process_gpu = args.gpu or not (args.gpu or args.tpu)
+            process_tpu = args.tpu or not (args.gpu or args.tpu)
 
-            for node in list(running_nodes):
-                notebooks = node.get("notebooks") or []
-                is_tpu = bool(node.get("tpu_node", False))
-                if "left_time" not in node:
-                    node["left_time"] = 20 if is_tpu else 30
-                for notebook in list(notebooks):
-                    kernel_id = notebook.get("kernel_id")
-                    if not kernel_id:
-                        continue
-                    if args.dry:
-                        if verbose:
-                            logging.info("Dry run: kaggle kernels status %s", kernel_id)
-                        status, detail = "unknown", ""
-                    else:
-                        status, detail = _kernel_status(kernel_id, tokens)
-                    if verbose:
-                        logging.info("%s: %s", kernel_id, status)
-                    if status == "running":
-                        continue
-                    if status == "error":
-                        logging.error(detail)
-                        continue
-
-                    if status == "finished":
-                        notebook["run_id"] = int(notebook.get("run_id", 0)) + 1
-                        resumed_from = notebook.get("resumed_from")
-                        history_ids = list(notebook.get("history_ids") or [])
-                        if resumed_from:
-                            history_ids.append(resumed_from)
-                        notebook["history_ids"] = history_ids
-                        notebook["resumed_from"] = kernel_id
-
-                        start_time = _parse_time(notebook.get("start_time"))
-                        before_left = float(node.get("left_time", 20 if is_tpu else 30))
-                        if start_time is None:
-                            if verbose:
-                                logging.warning(
-                                    "Missing start_time for %s; skipping left_time update",
-                                    notebook.get("kernel_id"),
-                                )
-                            left_time = before_left
-                        else:
-                            elapsed_hr = (now - start_time).total_seconds() / 3600
-                            left_time = before_left - elapsed_hr
-                            node["left_time"] = left_time
-                            if verbose:
-                                logging.info(
-                                    "Updated left_time for %s: %.2f -> %.2f (elapsed %.2f h)",
-                                    node.get("id"),
-                                    before_left,
-                                    left_time,
-                                    elapsed_hr,
-                                )
-
-                        total_runs = int(notebook.get("total_runs", 0))
-                        if notebook["run_id"] >= total_runs:
-                            if is_tpu:
-                                _move_finished(notebook, finished_tpu_notebooks)
-                            else:
-                                _move_finished(notebook, finished_notebooks)
-                            notebooks.remove(notebook)
-                            changed = True
+            def _process_nodes(nodes, is_tpu, available, exhausted):
+                nonlocal changed
+                for node in list(nodes):
+                    notebooks = node.get("notebooks") or []
+                    if "left_time" not in node:
+                        node["left_time"] = 20 if is_tpu else 30
+                    for notebook in list(notebooks):
+                        kernel_id = notebook.get("kernel_id")
+                        if not kernel_id:
                             continue
-
-                        target_node = node
-                        if left_time <= 0:
-                            if is_tpu:
-                                target_node = _move_to_new_node(
-                                    node,
-                                    notebook,
-                                    running_nodes,
-                                    tpu_available_ids,
-                                    tpu_exhausted_ids,
-                                    True,
-                                )
-                            else:
-                                target_node = _move_to_new_node(
-                                    node,
-                                    notebook,
-                                    running_nodes,
-                                    available_ids,
-                                    exhausted_ids,
-                                    False,
-                                )
-                            if target_node is None:
-                                continue
-                            if verbose:
-                                logging.info(
-                                    "Moved notebook to node: %s -> %s",
-                                    node.get("id"),
-                                    target_node.get("id"),
-                                )
-
-                        resumed_from_id = notebook.get("resumed_from")
-                        if not resumed_from_id:
-                            logging.warning("Missing resumed_from for notebook.")
-                            continue
-
-                        cfg = _prepare_cfg_from_resume(
-                            base_cfg,
-                            resumed_from_id,
-                            notebook["run_id"],
-                            target_node.get("id"),
-                        )
-                        cfg["tpu"] = bool(target_node.get("tpu_node", False))
-                        new_kernel_id = _build_kernel_id(cfg)
-                        notebook["kernel_id"] = new_kernel_id
-                        notebook["start_time"] = _format_time(now)
-                        if verbose:
-                            logging.info(
-                                "Updated kernel_id for notebook: %s",
-                                new_kernel_id,
-                            )
-
-                        if verbose:
-                            logging.info("Submitting kernel: %s", new_kernel_id)
                         if args.dry:
-                            logging.info(
-                                "Dry run: python %s --run --concise",
-                                str(BASE_DIR / "process_kaggle.py"),
-                            )
-                            ok, output = True, ""
+                            if verbose:
+                                logging.info("Dry run: kaggle kernels status %s", kernel_id)
+                            status, detail = "unknown", ""
                         else:
-                            ok, output = _push_kernel(cfg)
-                        if not ok:
-                            quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
-                            if quota_msg in output:
+                            status, detail = _kernel_status(kernel_id, tokens)
+                        if verbose:
+                            logging.info("%s: %s", kernel_id, status)
+                        if status == "running":
+                            continue
+                        if status == "error":
+                            logging.error(detail)
+                            continue
+
+                        if status == "finished":
+                            notebook["run_id"] = int(notebook.get("run_id", 0)) + 1
+                            resumed_from = notebook.get("resumed_from")
+                            history_ids = list(notebook.get("history_ids") or [])
+                            if resumed_from:
+                                history_ids.append(resumed_from)
+                            notebook["history_ids"] = history_ids
+                            notebook["resumed_from"] = kernel_id
+
+                            start_time = _parse_time(notebook.get("start_time"))
+                            before_left = float(node.get("left_time", 20 if is_tpu else 30))
+                            if start_time is None:
+                                if verbose:
+                                    logging.warning(
+                                        "Missing start_time for %s; skipping left_time update",
+                                        notebook.get("kernel_id"),
+                                    )
+                                left_time = before_left
+                            else:
+                                elapsed_hr = (now - start_time).total_seconds() / 3600
+                                left_time = before_left - elapsed_hr
+                                node["left_time"] = left_time
+                                if verbose:
+                                    logging.info(
+                                        "Updated left_time for %s: %.2f -> %.2f (elapsed %.2f h)",
+                                        node.get("id"),
+                                        before_left,
+                                        left_time,
+                                        elapsed_hr,
+                                    )
+
+                            total_runs = int(notebook.get("total_runs", 0))
+                            if notebook["run_id"] >= total_runs:
                                 if is_tpu:
-                                    target_node = _move_to_new_node(
-                                        target_node,
-                                        notebook,
-                                        running_nodes,
-                                        tpu_available_ids,
-                                        tpu_exhausted_ids,
-                                        True,
-                                    )
+                                    _move_finished(notebook, finished_tpu_notebooks)
                                 else:
-                                    target_node = _move_to_new_node(
-                                        target_node,
-                                        notebook,
-                                        running_nodes,
-                                        available_ids,
-                                        exhausted_ids,
-                                        False,
-                                    )
+                                    _move_finished(notebook, finished_notebooks)
+                                notebooks.remove(notebook)
+                                changed = True
+                                continue
+
+                            target_node = node
+                            if left_time <= 0:
+                                target_node = _move_to_new_node(
+                                    node,
+                                    notebook,
+                                    nodes,
+                                    available,
+                                    exhausted,
+                                    is_tpu,
+                                )
                                 if target_node is None:
                                     continue
                                 if verbose:
                                     logging.info(
-                                        "Quota reached. Moved notebook to node: %s",
+                                        "Moved notebook to node: %s -> %s",
+                                        node.get("id"),
                                         target_node.get("id"),
                                     )
-                                cfg["id"] = target_node.get("id")
-                                cfg["tpu"] = bool(target_node.get("tpu_node", False))
-                                new_kernel_id = _build_kernel_id(cfg)
-                                notebook["kernel_id"] = new_kernel_id
-                                notebook["start_time"] = _format_time(now)
-                                if verbose:
-                                    logging.info(
-                                        "Updated kernel_id for notebook: %s",
-                                        new_kernel_id,
-                                    )
-                                if verbose:
-                                    logging.info("Submitting kernel: %s", new_kernel_id)
-                                if args.dry:
-                                    logging.info(
-                                        "Dry run: python %s --run --concise",
-                                        str(BASE_DIR / "process_kaggle.py"),
-                                    )
-                                    ok, output = True, ""
-                                else:
-                                    ok, output = _push_kernel(cfg)
-                            if not ok:
-                                logging.error(output)
-                                continue
-                        changed = True
 
-                node["notebooks"] = notebooks
+                            resumed_from_id = notebook.get("resumed_from")
+                            if not resumed_from_id:
+                                logging.warning("Missing resumed_from for notebook.")
+                                continue
+
+                            cfg = _prepare_cfg_from_resume(
+                                base_cfg,
+                                resumed_from_id,
+                                notebook["run_id"],
+                                target_node.get("id"),
+                            )
+                            cfg["tpu"] = is_tpu
+                            new_kernel_id = _build_kernel_id(cfg)
+                            notebook["kernel_id"] = new_kernel_id
+                            notebook["start_time"] = _format_time(now)
+                            if verbose:
+                                logging.info(
+                                    "Updated kernel_id for notebook: %s",
+                                    new_kernel_id,
+                                )
+
+                            if verbose:
+                                logging.info("Submitting kernel: %s", new_kernel_id)
+                            if args.dry:
+                                logging.info(
+                                    "Dry run: python %s --run --concise",
+                                    str(BASE_DIR / "process_kaggle.py"),
+                                )
+                                ok, output = True, ""
+                            else:
+                                ok, output = _push_kernel(cfg)
+                            if not ok:
+                                quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
+                                if quota_msg in output:
+                                    target_node = _move_to_new_node(
+                                        target_node,
+                                        notebook,
+                                        nodes,
+                                        available,
+                                        exhausted,
+                                        is_tpu,
+                                    )
+                                    if target_node is None:
+                                        continue
+                                    if verbose:
+                                        logging.info(
+                                            "Quota reached. Moved notebook to node: %s",
+                                            target_node.get("id"),
+                                        )
+                                    cfg["id"] = target_node.get("id")
+                                    cfg["tpu"] = is_tpu
+                                    new_kernel_id = _build_kernel_id(cfg)
+                                    notebook["kernel_id"] = new_kernel_id
+                                    notebook["start_time"] = _format_time(now)
+                                    if verbose:
+                                        logging.info(
+                                            "Updated kernel_id for notebook: %s",
+                                            new_kernel_id,
+                                        )
+                                    if verbose:
+                                        logging.info("Submitting kernel: %s", new_kernel_id)
+                                    if args.dry:
+                                        logging.info(
+                                            "Dry run: python %s --run --concise",
+                                            str(BASE_DIR / "process_kaggle.py"),
+                                        )
+                                        ok, output = True, ""
+                                    else:
+                                        ok, output = _push_kernel(cfg)
+                                if not ok:
+                                    logging.error(output)
+                                    continue
+                            changed = True
+
+                    node["notebooks"] = notebooks
+
+            if process_gpu:
+                _process_nodes(running_nodes, False, available_ids, exhausted_ids)
+            if process_tpu:
+                _process_nodes(tpu_running_nodes, True, tpu_available_ids, tpu_exhausted_ids)
 
             kcfg["running_nodes"] = running_nodes
+            kcfg["tpu_running_nodes"] = tpu_running_nodes
             kcfg["available_ids"] = available_ids
             kcfg["exhausted_ids"] = exhausted_ids
             if tpu_cfg:
