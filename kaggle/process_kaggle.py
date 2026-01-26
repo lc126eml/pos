@@ -282,8 +282,10 @@ def main():
         help="Print a concise report instead of detailed before/after changes.",
     )
     parser.add_argument(
+        "--add-node",
         "--add-running-node",
         action="store_true",
+        dest="add_running_node",
         help="When used with --run, append the pushed kernel to config_kernel.yaml running_nodes.",
     )
     parser.add_argument(

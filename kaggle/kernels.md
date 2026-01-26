@@ -17,6 +17,10 @@ liucongy@sina.com
 
 ## jcy666  
 2446067653@qq.com	jcyniu666
+
+roseqw 
+2436730808@qq.com	qw200209115090
+
 # 1
 ##  wenyangtang
 13082556807@163.com
@@ -24,6 +28,9 @@ Tang123456
 
 ## b201xiaoli 
 2360491522@qq.com	dong123.
+
+jiangshuai0210 
+3184763954@qq.com	jiangshuai123
 
 # xulijuan 10
 xulijuan/cls-base-none-lr1e-4-53
@@ -35,7 +42,8 @@ xulijuandh@126.com
 409274141@qq.com
 ## zhuangminghui 
 2396009152@qq.com	zmh188018
-
+eastwangwei 
+178616772@qq.com	wwd20011201
 # 12
 ##  yuanhahah 
 152366228@qq.com
@@ -43,17 +51,26 @@ xulijuandh@126.com
 
 ## autune
 1271610041@qq.com	020306xaT？
+
+maoshuwen0415 
+3416975163@qq.com	mao20030415
+
 # liucong126 13
 liucong126eml@126.com
 
 ## yangjiamin 
 248172682@qq.com	yjm411yjm
 
+rmoope 
+rmoope7@163.com	20021121abc
+
 # xulin5522 15
 2450682067@qq.com	xulin1207@
 
 ## zjl001 
 2013293864@qq.com	Zhu081608
+permanentlove 
+15151354236@163.com	2002021114Zxr
 
 # ohyeah00 16
 1715071962@qq.com
@@ -61,13 +78,16 @@ wyh456852
 
 ## zzr123123 
 1449517895@qq.com	Zzr14159
-
+xiaoluoalice 
+18762370038@163.com	230808jyw
 # asdsad0000 17
 2131286169@qq.com
 163972xjr
 
 ## smartchaochao 
 smartchaochao@qq.com	xu102599
+xwj66666 
+1251159180@qq.com	xwj13218783926
 
 # du55148 18
 2316488358@qq.com	
@@ -75,12 +95,19 @@ hx2021..@
 ## denghaimeng 
 2062883397@qq.com	LHdhm20726
 
+jiangshuai0210 
+jiangshuai0210	jiangshuai123
+
 # sollasi 19
 547164434@qq.com		
 shufang
 
 ## zongjiaxin 
 1532877627@qq.com	zjx13814652157
+
+jokerking1 
+1605030070@qq.com	lqg4496540
+
 # cdong121 2
  956808459@qq.com		
 20001222.
@@ -88,12 +115,17 @@ shufang
 ## jjjerry12138 
 2905176273@qq.com	2002cheng1
 
+ycy1n66 
+252097917@qq.com	ycy292034
+
 # jacksisi 20
 3374608651@qq.com
 weareoverwatch6
 
 ## zhoujiahui0199 
 1556721646@qq.com	1234567
+keyongkk 
+269168988@qq.com	071406Lyt
 
 # pycjn666 21
 pycjn666	654242py
@@ -101,29 +133,42 @@ pycjn666	654242py
 ## cycyxcy 
 1246069481@qq.com	000304cy
 
+fzzy123 
+fzzy123	20191225Fzywjs99
 # zhuzichen123 22
 2767643932@qq.com	zhu1zi2chen3
 
 ## luanjing 
 13182296316@163.com	lj20020810
-+gpu
+jufuchao 
+2428141339@qq.com	123321jfc
 
 # dusi605 23
 1455719765@qq.com	aaa153246789
 
 ## ssss7777 
 sthwyx@126.com	shishi0708
+uamadeus 
+2969456645@qq.com	li416614
+
 # sh1weiwu 25
 2980441757@qq.com	weiwei123456..
 
 ## xuwenhui123 
 319267104@qq.com	xwh20020612
 
+## xx03071425 
+3084160986@qq.com	369258147Yy
+
+
+
 # ly1122 26
 1610392285@qq.com	ly309112
 
 ## jinzhanbo 
 2922907804@qq.com	811215jzb
+## dddd110 
+z2638413012@163.com	2195884214
 
 # 27
 ## phoenixcsw01 

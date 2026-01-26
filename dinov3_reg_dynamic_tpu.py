@@ -112,7 +112,7 @@ def main():
         print("not kaggle", flush=True)
     args = SimpleNamespace(
         pos_type = None,
-        dynamic_img_size=False,
+        dynamic_img_size=True,
         model_type= "dinov3",
         use_abs_pos_emb=False,
         use_rot_pos_emb=False,
@@ -122,7 +122,7 @@ def main():
         batch_size=64,
         img_sizes=[224],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
-        lr=3e-05,
+        lr=7e-05,
         lr_aux=1e-5,
         eta_min=0.0,
         weight_decay=0.01,
@@ -131,7 +131,7 @@ def main():
         pretrained=None,
         seed=50,
         use_patch_position_loss=False,
-        use_rc_loss=False,
+        use_rc_loss=True,
         rc_alpha=600.0,
         warmup_steps_for_aux=1,
         workers=5,
@@ -218,6 +218,8 @@ def main():
         args.rc_alpha = 600.0
     else:
         args.rc_alpha = 300.0
+    if args.val and isinstance(args.val_img_sizes, (list, tuple)) and len(set(args.val_img_sizes)) > 1:
+        args.dynamic_img_size = True
     
     offset = 0
     MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
@@ -1719,6 +1721,8 @@ def main():
             'img_size': [],
             'valid_acc': []
         }
+        if IS_MASTER and args.dynamic_img_size:
+            logger.info("Final eval: dynamic_img_size enabled for multi-size evaluation.")
 
         if not args.train:
             if ckpt_path is None:
@@ -1727,6 +1731,16 @@ def main():
         model.to(DEVICE)
         model.eval()
         for img_size in args.val_img_sizes:
+            if hasattr(model, "set_input_size"):
+                try:
+                    model.set_input_size(img_size)
+                except Exception:
+                    pass
+            elif hasattr(model, "patch_embed") and hasattr(model.patch_embed, "set_input_size"):
+                try:
+                    model.patch_embed.set_input_size(img_size)
+                except Exception:
+                    pass
             valid_dataset.set_transform(make_valid_transform(img_size))
             batch_size = max(1, int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size)))
             valid_sampler = DistributedSampler(

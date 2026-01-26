@@ -1,7 +1,7 @@
 {
-  "id": "zjl001/cls-base-none-lr3e-5-50",
-  "title": "cls base none lr3e 5 50",
-  "code_file": "../dinov3_reg_dynamic_tpu.py",
+  "id": "zjl001/cls-base-relpos-d-50",
+  "title": "cls base relpos d 50",
+  "code_file": "../dinov3_reg_dynamic_pos.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",

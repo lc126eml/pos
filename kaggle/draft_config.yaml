@@ -1,10 +1,10 @@
 task: cls
 id: zjl001
-pos_type: null
-method: none
+pos_type: relpos # alibi relpos
+method: none # colrow, rope, abs, none
 model_size: base
 suffix: 0
-desc: lr3e-5
+desc: d
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -18,4 +18,3 @@ seed: 50
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
-- lr: 3.0e-5

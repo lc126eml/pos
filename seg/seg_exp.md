@@ -143,3 +143,47 @@ lr 5e-6 < lr 1e-5 < lr 5e-4; eta_min=1e-07>eta_min=5e-06
 3e-5<3e-4 <2e-4 < 1e-4<5e-5<7e-5
 scale_jitter=(1.0, 1.3) ms_scales=(0.9, 1.0, 1.15) good
 
+
+## 20260126
+
+### ssss7777/seg-base-none-d-462
+0.641675651	0.173174977	1270.080759	36.24966121	130
+final_ms_flip_acc	final_ms_flip_miou
+0.650637865	0.177162245
+
+### xuwenhui123/seg-base-none-d-463
+0.643769264	0.171932027	1274.159467	36.52642822	130
+final_ms_flip_acc	final_ms_flip_miou
+0.651744783	0.176925763
+
+### ssss7777/seg-base-abs-d-462
+0.647718072	0.173013985	1278.032331	37.059834	130
+final_ms_flip_acc	final_ms_flip_miou
+0.656223953	0.179579079
+
+### luanjing/seg-base-abs-d-463
+0.646909654	0.1753553	1269.545855	36.35778284	130
+final_ms_flip_acc	final_ms_flip_miou
+0.654545426	0.178035215
+
+### cycyxcy/seg-base-rope-d-462
+0.645766675	0.174602062	1345.539452	39.54678535	130
+final_ms_flip_acc	final_ms_flip_miou
+0.655943811	0.17811574
+
+### luanjing/seg-base-rope-d-463
+0.649474025	0.176710337	1344.75557	39.53073621	130
+final_ms_flip_acc	final_ms_flip_miou
+0.658887625	0.182158306
+
+
+### jjjerry12138/seg-base-colrow-d-462
+valid_acc	valid_miou	train_time	val_time	epoch
+0.657746851	0.182367831	1283.350677	36.40031314	130
+final_ms_flip_acc	final_ms_flip_miou
+0.664748371	0.185647383
+
+### zhoujiahui0199/seg-base-colrow-d-463
+0.662185669	0.189363912	1289.004605	36.83899689	130
+final_ms_flip_acc	final_ms_flip_miou
+0.669000089	0.193113744
