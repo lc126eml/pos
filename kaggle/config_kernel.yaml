@@ -307,30 +307,18 @@ running_nodes:
   left_time: 25.40898055222222
 - id: cycyxcy
   tpu_node: false
-  notebooks:
-  - kernel_id: cycyxcy/seg-base-rope-d-462
-    run_id: 4
-    total_runs: 5
-    start_time: '2026-01-26 09:44:52'
-    resumed_from: pycjn666/seg-base-rope-d-362
-    history_ids: []
-  left_time: 27.446641002222222
+  notebooks: []
+  left_time: 23.466288821666666
 - id: luanjing
   tpu_node: false
   notebooks:
-  - kernel_id: luanjing/seg-base-rope-d-463
-    run_id: 4
-    total_runs: 5
-    start_time: '2026-01-26 09:44:52'
-    resumed_from: straghtwizard/seg-base-rope-d-363
-    history_ids: []
   - kernel_id: luanjing/depth-base-colrow-rc200-150
     run_id: 1
     total_runs: 5
     start_time: '2026-01-26 11:34:26'
     resumed_from: jcy666/depth-base-colrow-rc200-50
     history_ids: []
-  left_time: 29.165515458333335
+  left_time: 25.18516327777778
 - id: ssss7777
   tpu_node: false
   notebooks:
@@ -422,3 +410,13 @@ finished_notebooks:
   start_time: '2026-01-26 10:16:05'
   history_ids:
   - pycjn666/seg-base-colrow-d-362
+- kernel_id: cycyxcy/seg-base-rope-d-462
+  total_runs: 5
+  start_time: '2026-01-26 09:44:52'
+  history_ids:
+  - pycjn666/seg-base-rope-d-362
+- kernel_id: luanjing/seg-base-rope-d-463
+  total_runs: 5
+  start_time: '2026-01-26 09:44:52'
+  history_ids:
+  - straghtwizard/seg-base-rope-d-363

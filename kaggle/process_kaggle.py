@@ -3,10 +3,13 @@ import json
 import os
 import re
 import subprocess
+from contextlib import nullcontext
+from datetime import datetime
 from pathlib import Path
 
 import yaml
 
+from lock_utils import file_lock
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -110,6 +113,86 @@ def _infer_from_source_id(source_id):
     return task, model_size, method, seed, pos_type, desc, suffix
 
 
+def _load_yaml(path):
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _write_yaml(path, data):
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+
+def _suffix_to_run_id(value):
+    if value in (None, "", 0, "0"):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid suffix value for run_id: {value}") from exc
+
+
+def _resolve_resume_source(cfg):
+    if not cfg.get("resume_full_ckpt"):
+        return None
+    resume_source = cfg.get("resume_source")
+    if resume_source == "kernel":
+        source = cfg.get("kernel_sources")
+    elif resume_source == "dataset":
+        source = cfg.get("dataset_sources")
+    else:
+        return None
+    sources = _as_list(source)
+    if not sources:
+        return None
+    src = sources[0]
+    return src if isinstance(src, str) else str(src)
+
+
+def _add_running_node(cfg, kernel_id, use_lock=True):
+    config_kernel_path = BASE_DIR / "config_kernel.yaml"
+    lock_path = config_kernel_path.with_suffix(config_kernel_path.suffix + ".lock")
+    lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=30.) if use_lock else nullcontext()
+    with lock_ctx:
+        kcfg = _load_yaml(config_kernel_path)
+        running_nodes = kcfg.get("running_nodes") or []
+        node_id = cfg["id"]
+        is_tpu = bool(cfg.get("tpu", False))
+        node = None
+        for item in running_nodes:
+            if item.get("id") == node_id and bool(item.get("tpu_node", False)) == is_tpu:
+                node = item
+                break
+        if node is None:
+            node = {
+                "id": node_id,
+                "tpu_node": is_tpu,
+                "left_time": 20 if is_tpu else 30,
+                "notebooks": [],
+            }
+            running_nodes.append(node)
+        notebooks = node.get("notebooks")
+        if notebooks is None:
+            notebooks = []
+            node["notebooks"] = notebooks
+        if any(nb.get("kernel_id") == kernel_id for nb in notebooks):
+            return
+        notebook = {
+            "kernel_id": kernel_id,
+            "run_id": _suffix_to_run_id(cfg.get("suffix")),
+            "total_runs": 8,
+            "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "resumed_from": _resolve_resume_source(cfg),
+            "history_ids": [],
+        }
+        notebooks.append(notebook)
+        node["notebooks"] = notebooks
+        kcfg["running_nodes"] = running_nodes
+        _write_yaml(config_kernel_path, kcfg)
+
+
 def _update_args_block(text, updates, add_missing=None):
     lines = text.splitlines(keepends=True)
     in_block = False
@@ -197,6 +280,18 @@ def main():
         "--concise",
         action="store_true",
         help="Print a concise report instead of detailed before/after changes.",
+    )
+    parser.add_argument(
+        "--add-running-node",
+        action="store_true",
+        help="When used with --run, append the pushed kernel to config_kernel.yaml running_nodes.",
+    )
+    parser.add_argument(
+        "--no-lock",
+        action="store_false",
+        dest="lock",
+        default=True,
+        help="Disable config_kernel.yaml locking.",
     )
     parser.add_argument(
         "--cfg",
@@ -428,6 +523,8 @@ def main():
             )
         else:
             subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
+        if args_ns.add_running_node:
+            _add_running_node(cfg, kernel_id, use_lock=args_ns.lock)
 
 
 if __name__ == "__main__":
