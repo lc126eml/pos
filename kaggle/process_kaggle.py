@@ -198,9 +198,18 @@ def main():
         action="store_true",
         help="Print a concise report instead of detailed before/after changes.",
     )
+    parser.add_argument(
+        "--cfg",
+        default=str(BASE_DIR / "config.yaml"),
+        help="Path to config.yaml (absolute or relative to kaggle/).",
+    )
     args_ns = parser.parse_args()
 
-    cfg_path = BASE_DIR / "config.yaml"
+    cfg_path = Path(args_ns.cfg).expanduser()
+    if not cfg_path.is_absolute():
+        cfg_path = (BASE_DIR / cfg_path).resolve()
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Config file not found: {cfg_path}")
     with cfg_path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 

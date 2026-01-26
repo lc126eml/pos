@@ -88,7 +88,7 @@ args = SimpleNamespace(
     eval_root=eval_root_default,
     eval_split="val",  # "val" or "test" when eval_root has subdirs
     model_type="dinov3",
-    use_abs_pos_emb=True,
+    use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],
@@ -108,7 +108,7 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=53,
+    seed=51,
     val_steps=None,
     use_rc_loss=False,
     loss_type="smooth_l1",
@@ -145,7 +145,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/depth-base-abs-d-253/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/depth-base-none-d-551/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=True,
@@ -2288,6 +2288,8 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, 
 # =============================================================================
 # Main train loop
 # =============================================================================
+if args.break_at_epoch is not None and start_epoch >= args.break_at_epoch:
+    args.train = False
 if args.train:
     logger.info("Starting training...")
     for epoch in range(start_epoch, EPOCHS):

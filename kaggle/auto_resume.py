@@ -166,7 +166,7 @@ def _push_kernel(cfg):
 
 def _move_finished(notebook, finished_notebooks):
     finished = dict(notebook)
-    for key in ("start_time", "run_id", "resumed_from"):
+    for key in ("run_id", "resumed_from"):
         finished.pop(key, None)
     finished_notebooks.append(finished)
 
@@ -308,7 +308,7 @@ def main():
                             )
 
                     total_runs = int(notebook.get("total_runs", 0))
-                    if notebook["run_id"] == total_runs:
+                    if notebook["run_id"] >= total_runs:
                         _move_finished(notebook, finished_notebooks)
                         notebooks.remove(notebook)
                         changed = True
@@ -442,6 +442,7 @@ def main():
             _write_yaml(config_path, kcfg)
 
         del kcfg
+        logging.info("sleeping ...")
         time.sleep(poll_interval_minutes * 60)
 
 

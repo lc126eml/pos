@@ -7,6 +7,8 @@ import gc
 import time
 import logging
 import random
+import shutil
+import re
 import numpy as np
 import pandas as pd
 import torch
@@ -82,8 +84,7 @@ def main():
     _TPU_WORKER = os.environ.get("RUN_TPU_WORKER") == "1"
     _XLA_PROCESS_INDEX = os.environ.get("XLA_PROCESS_INDEX", "0")
     _IS_XLA_MASTER = _XLA_PROCESS_INDEX == "0"
-    if not torch.cuda.is_available():
-        os.environ.setdefault("PJRT_DEVICE", "TPU")
+    os.environ.setdefault("PJRT_DEVICE", "TPU")
     train_start_time = time.time()
     if _TPU_WORKER and os.environ.get("TPU_UNINSTALL_TIMM_DONE") != "1":
         print("WARNING: timm uninstall flag not set before TPU worker import.")
@@ -118,11 +119,10 @@ def main():
         model_size='base',
         num_classes=100,
         patch_size = 16,
-        grad_accum_steps=1,
         batch_size=64,
         img_sizes=[224],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
-        lr=8e-5,
+        lr=3e-05,
         lr_aux=1e-5,
         eta_min=0.0,
         weight_decay=0.01,
@@ -137,7 +137,7 @@ def main():
         workers=5,
         re_prob=0.0,
         train=True,
-        val=False,
+        val=True,
         tpu_size_schedule="epoch",
         tpu_size_hold_batches=0,
         tpu_workers=0,
@@ -153,11 +153,12 @@ def main():
         composite_lr=True,
         warmup_steps=3000,
         clip_value=1.0,
-        log_interval=1,
+        log_interval=100,
         csv_interval=1,
-        show_peak_gpu_mem=True,
+        show_peak_gpu_mem=False,
         compile_model=False,
         debug_xla=True,
+        log_all_ranks=False,
         total_run_time_hr=12.0,
         root_dir=root_dir,
     )
@@ -184,6 +185,7 @@ def main():
             "resume_scheduler",
             "resume_optimizer",
             "total_run_time_hr",
+            "grad_accum_steps",
         ]
         if not args.resume_scheduler:
             skip_keys.extend([
@@ -193,7 +195,7 @@ def main():
                 "composite_lr",
             ])
         if not args.resume_bs:
-            skip_keys.extend(["batch_size", "grad_accum_steps"])
+            skip_keys.extend(["batch_size"])
         resume_ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
         print(f"Resumed args from '{args.resume_ckpt_path}'")
         ckpt_args = resume_ckpt.get("args", None)
@@ -247,9 +249,8 @@ def main():
     
     
     def _select_device():
-        if torch.cuda.is_available():
-            return torch.device("cuda"), False, []
         _import_xla()
+        xla_devices = []
         if _xla_available:
             try:
                 xla_devices = xm.get_xla_supported_devices()
@@ -257,88 +258,103 @@ def main():
                 xla_devices = []
         if xla_devices:
             if txla is not None and hasattr(txla, "device"):
-                return txla.device(), True, xla_devices
-            return xm.xla_device(), True, xla_devices
-        raise RuntimeError("No supported accelerator found (CUDA or TPU/XLA).")
+                return txla.device(), xla_devices
+            return xm.xla_device(), xla_devices
+        raise RuntimeError("TPU/XLA is required but not available.")
     
-    DEVICE, USE_XLA, _xla_devices = _select_device()
-    
-    if USE_XLA:
-        if xr is not None and hasattr(xr, "world_size"):
-            WORLD_SIZE = xr.world_size()
-            RANK = xr.global_ordinal()
-        else:
-            WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
-            RANK = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", "0")))
+    DEVICE, _xla_devices = _select_device()
+    if xr is not None and hasattr(xr, "world_size"):
+        WORLD_SIZE = xr.world_size()
+        RANK = xr.global_ordinal()
     else:
-        WORLD_SIZE = 1
-        RANK = 0
+        WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
+        RANK = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", "0")))
 
     print(f"✅ Success! TPU Rank {RANK} initialized. World size: {WORLD_SIZE}", flush=True)
-    tpu_mem_total_kb = None
-    tpu_min_free_kb = None
-    def _tpu_mem_update():
-        nonlocal tpu_mem_total_kb, tpu_min_free_kb
-        if not USE_XLA:
+    tpu_mem_warned = False
+    tpu_info_checked = False
+    tpu_info_available = False
+    tpu_info_last_ts = 0.0
+    tpu_info_last_vals = None
+    tpu_info_peak_mb = None
+    def _tpu_info_mem():
+        nonlocal tpu_info_checked, tpu_info_available, tpu_info_last_ts, tpu_info_last_vals, tpu_info_peak_mb
+        if RANK != 0:
             return None
+        if not tpu_info_checked:
+            tpu_info_available = shutil.which("tpu-info") is not None
+            tpu_info_checked = True
+        if not tpu_info_available:
+            return None
+        now = time.time()
+        if tpu_info_last_vals is not None and (now - tpu_info_last_ts) < 10.0:
+            return tpu_info_last_vals
         try:
-            info = xm.get_memory_info(DEVICE)
+            proc = subprocess.run(
+                ["tpu-info"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
         except Exception:
-            return None
-        if not info:
-            return None
-        free_kb = info.get("kb_free")
-        total_kb = info.get("kb_total")
-        if free_kb is None or total_kb is None:
-            return None
-        if tpu_mem_total_kb is None:
-            tpu_mem_total_kb = total_kb
-        if tpu_min_free_kb is None or free_kb < tpu_min_free_kb:
-            tpu_min_free_kb = free_kb
-        used_kb = tpu_mem_total_kb - free_kb
-        peak_used_kb = tpu_mem_total_kb - tpu_min_free_kb
-        return used_kb, tpu_mem_total_kb, peak_used_kb, free_kb
+            return tpu_info_last_vals
+        output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        pattern = re.compile(r"([0-9.]+)\s*([KMGTP]i?B)\s*/\s*([0-9.]+)\s*([KMGTP]i?B)")
+        matches = pattern.findall(output)
+        if not matches:
+            return tpu_info_last_vals
+        def _to_mb(val, unit):
+            val = float(val)
+            unit = unit.upper()
+            if unit in ("KIB", "KB"):
+                return val / 1024.0
+            if unit in ("MIB", "MB"):
+                return val
+            if unit in ("GIB", "GB"):
+                return val * 1024.0
+            if unit in ("TIB", "TB"):
+                return val * 1024.0 * 1024.0
+            return val
+        used_mbs = []
+        total_mbs = []
+        for used_val, used_unit, total_val, total_unit in matches:
+            used_mbs.append(_to_mb(used_val, used_unit))
+            total_mbs.append(_to_mb(total_val, total_unit))
+        if not used_mbs or not total_mbs:
+            return tpu_info_last_vals
+        used_mb = max(used_mbs)
+        total_mb = max(total_mbs)
+        if tpu_info_peak_mb is None or used_mb > tpu_info_peak_mb:
+            tpu_info_peak_mb = used_mb
+        tpu_info_last_vals = (used_mb, total_mb, tpu_info_peak_mb)
+        tpu_info_last_ts = now
+        return tpu_info_last_vals
     
-    if USE_XLA:
-        use_amp = True
-        use_bf16 = True
-        autocast_dtype = torch.bfloat16
-    else:
-        use_amp = False
-        use_bf16 = False
-        autocast_dtype = torch.float32
-        if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
-            torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False
+    use_amp = True
+    use_bf16 = True
+    autocast_dtype = torch.bfloat16
     
-    print(f"Using device: {DEVICE} (xla={USE_XLA})", use_bf16, autocast_dtype)
-    if USE_XLA:
-        # args.batch_size = 64
-        args.grad_accum_steps = 1
-        base_global_batch = 128
-        global_batch = args.batch_size * args.grad_accum_steps * WORLD_SIZE
-        lr_scale = min(global_batch / base_global_batch, 4.0)
-        args.lr *= lr_scale
-        args.lr_aux *= lr_scale
-        tpu_workers = getattr(args, "tpu_workers", 0)
-        if tpu_workers is None:
-            tpu_workers = 0
-        args.workers = min(args.workers, int(tpu_workers))
-        tpu_threads = int(getattr(args, "tpu_threads", 1))
-        if tpu_threads < 1:
-            tpu_threads = 1
-        torch.set_num_threads(tpu_threads)
-        if hasattr(torch, "set_num_interop_threads"):
-            torch.set_num_interop_threads(tpu_threads)
-    seed = args.seed + (RANK if USE_XLA else 0)
+    print(f"Using device: {DEVICE} (xla=True)", use_bf16, autocast_dtype)
+    base_global_batch = 128
+    global_batch = args.batch_size * WORLD_SIZE
+    lr_scale = min(global_batch / base_global_batch, 4.0)
+    args.lr *= lr_scale
+    args.lr_aux *= lr_scale
+    tpu_workers = getattr(args, "tpu_workers", 0)
+    if tpu_workers is None:
+        tpu_workers = 0
+    args.workers = min(args.workers, int(tpu_workers))
+    tpu_threads = int(getattr(args, "tpu_threads", 1))
+    if tpu_threads < 1:
+        tpu_threads = 1
+    torch.set_num_threads(tpu_threads)
+    if hasattr(torch, "set_num_interop_threads"):
+        torch.set_num_interop_threads(tpu_threads)
+    seed = args.seed + RANK
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(args.seed)
-        torch.cuda.manual_seed_all(args.seed)
-    if torch.cuda.is_available() and len(args.img_sizes) == 1:
-        torch.backends.cudnn.benchmark = True
     pos_prefix = ""
     if args.pos_type is not None:
         pos_prefix = f"{args.pos_type}_"
@@ -365,43 +381,45 @@ def main():
     os.makedirs(ckpt_output_dir, exist_ok=True)
     
     log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
-    if USE_XLA:
-        if xr is not None and hasattr(xr, "global_ordinal"):
-            IS_MASTER = xr.global_ordinal() == 0
-        elif xm is not None and hasattr(xm, "is_master_ordinal"):
-            IS_MASTER = xm.is_master_ordinal()
-        else:
-            IS_MASTER = RANK == 0
+    if xr is not None and hasattr(xr, "global_ordinal"):
+        IS_MASTER = xr.global_ordinal() == 0
+    elif xm is not None and hasattr(xm, "is_master_ordinal"):
+        IS_MASTER = xm.is_master_ordinal()
     else:
-        IS_MASTER = True
-    log_handlers = [logging.StreamHandler()]
+        IS_MASTER = RANK == 0
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+    log_handlers = [logging.StreamHandler(sys.stdout)]
     if IS_MASTER:
         log_handlers.insert(0, logging.FileHandler(log_file_path))
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=log_handlers,
+        force=True,
     )
     logger = logging.getLogger()
-    if USE_XLA and not IS_MASTER:
+    if not IS_MASTER and not getattr(args, "log_all_ranks", False):
         logger.setLevel(logging.WARNING)
     
-    logger.info(f"Using device: {DEVICE} (xla={USE_XLA})")
+    logger.info(f"Using device: {DEVICE} (xla=True)")
     precision_label = "bfloat16" if use_bf16 else ("float16" if use_amp else "float32")
     logger.info(f"Using mixed precision: {precision_label}")
     logger.info(args)
     logger.info(output_dir)
     logger.info(subdir_name)
-    if USE_XLA and IS_MASTER:
+    if IS_MASTER:
         if getattr(args, "debug_xla", False):
             try:
                 xm.master_print("DEBUG: XLA debug logging enabled", flush=True)
             except Exception:
                 print("DEBUG: XLA debug logging enabled", flush=True)
-    if USE_XLA and args.compile_model:
+    if args.compile_model:
         logger.info("compile_model disabled on TPU (XLA best practice).")
         args.compile_model = False
-    if USE_XLA and IS_MASTER:
+    if IS_MASTER:
         tpu_specs = {
             "TPU_ACCELERATOR_TYPE": os.environ.get("TPU_ACCELERATOR_TYPE"),
             "TPU_CHIPS_PER_HOST_BOUNDS": os.environ.get("TPU_CHIPS_PER_HOST_BOUNDS"),
@@ -417,19 +435,14 @@ def main():
             logger.info(f"XLA devices: {_xla_devices}")
     
     def _autocast():
-        if not use_amp:
-            return nullcontext()
-        if USE_XLA:
-            return torch.autocast("xla", dtype=autocast_dtype)
-        return torch.amp.autocast(device_type=DEVICE.type, dtype=autocast_dtype, enabled=use_amp)
+        return torch.autocast("xla", dtype=autocast_dtype)
 
     def _master_print(msg):
-        if USE_XLA:
-            try:
-                xm.master_print(msg, flush=True)
-                return
-            except Exception:
-                pass
+        try:
+            xm.master_print(msg, flush=True)
+            return
+        except Exception:
+            pass
         print(msg, flush=True)
 
     def _debug(msg):
@@ -437,8 +450,6 @@ def main():
             _master_print(msg)
 
     def _xla_sync():
-        if not USE_XLA:
-            return
         if txla is not None and hasattr(txla, "sync"):
             txla.sync()
         else:
@@ -447,10 +458,8 @@ def main():
     
     logger.info("Cleaning up memory...")
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
     logger.info("Memory cleanup complete.")
-    _debug(f"device={DEVICE} xla={USE_XLA} world_size={WORLD_SIZE} rank={RANK}")
+    _debug(f"device={DEVICE} xla=True world_size={WORLD_SIZE} rank={RANK}")
     
     TRAIN_PATHS = [
         os.path.join(BASE_PATH, 'train.X1'),
@@ -1195,12 +1204,12 @@ def main():
     train_sampler = None
     valid_sampler = None
     prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
-    pin_memory = torch.cuda.is_available() and not USE_XLA
+    pin_memory = False
     train_generator = torch.Generator()
     train_generator.manual_seed(seed)
     if len(args.img_sizes) == 1:
         train_dataset = CustomImageDataset(train_samples, transform=size_to_transform[args.img_sizes[0]])
-        if USE_XLA and WORLD_SIZE > 1:
+        if WORLD_SIZE > 1:
             train_sampler = DistributedSampler(
                 train_dataset,
                 num_replicas=WORLD_SIZE,
@@ -1217,7 +1226,7 @@ def main():
             generator=train_generator if train_sampler is None else None,
             num_workers=args.workers,
             pin_memory=pin_memory,
-            drop_last=USE_XLA,
+            drop_last=True,
             persistent_workers=(args.workers > 0),
             **prefetch_kwargs,
         )
@@ -1226,7 +1235,7 @@ def main():
             samples=train_samples,
             size_to_transform=size_to_transform
         )
-        if USE_XLA and WORLD_SIZE > 1:
+        if WORLD_SIZE > 1:
             batch_sampler = DistributedDynamicResolutionBatchSampler(
                 dataset=train_dataset,
                 image_sizes=args.img_sizes,
@@ -1261,7 +1270,7 @@ def main():
             **prefetch_kwargs,
         )
     logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
-    if USE_XLA and WORLD_SIZE > 1:
+    if WORLD_SIZE > 1:
         valid_sampler = DistributedSampler(
             valid_dataset,
             num_replicas=WORLD_SIZE,
@@ -1279,15 +1288,13 @@ def main():
         persistent_workers=(args.workers > 0),
         **prefetch_kwargs,
     )
-    if USE_XLA:
-        train_loader = pl.MpDeviceLoader(train_loader, DEVICE)
-        valid_loader = pl.MpDeviceLoader(valid_loader, DEVICE)
+    train_loader = pl.MpDeviceLoader(train_loader, DEVICE)
+    valid_loader = pl.MpDeviceLoader(valid_loader, DEVICE)
     steps_per_epoch = len(train_loader)
-    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
-    optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
+    optimizer_steps_per_epoch = steps_per_epoch
     logger.info(f"OK: DataLoaders for {args.num_classes} classes created successfully.")
     logger.info(f"{steps_per_epoch=}, val_steps: {len(valid_loader)}")
-    logger.info(f"Effective batch size: {args.batch_size * accum_steps * WORLD_SIZE}")
+    logger.info(f"Effective batch size: {args.batch_size * WORLD_SIZE}")
     _debug(f"dataloaders ready steps_per_epoch={steps_per_epoch}")
     
     
@@ -1315,12 +1322,6 @@ def main():
     
     
     
-    if args.compile_model and (not USE_XLA) and len(args.img_sizes) == 1:
-        if hasattr(torch, "compile"):
-            logger.info("Compiling model with torch.compile (mode='reduce-overhead').")
-            model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
-        else:
-            logger.warning("torch.compile not available; skipping compilation.")
     
     dynamic = True
     training_parameters = list(model.parameters()) 
@@ -1451,8 +1452,6 @@ def main():
     
     ckpt_path = None
     if args.train:
-        use_scaler = (not USE_XLA) and use_amp and (autocast_dtype == torch.float16)
-        scaler = torch.amp.GradScaler(enabled=use_scaler) if use_scaler else None
         start_epoch = 0
         step = 0
         best_acc = 0.0
@@ -1470,8 +1469,6 @@ def main():
                     scheduler.load_state_dict(resume_ckpt["scheduler"])
             else:
                 logger.info("Skipping scheduler state load (resume_scheduler=False).")
-            if scaler is not None and resume_ckpt.get("scaler") is not None:
-                scaler.load_state_dict(resume_ckpt["scaler"])
             if args.use_rc_loss and resume_ckpt.get("rowcol_loss") is not None:
                 for k in ["row_targets", "col_targets", "row_index_full", "col_index_full"]:
                     if k in resume_ckpt["rowcol_loss"]:
@@ -1541,8 +1538,7 @@ def main():
     
             optimizer.zero_grad(set_to_none=True)
             for step_in_epoch, (inputs, labels) in enumerate(train_loader):
-                if not USE_XLA:
-                    inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
+                step += 1
                 bs = inputs.size(0)
     
                 aux_loss = None
@@ -1568,30 +1564,14 @@ def main():
                         aux_loss_sum_t += aux_loss.detach() * bs
                         loss = loss + args.rc_alpha * aux_loss
     
-                loss_scaled = loss / accum_steps
-                if scaler is not None:
-                    scaler.scale(loss_scaled).backward()
-                else:
-                    loss_scaled.backward()
+                loss.backward()
     
-                do_step = ((step_in_epoch + 1) % accum_steps == 0) or (step_in_epoch + 1 == len(train_loader))
-                if do_step:
-                    if args.clip_value is not None:
-                        if scaler is not None:
-                            scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
-    
-                if scaler is not None:
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    if USE_XLA:
-                        xm.optimizer_step(optimizer, barrier=True)
-                    else:
-                        optimizer.step()
+                if args.clip_value is not None:
+                    torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                xm.optimizer_step(optimizer, barrier=True)
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
-                if USE_XLA and ((step + 1) % log_interval == 0):
+                if step % log_interval == 0:
                     _xla_sync()
     
                 running_loss_t += loss.detach() * bs
@@ -1601,56 +1581,39 @@ def main():
                     pred = outputs.detach().argmax(dim=1)
                     train_correct_t += (pred == labels).sum()
 
-                if (step + 1) % log_interval == 0 and IS_MASTER:
+                if step % log_interval == 0 and IS_MASTER:
                     avg_loss = (running_loss_t / train_total).float().item()
                     avg_acc = (train_correct_t / train_total).float().item()
-                    peak_mb = None
-                    msg = f"Epoch {epoch+1}/{args.epochs} step {step+1}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
+                    msg = f"Epoch {epoch+1}/{args.epochs} step {step}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
                     if aux_loss is not None:
                         avg_aux = (aux_loss_sum_t / train_total).float().item()
                         msg += f" aux={avg_aux:.4f}"
-                    if peak_mb is not None:
-                        msg += f" peak_mem={peak_mb:.0f}MB"
+                    if args.show_peak_gpu_mem:
+                        info = _tpu_info_mem()
+                        if info is not None:
+                            used_mb, total_mb, peak_mb = info
+                            msg += f" tpu_mem={used_mb:.0f}/{peak_mb:.0f}/{total_mb:.0f}MB"
+                        elif not tpu_mem_warned:
+                            tpu_mem_warned = True
+                            print("TPU memory info unavailable; skipping TPU mem logging.", flush=True)
                     logger.info(msg)
-                if USE_XLA and args.show_peak_gpu_mem and (step + 1) % log_interval == 0:
-                    mem = _tpu_mem_update()
-                    if mem is not None:
-                        used_kb, total_kb, peak_kb, free_kb = mem
-                        used_mb = used_kb / 1024.0
-                        total_mb = total_kb / 1024.0
-                        peak_mb = peak_kb / 1024.0
-                        free_mb = free_kb / 1024.0
-                        print(
-                            f"[rank {RANK}] tpu_mem used={used_mb:.0f}MB "
-                            f"peak={peak_mb:.0f}MB free={free_mb:.0f}MB total={total_mb:.0f}MB",
-                            flush=True,
-                        )
-    
-            step += 1
     
             train_time = time.time() - epoch_train_start
             model.eval()
             val_correct_t = torch.zeros((), device=DEVICE)
-            val_total = 0
+            val_total_t = torch.zeros((), device=DEVICE)
             val_start = time.time()
-    
+
             with torch.no_grad():
                 for inputs, labels in valid_loader:
-                    if not USE_XLA:
-                        inputs = inputs.to(DEVICE, non_blocking=True)
-                        labels = labels.to(DEVICE, non_blocking=True)
                     with _autocast():
                         outputs = model(inputs)
                     pred = outputs.argmax(dim=1)
                     val_correct_t += (pred == labels).sum()
-                    val_total += labels.size(0)
-            if USE_XLA:
-                _xla_sync()
-    
+                    val_total_t += labels.shape[0]
             val_time = time.time() - val_start
-            if USE_XLA and WORLD_SIZE > 1:
+            if WORLD_SIZE > 1:
                 train_total_t = torch.tensor(train_total, device=DEVICE)
-                val_total_t = torch.tensor(val_total, device=DEVICE)
                 reduce_tensors = [
                     running_loss_t,
                     train_correct_t,
@@ -1663,7 +1626,12 @@ def main():
                 xm.all_reduce(xm.REDUCE_SUM, reduce_tensors)
                 train_total = int(train_total_t.item())
                 val_total = int(val_total_t.item())
-            epoch_val_acc = (val_correct_t / val_total).item()
+            else:
+                val_total = int(val_total_t.item())
+            if val_total == 0:
+                epoch_val_acc = 0.0
+            else:
+                epoch_val_acc = (val_correct_t / val_total_t).item()
             is_best = False
             if best_acc < epoch_val_acc:
                 best_acc = epoch_val_acc
@@ -1714,18 +1682,14 @@ def main():
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                        "scaler": scaler.state_dict() if scaler is not None else None,
                         "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                         "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
                         "training_history": master_history,
                         "args": args,
                         "best_acc": best_acc,
                     }
-                if USE_XLA:
-                    _xla_sync()
-                    xm.save(ckpt, last_ckpt_path, master_only=True)
-                elif IS_MASTER:
-                    torch.save(ckpt, last_ckpt_path)
+                _xla_sync()
+                xm.save(ckpt, last_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
     
@@ -1755,44 +1719,49 @@ def main():
             'img_size': [],
             'valid_acc': []
         }
-    
-        if IS_MASTER:
-            if not args.train:
-                if ckpt_path is None:
-                    ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
-                model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
-            model.to(DEVICE)
-            model.eval()
-            for img_size in args.val_img_sizes:
-                valid_dataset.set_transform(make_valid_transform(img_size))
-                batch_size = max(1, int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size)))
-                valid_loader = DataLoader(
-                    dataset=valid_dataset,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=args.workers,
-                    pin_memory=pin_memory,
-                    persistent_workers=False,
-                    **prefetch_kwargs,
-                )
-                if USE_XLA:
-                    valid_loader = pl.MpDeviceLoader(valid_loader, DEVICE)
-                val_correct = 0
-                val_total = 0
-                with torch.no_grad():
-                    for inputs, labels in valid_loader:
-                        if not USE_XLA:
-                            inputs = inputs.to(DEVICE, non_blocking=True)
-                            labels = labels.to(DEVICE, non_blocking=True)
-                        with _autocast():
-                            outputs = model(inputs)
-                        _, predicted = torch.max(outputs.data, 1)
-                        val_total += labels.size(0)
-                        val_correct += (predicted == labels).sum().item()
-                        if USE_XLA:
-                            _xla_sync()
-    
-                epoch_val_acc = val_correct / val_total
+
+        if not args.train:
+            if ckpt_path is None:
+                ckpt_path = f"{args.root_dir}/{args.ckpt_path}"
+            model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+        model.to(DEVICE)
+        model.eval()
+        for img_size in args.val_img_sizes:
+            valid_dataset.set_transform(make_valid_transform(img_size))
+            batch_size = max(1, int((args.batch_size * 0.8 * 224 * 224) / (img_size * img_size)))
+            valid_sampler = DistributedSampler(
+                valid_dataset,
+                num_replicas=WORLD_SIZE,
+                rank=RANK,
+                shuffle=False,
+                drop_last=False,
+            ) if WORLD_SIZE > 1 else None
+            valid_loader = DataLoader(
+                dataset=valid_dataset,
+                batch_size=batch_size,
+                sampler=valid_sampler,
+                shuffle=False if valid_sampler is None else False,
+                num_workers=args.workers,
+                pin_memory=pin_memory,
+                persistent_workers=False,
+                **prefetch_kwargs,
+            )
+            valid_loader = pl.MpDeviceLoader(valid_loader, DEVICE)
+            val_correct_t = torch.zeros((), device=DEVICE)
+            val_total_t = torch.zeros((), device=DEVICE)
+            with torch.no_grad():
+                for inputs, labels in valid_loader:
+                    with _autocast():
+                        outputs = model(inputs)
+                    predicted = outputs.argmax(dim=1)
+                    val_total_t += labels.shape[0]
+                    val_correct_t += (predicted == labels).sum()
+
+            if WORLD_SIZE > 1:
+                xm.all_reduce(xm.REDUCE_SUM, [val_correct_t, val_total_t])
+            val_total = int(val_total_t.item())
+            epoch_val_acc = 0.0 if val_total == 0 else (val_correct_t / val_total_t).item()
+            if IS_MASTER:
                 val_results['img_size'].append(img_size)
                 val_results['valid_acc'].append(epoch_val_acc)
                 val_df = pd.DataFrame(val_results)

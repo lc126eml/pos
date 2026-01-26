@@ -36,6 +36,13 @@
     - [xulijuan/cls-base-patch129](#xulijuancls-base-patch129)
     - [sollasi/cls-base-alibi-desc-626](#sollasicls-base-alibi-desc-626)
     - [sollasi/cls-base-relpos-desc-626](#sollasicls-base-relpos-desc-626)
+  - [lr ablation](#lr-ablation)
+    - [jacksisi/cls-base-none-lr5e-5-53](#jacksisicls-base-none-lr5e-5-53)
+    - [jacksisi/cls-base-none-lr2e-4-53](#jacksisicls-base-none-lr2e-4-53)
+    - [xulijuan/cls-base-none-lr3e-4-53](#xulijuancls-base-none-lr3e-4-53)
+    - [xulijuan/cls-base-none-lr1e-4-53](#xulijuancls-base-none-lr1e-4-53)
+    - [liucong12601/cls-base-none-lr8e-5-53](#liucong12601cls-base-none-lr8e-5-53)
+    - [liucong12601/cls-base-none-lr7e-5-53](#liucong12601cls-base-none-lr7e-5-53)
 
 
 # small
@@ -158,3 +165,19 @@ Best Accuracy: 0.5864
 ### sollasi/cls-base-relpos-desc-626
 0.052876361	0.987784624	0.613399982	2417.187462	27.6414361
 Best Accuracy: 0.6168
+
+
+## lr ablation
+<!-- grad_accum_steps=2, batch_size=64 -->
+### jacksisi/cls-base-none-lr5e-5-53
+Train Loss: 2.3781 | Train Acc: 0.3981 | Valid Acc: 0.4054
+### jacksisi/cls-base-none-lr2e-4-53
+Train Loss: 1.9284 | Train Acc: 0.4996 | Valid Acc: 0.4944
+### xulijuan/cls-base-none-lr3e-4-53
+Train Loss: 2.0705 | Train Acc: 0.4668 | Valid Acc: 0.4612
+### xulijuan/cls-base-none-lr1e-4-53
+Train Loss: 1.9759 | Train Acc: 0.4873 | Valid Acc: 0.4874
+### liucong12601/cls-base-none-lr8e-5-53
+Train Loss: 2.1342 | Train Acc: 0.4529 | Valid Acc: 0.4600
+### liucong12601/cls-base-none-lr7e-5-53
+Train Loss: 2.1624 | Train Acc: 0.4448 | Valid Acc: 0.4518

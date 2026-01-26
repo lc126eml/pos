@@ -118,7 +118,7 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -134,7 +134,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=2e-4, #base
+    lr=3e-05, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -142,9 +142,9 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=52,
+    seed=16,
     use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
@@ -162,14 +162,14 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-colrow-rc200-52/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-rope-d-16/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
-    log_interval=100,
+    log_interval=500,
     csv_interval=1,
     show_peak_gpu_mem=True,
     # save_ckpt=False,
@@ -1683,6 +1683,9 @@ if args.train:
         # Update the learning rate scheduler
         # if 'scheduler' in locals():
         #     scheduler.step()
+
+    else:
+        args.val = True
 
     logger.info("Training complete.")
     logger.info(f"Best Accuracy: {best_acc:.4f}")

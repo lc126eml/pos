@@ -1,20 +1,18 @@
 {
-  "id": "starysinger/cls-base-colrow-rc200-152",
-  "title": "cls base colrow rc200 152",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "zjl001/cls-base-none-lr3e-5-50",
+  "title": "cls base none lr3e 5 50",
+  "code_file": "../dinov3_reg_dynamic_tpu.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
+  "enable_gpu": "false",
+  "enable_tpu": "true",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
     "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "starysinger/cls-base-colrow-rc200-52"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

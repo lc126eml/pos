@@ -246,3 +246,10 @@ Valid AbsRel: 0.2876 | Valid L1: 1.3322 | Valid RMSE: 1.8866 | Valid a1: 0.6466
 40864.9s	219	2026-01-24 16:20:21,548 - INFO -   Best RMSE:    1.8866 (Epoch 19)
 # s60
 ## t0
+
+
+# redo 20160126
+
+### yangjiamin/depth-base-none-lr7e-5-650
+train_loss	valid_abs_rel	valid_l1	valid_rmse	valid_a1	train_time	val_time	epoch
+1.652472377	0.284699033	1.343795474	1.898940385	0.649295627	1982.193583	145.7565393	80
