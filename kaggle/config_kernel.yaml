@@ -500,3 +500,5 @@ running_nodes:
     resumed_from: null
     history_ids: []
 finished_notebooks: []
+
+finished_tpu_notebooks: []

@@ -41,6 +41,7 @@ Expected config_kernel.yaml fields:
         resumed_from: kernel_id or null
         history_ids: [kernel_id, ...]
 - finished_notebooks: [notebook, ...]
+- finished_tpu_notebooks: [notebook, ...]
 """
 
 logging.basicConfig(
@@ -264,6 +265,7 @@ def main():
             tpu_available_ids = tpu_cfg.get("available_ids") or []
             tpu_exhausted_ids = tpu_cfg.get("exhausted_ids") or []
             finished_notebooks = kcfg.get("finished_notebooks") or []
+            finished_tpu_notebooks = kcfg.get("finished_tpu_notebooks") or []
 
             for node in list(running_nodes):
                 notebooks = node.get("notebooks") or []
@@ -321,7 +323,10 @@ def main():
 
                         total_runs = int(notebook.get("total_runs", 0))
                         if notebook["run_id"] >= total_runs:
-                            _move_finished(notebook, finished_notebooks)
+                            if is_tpu:
+                                _move_finished(notebook, finished_tpu_notebooks)
+                            else:
+                                _move_finished(notebook, finished_notebooks)
                             notebooks.remove(notebook)
                             changed = True
                             continue
@@ -449,6 +454,7 @@ def main():
                 tpu_cfg["exhausted_ids"] = tpu_exhausted_ids
                 kcfg["tpu"] = tpu_cfg
             kcfg["finished_notebooks"] = finished_notebooks
+            kcfg["finished_tpu_notebooks"] = finished_tpu_notebooks
 
             if changed:
                 _write_yaml(config_path, kcfg)

@@ -151,7 +151,7 @@ def _resolve_resume_source(cfg):
     return src if isinstance(src, str) else str(src)
 
 
-def _add_running_node(cfg, kernel_id, use_lock=True):
+def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_lock=True):
     config_kernel_path = BASE_DIR / "config_kernel.yaml"
     lock_path = config_kernel_path.with_suffix(config_kernel_path.suffix + ".lock")
     lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=30.) if use_lock else nullcontext()
@@ -160,6 +160,17 @@ def _add_running_node(cfg, kernel_id, use_lock=True):
         running_nodes = kcfg.get("running_nodes") or []
         node_id = cfg["id"]
         is_tpu = bool(cfg.get("tpu", False))
+        tpu_cfg = kcfg.get("tpu") or {}
+        available_ids = tpu_cfg.get("available_ids") if is_tpu else kcfg.get("available_ids")
+        if available_ids is None:
+            available_ids = []
+        if consume_available and node_id in available_ids:
+            available_ids.remove(node_id)
+            if is_tpu:
+                tpu_cfg["available_ids"] = available_ids
+                kcfg["tpu"] = tpu_cfg
+            else:
+                kcfg["available_ids"] = available_ids
         node = None
         for item in running_nodes:
             if item.get("id") == node_id and bool(item.get("tpu_node", False)) == is_tpu:
@@ -182,7 +193,7 @@ def _add_running_node(cfg, kernel_id, use_lock=True):
         notebook = {
             "kernel_id": kernel_id,
             "run_id": _suffix_to_run_id(cfg.get("suffix")),
-            "total_runs": 8,
+            "total_runs": total_runs,
             "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "resumed_from": _resolve_resume_source(cfg),
             "history_ids": [],
@@ -289,6 +300,12 @@ def main():
         help="When used with --run, append the pushed kernel to config_kernel.yaml running_nodes.",
     )
     parser.add_argument(
+        "--total-runs",
+        type=int,
+        default=None,
+        help="Override total_runs stored in config_kernel.yaml.",
+    )
+    parser.add_argument(
         "--no-lock",
         action="store_false",
         dest="lock",
@@ -342,6 +359,50 @@ def main():
     task = cfg["task"]
     pos_type = cfg.get("pos_type")
     use_tpu = bool(cfg.get("tpu", False))
+    if args_ns.add_running_node and cfg.get("id") is None:
+        config_kernel_path = BASE_DIR / "config_kernel.yaml"
+        kcfg = _load_yaml(config_kernel_path)
+        running_nodes = kcfg.get("running_nodes") or []
+        selected_from_available = False
+        if use_tpu:
+            chosen = None
+            for node in running_nodes:
+                if not bool(node.get("tpu_node", False)):
+                    continue
+                if float(node.get("left_time", 0) or 0) <= 0:
+                    continue
+                if node.get("notebooks"):
+                    continue
+                chosen = node.get("id")
+                break
+            if chosen is None:
+                tpu_cfg = kcfg.get("tpu") or {}
+                tpu_available = tpu_cfg.get("available_ids") or []
+                if not tpu_available:
+                    raise ValueError("No TPU available_ids left to assign.")
+                chosen = tpu_available[0]
+                selected_from_available = True
+        else:
+            chosen = None
+            for node in running_nodes:
+                if bool(node.get("tpu_node", False)):
+                    continue
+                if float(node.get("left_time", 0) or 0) <= 0:
+                    continue
+                notebooks = node.get("notebooks") or []
+                if len(notebooks) >= 2:
+                    continue
+                chosen = node.get("id")
+                break
+            if chosen is None:
+                available_ids = kcfg.get("available_ids") or []
+                if not available_ids:
+                    raise ValueError("No GPU available_ids left to assign.")
+                chosen = available_ids[0]
+                selected_from_available = True
+        cfg["id"] = chosen
+    else:
+        selected_from_available = False
     if pos_type is not None:
         if task != "cls":
             raise ValueError("pos_type is only supported for cls task.")
@@ -526,7 +587,16 @@ def main():
         else:
             subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
         if args_ns.add_running_node:
-            _add_running_node(cfg, kernel_id, use_lock=args_ns.lock)
+            total_runs = args_ns.total_runs
+            if total_runs is None:
+                total_runs = 1 if use_tpu else 8
+            _add_running_node(
+                cfg,
+                kernel_id,
+                total_runs,
+                consume_available=selected_from_available,
+                use_lock=args_ns.lock,
+            )
 
 
 if __name__ == "__main__":
