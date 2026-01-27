@@ -515,6 +515,23 @@ def main():
     json_data["enable_gpu"] = _bool_to_str(not use_tpu)
 
     desc = cfg.get("desc")
+    desc_keys = _as_list(cfg.get("desc_keys"))
+    if desc_keys:
+        parts = []
+        for key in desc_keys:
+            if key in updates:
+                val = updates[key]
+            else:
+                val = cfg.get(key)
+            if val is None:
+                continue
+            if isinstance(val, float):
+                val_str = f"{val:.6g}"
+            else:
+                val_str = str(val)
+            parts.append(f"{key}{val_str}")
+        if parts:
+            desc = "_".join(parts)
     if not desc:
         desc = "d"
         # raise ValueError("Missing desc in kaggle/config.yaml.")
@@ -530,7 +547,9 @@ def main():
             f"{cfg['method']}-{desc}-{run_id}{cfg['seed']}"
         )
     json_data["id"] = kernel_id
-    json_data["title"] = kernel_id.split("/", 1)[1].replace("-", " ")
+    title_slug = kernel_id.split("/", 1)[1]
+    title_slug = re.sub(r"[^A-Za-z0-9]+", " ", title_slug).strip()
+    json_data["title"] = title_slug
 
     dataset_sources = []
     _unique_extend(dataset_sources, ["liucong12601/timm-repos"])

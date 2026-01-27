@@ -169,13 +169,13 @@ def main():
         use_abs_pos_emb=False,
         use_rot_pos_emb=True,
         model_size='base',
-        train_sizes=[(256, 256)],
-        eval_size=(256, 256),
-        final_eval_size=(256, 256),
+        train_sizes=[(224, 224)],
+        eval_size=(224, 224),
+        final_eval_size=(224, 224),
         color_jitter_prob=0.5,
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
-        batch_size=48,
+        batch_size=40,
         patch_size=16,
         lr=0.0001,
         lr_aux=1e-5,
@@ -197,13 +197,13 @@ def main():
         warmup_steps=3000,
         warmup_ratio=None,
         clip_value=1.0,
-        debug_loss_stats=True,
+        debug_loss_stats=False,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=1,
+        log_interval=100,
         show_peak_gpu_mem=True,
         log_all_ranks=False,
-        debug_xla=True,
+        debug_xla=False,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         silog_w=0.0,
         depth_norm="median",
@@ -234,7 +234,7 @@ def main():
         resume_optimizer=False,
         resume_bs=True,
         resume_img_size=False,
-        total_run_time_hr=1.0,
+        total_run_time_hr=1.5,
         train=True,
         val=False,
         final_use_sliding_window=True,
@@ -1583,12 +1583,23 @@ def main():
     else:
         WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
         RANK = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", "0")))
-    IS_MASTER = RANK == 0
+    if xr is not None and hasattr(xr, "global_ordinal"):
+        IS_MASTER = xr.global_ordinal() == 0
+    elif xm is not None and hasattr(xm, "is_master_ordinal"):
+        IS_MASTER = xm.is_master_ordinal()
+    else:
+        IS_MASTER = RANK == 0
 
     print(f"✅ Success! TPU Rank {RANK} initialized. World size: {WORLD_SIZE}", flush=True)
     
     use_bf16 = True
     autocast_dtype = torch.bfloat16
+
+    base_global_batch = 24
+    global_batch = args.batch_size * WORLD_SIZE
+    lr_scale = min(global_batch / base_global_batch, 16.0)
+    args.lr *= lr_scale
+    args.lr_aux *= lr_scale
     
     tpu_workers = getattr(args, "tpu_workers", 0)
     if tpu_workers is None:
@@ -1666,6 +1677,15 @@ def main():
     logger.info("Arguments: %s", args)
     logger.info("Using device: %s", DEVICE)
     logger.info("Using mixed precision: bfloat16")
+    logger.info(
+        "Global batch=%s (per-core=%s, world=%s), lr_scale=%.3f, lr=%.6f, lr_aux=%.6f",
+        global_batch,
+        args.batch_size,
+        WORLD_SIZE,
+        lr_scale,
+        args.lr,
+        args.lr_aux,
+    )
     # logger.info("Output dir: %s", output_dir)
     logger.info("Subdir: %s", subdir_name)
     if IS_MASTER:
@@ -2552,24 +2572,32 @@ def main():
                 history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
             if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
-                ckpt = {
-                    "epoch": epoch + 1,
-                    "model": model.state_dict(),
-                    "decoder": decoder.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                    "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
-                    "training_history": training_history,
-                    "args": args,
-                }
+                if IS_MASTER:
+                    ckpt = {
+                        "epoch": epoch + 1,
+                        "model": model.state_dict(),
+                        "decoder": decoder.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                        "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+                        "training_history": training_history,
+                        "args": args,
+                    }
+                else:
+                    ckpt = {}
+                _xla_sync()
                 xm.save(ckpt, last_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
             elif args.save_weights:
-                weights = {
-                    "model": model.state_dict(),
-                    "decoder": decoder.state_dict(),
-                }
+                if IS_MASTER:
+                    weights = {
+                        "model": model.state_dict(),
+                        "decoder": decoder.state_dict(),
+                    }
+                else:
+                    weights = {}
+                _xla_sync()
                 xm.save(weights, last_weights_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved weights checkpoint to '%s'", last_weights_path)
@@ -2583,8 +2611,6 @@ def main():
             if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
                 logger.info("Stopping training: reached break_at_epoch=%s.", args.break_at_epoch)
                 break
-    
-            gc.collect()
     
         logger.info("Training complete.")
     else:
