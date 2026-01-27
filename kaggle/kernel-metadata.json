@@ -1,6 +1,6 @@
 {
-  "id": "yuanhahah/depth-base-none-lr7e-5-50",
-  "title": "depth base none lr7e 5 50",
+  "id": "jjjerry12138/depth-base-rope-bs48lr1e-4-50",
+  "title": "depth base rope bs48lr1e 4 50",
   "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",

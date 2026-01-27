@@ -91,14 +91,48 @@ def main():
             sys.path.insert(0, LOCAL_TIMM)
     
     import timm
-    import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.parallel_loader as pl
-    import torch_xla.runtime as xr
+    xm = None
+    pl = None
+    xr = None
+    txla = None
+    _xla_available = False
     
     _XLA_PROCESS_INDEX = os.environ.get("XLA_PROCESS_INDEX", "0")
     if _XLA_PROCESS_INDEX == "0":
         print("timm:", timm.__version__, flush=True)
         print("torch:", torch.__version__, flush=True)
+
+    def _import_xla():
+        nonlocal xm, pl, _xla_available, txla, xr
+        if _xla_available:
+            return
+        try:
+            import torch_xla as _txla
+            import torch_xla.core.xla_model as _xm
+            import torch_xla.distributed.parallel_loader as _pl
+            import torch_xla.runtime as _xr
+        except Exception:
+            _xla_available = False
+            return
+        txla = _txla
+        xm = _xm
+        pl = _pl
+        xr = _xr
+        _xla_available = True
+
+    def _select_device():
+        _import_xla()
+        xla_devices = []
+        if _xla_available:
+            try:
+                xla_devices = xm.get_xla_supported_devices()
+            except Exception:
+                xla_devices = []
+        if xla_devices:
+            if txla is not None and hasattr(txla, "device"):
+                return txla.device(), xla_devices
+            return xm.xla_device(), xla_devices
+        raise RuntimeError("TPU/XLA is required but not available.")
     
     # =============================================================================
     # Configuration
@@ -133,17 +167,17 @@ def main():
         eval_split="val",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=False,
+        use_rot_pos_emb=True,
         model_size='base',
-        train_sizes=[(224, 224)],
-        eval_size=(224, 224),
-        final_eval_size=(224, 224),
+        train_sizes=[(256, 256)],
+        eval_size=(256, 256),
+        final_eval_size=(256, 256),
         color_jitter_prob=0.5,
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
-        batch_size=24,
+        batch_size=48,
         patch_size=16,
-        lr=7e-05,
+        lr=0.0001,
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
@@ -163,10 +197,10 @@ def main():
         warmup_steps=3000,
         warmup_ratio=None,
         clip_value=1.0,
-        debug_loss_stats=False,
+        debug_loss_stats=True,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=500,
+        log_interval=1,
         show_peak_gpu_mem=True,
         log_all_ranks=False,
         debug_xla=True,
@@ -190,15 +224,17 @@ def main():
         csv_interval=5,
         prefetch_factor=2,
         compile_model=False,
-        save_full_ckpt=True,
+        save_full_ckpt=False,
+        save_full_ckpt_interval=10,
+        save_weights=False,
         resume_full_ckpt=False,
         resume_ckpt_path=None,
         resume_args=True,
         resume_scheduler=True,
-        resume_optimizer=True,
+        resume_optimizer=False,
         resume_bs=True,
         resume_img_size=False,
-        total_run_time_hr=12.0,
+        total_run_time_hr=1.0,
         train=True,
         val=False,
         final_use_sliding_window=True,
@@ -1540,10 +1576,14 @@ def main():
     if args.final_sw_overlap is None:
         args.final_sw_overlap = 0.25
     
-    DEVICE = xm.xla_device()
-    WORLD_SIZE = xr.world_size()
-    RANK = xr.global_ordinal()
-    IS_MASTER = xr.global_ordinal() == 0
+    DEVICE, _xla_devices = _select_device()
+    if xr is not None and hasattr(xr, "world_size"):
+        WORLD_SIZE = xr.world_size()
+        RANK = xr.global_ordinal()
+    else:
+        WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
+        RANK = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", "0")))
+    IS_MASTER = RANK == 0
 
     print(f"✅ Success! TPU Rank {RANK} initialized. World size: {WORLD_SIZE}", flush=True)
     
@@ -1595,10 +1635,15 @@ def main():
     
     run_tag = time.strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(args.output_dir)
-    ckpt_output_dir = os.path.join(output_dir, "ckpt")
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(ckpt_output_dir, exist_ok=True)
-    last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
+    ckpt_output_dir = None
+    last_ckpt_path = None
+    last_weights_path = None
+    if args.save_full_ckpt or args.save_weights or args.resume_full_ckpt:
+        ckpt_output_dir = os.path.join(output_dir, "ckpt")
+        os.makedirs(ckpt_output_dir, exist_ok=True)
+        last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
+        last_weights_path = os.path.join(ckpt_output_dir, "last_weights.pth")
     
     log_file_path = os.path.join(output_dir, f"{subdir_name}.log")
     try:
@@ -1623,6 +1668,20 @@ def main():
     logger.info("Using mixed precision: bfloat16")
     # logger.info("Output dir: %s", output_dir)
     logger.info("Subdir: %s", subdir_name)
+    if IS_MASTER:
+        tpu_specs = {
+            "TPU_ACCELERATOR_TYPE": os.environ.get("TPU_ACCELERATOR_TYPE"),
+            "TPU_CHIPS_PER_HOST_BOUNDS": os.environ.get("TPU_CHIPS_PER_HOST_BOUNDS"),
+            "TPU_HOST_BOUNDS": os.environ.get("TPU_HOST_BOUNDS"),
+            "TPU_PROCESS_ADDRESSES": os.environ.get("TPU_PROCESS_ADDRESSES"),
+            "TPU_PROCESS_COUNT": os.environ.get("TPU_PROCESS_COUNT"),
+            "TPU_RUNTIME_METRICS_PORTS": os.environ.get("TPU_RUNTIME_METRICS_PORTS"),
+            "XLA_FLAGS": os.environ.get("XLA_FLAGS"),
+            "WORLD_SIZE": WORLD_SIZE,
+        }
+        logger.info("TPU specs: %s", tpu_specs)
+        if _xla_devices:
+            logger.info("XLA devices: %s", _xla_devices)
 
     def _autocast():
         return torch.autocast("xla", dtype=autocast_dtype)
@@ -1638,6 +1697,12 @@ def main():
     def _debug(msg):
         if getattr(args, "debug_xla", False):
             _master_print(msg)
+
+    def _xla_sync():
+        if txla is not None and hasattr(txla, "sync"):
+            txla.sync()
+        else:
+            xm.mark_step()
 
     tpu_mem_warned = False
     tpu_info_checked = False
@@ -1700,23 +1765,11 @@ def main():
         tpu_info_last_ts = now
         return tpu_info_last_vals
 
-    if IS_MASTER:
-        tpu_specs = {
-            "TPU_ACCELERATOR_TYPE": os.environ.get("TPU_ACCELERATOR_TYPE"),
-            "TPU_CHIPS_PER_HOST_BOUNDS": os.environ.get("TPU_CHIPS_PER_HOST_BOUNDS"),
-            "TPU_HOST_BOUNDS": os.environ.get("TPU_HOST_BOUNDS"),
-            "TPU_PROCESS_ADDRESSES": os.environ.get("TPU_PROCESS_ADDRESSES"),
-            "TPU_PROCESS_COUNT": os.environ.get("TPU_PROCESS_COUNT"),
-            "TPU_RUNTIME_METRICS_PORTS": os.environ.get("TPU_RUNTIME_METRICS_PORTS"),
-            "XLA_FLAGS": os.environ.get("XLA_FLAGS"),
-            "WORLD_SIZE": WORLD_SIZE,
-        }
-        logger.info(f"TPU specs: {tpu_specs}")
-        if getattr(args, "debug_xla", False):
-            try:
-                xm.master_print("DEBUG: XLA debug logging enabled", flush=True)
-            except Exception:
-                print("DEBUG: XLA debug logging enabled", flush=True)
+    if IS_MASTER and getattr(args, "debug_xla", False):
+        try:
+            xm.master_print("DEBUG: XLA debug logging enabled", flush=True)
+        except Exception:
+            print("DEBUG: XLA debug logging enabled", flush=True)
 
     if args.compile_model:
         logger.info("compile_model disabled on TPU (XLA best practice).")
@@ -2301,14 +2354,14 @@ def main():
             step += 1
             bs = inputs.size(0)
             aux_loss = None
-            if getattr(args, "debug_xla", False) and step == 1:
-                _master_print(f"[rank {RANK}] step0: batch moved")
+            if getattr(args, "debug_xla", False):
+                _master_print(f"[rank {RANK}] step{step}: batch moved")
             with _autocast():
-                if getattr(args, "debug_xla", False) and step == 1:
-                    _master_print(f"[rank {RANK}] step0: forward start")
+                if getattr(args, "debug_xla", False):
+                    _master_print(f"[rank {RANK}] step{step}: forward start")
                 pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
-                if getattr(args, "debug_xla", False) and step == 1:
-                    _master_print(f"[rank {RANK}] step0: forward done")
+                if getattr(args, "debug_xla", False):
+                    _master_print(f"[rank {RANK}] step{step}: forward done")
                 pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
                 valid = (gt_depths > 0)
                 base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
@@ -2325,15 +2378,17 @@ def main():
             base_loss_t += base_loss.detach() * bs
 
             loss.backward()
-            if getattr(args, "debug_xla", False) and step == 1:
-                _master_print(f"[rank {RANK}] step0: backward done")
+            if getattr(args, "debug_xla", False):
+                _master_print(f"[rank {RANK}] step{step}: backward done")
             if args.clip_value is not None:
                 torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
             xm.optimizer_step(optimizer, barrier=True)
-            if getattr(args, "debug_xla", False) and step == 1:
-                _master_print(f"[rank {RANK}] step0: optimizer step done")
+            if getattr(args, "debug_xla", False):
+                _master_print(f"[rank {RANK}] step{step}: optimizer step done")
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
+            if step % log_interval == 0:
+                _xla_sync()
 
             running_loss_t += loss.detach() * bs
             total_samples += bs
@@ -2448,6 +2503,7 @@ def main():
     if args.break_at_epoch is not None and start_epoch >= args.break_at_epoch:
         args.train = False
     if args.train:
+        ckpt_interval = int(getattr(args, "save_full_ckpt_interval", 1) or 0)
         logger.info("Starting training...")
         for epoch in range(start_epoch, EPOCHS):
             train_start = time.time()
@@ -2495,7 +2551,7 @@ def main():
                 history_df = _history_to_frame(training_history)
                 history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
-            if args.save_full_ckpt:
+            if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
                 ckpt = {
                     "epoch": epoch + 1,
                     "model": model.state_dict(),
@@ -2509,6 +2565,14 @@ def main():
                 xm.save(ckpt, last_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
+            elif args.save_weights:
+                weights = {
+                    "model": model.state_dict(),
+                    "decoder": decoder.state_dict(),
+                }
+                xm.save(weights, last_weights_path, master_only=True)
+                if IS_MASTER:
+                    logger.info("Saved weights checkpoint to '%s'", last_weights_path)
     
             if args.total_run_time_hr is not None:
                 elapsed = time.time() - train_start_time

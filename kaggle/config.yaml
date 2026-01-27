@@ -1,20 +1,20 @@
-task: depth
-id: jjjerry12138
+task: cls
+id: qinghui9527
 pos_type: null
-method: rope
+method: colrow
 model_size: base
-suffix: 5
+suffix: 2
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: yangjiamin/depth-base-rope-d-453
+kernel_sources: b201xiaoli/cls-base-colrow-d-117
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 53
+seed: 17
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

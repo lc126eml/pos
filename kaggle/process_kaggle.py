@@ -405,7 +405,10 @@ def main():
     if pos_type is not None:
         if task != "cls":
             raise ValueError("pos_type is only supported for cls task.")
-        py_file = Path("dinov3_reg_dynamic_pos.py")
+        if use_tpu:
+            py_file = Path("dinov3_reg_dynamic_tpu.py")
+        else:
+            py_file = Path("dinov3_reg_dynamic_pos.py")
     elif task == "seg":
         py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":

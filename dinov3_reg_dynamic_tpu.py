@@ -92,6 +92,21 @@ def main():
     sys.path.insert(0, LOCAL_TIMM)
     
     import timm
+    if args.pos_type is not None:
+        try:
+            if args.pos_type == "relpos":
+                import timm_pe.eva_relpos  # noqa: F401
+            elif args.pos_type == "alibi":
+                import timm_pe.eva_alibi  # noqa: F401
+            elif args.pos_type == "sin":
+                import timm_pe.eva_sin  # noqa: F401
+            else:
+                raise ValueError(f"Unsupported pos_type: {args.pos_type}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"pos_type={args.pos_type} requires timm_pe modules. "
+                f"Ensure timm_pe is available in the kernel environment. ({exc})"
+            ) from exc
     if _IS_XLA_MASTER:
         print("timm:", timm.__version__, flush=True)
         print("torch:", torch.__version__, flush=True)
@@ -210,6 +225,8 @@ def main():
         args.use_patch_position_loss=False
         args.dynamic_img_size=False
         args.val=False
+        args.use_abs_pos_emb = False
+        args.use_rot_pos_emb = False
     if args.use_abs_pos_emb or args.use_rot_pos_emb:
         args.overlap = 0
         args.use_patch_position_loss=False
@@ -222,7 +239,11 @@ def main():
         args.dynamic_img_size = True
     
     offset = 0
-    MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
+    if args.pos_type is not None:
+        pos_str = f"{args.pos_type}_"
+    else:
+        pos_str = ""
+    MODEL_NAME = f"vit_{pos_str}{args.model_size}_patch16_{args.model_type}"
     if is_kaggle:
         output_dir = args.root_dir
         ckpt_output_dir = os.path.join(output_dir, "ckpt")

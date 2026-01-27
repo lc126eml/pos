@@ -1,10 +1,10 @@
 task: depth
-id: liucong12601
+id: jjjerry12138  
 pos_type: null # alibi relpos
-method: none # colrow, rope, abs, none
+method: rope # colrow, rope, abs, none
 model_size: base
 suffix: 0
-desc: lr7e-5
+desc: bs48lr1e-4
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -17,4 +17,6 @@ tpu_threads: 1
 seed: 50
 simple:
 - resume_bs: true
-- total_run_time_hr: 12.0
+- total_run_time_hr: 1.0
+- batch_size: 48
+- lr: 1.0e-04
