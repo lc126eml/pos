@@ -14,6 +14,10 @@ from lock_utils import file_lock
 BASE_DIR = Path(__file__).resolve().parent
 
 
+def _config_kernel_path(use_tpu):
+    return BASE_DIR / ("config_kernel_tpu.yaml" if use_tpu else "config_kernel.yaml")
+
+
 def _as_list(value):
     if value is None:
         return []
@@ -176,27 +180,20 @@ def _resolve_resume_source(cfg):
 
 
 def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_lock=True):
-    config_kernel_path = BASE_DIR / "config_kernel.yaml"
+    is_tpu = bool(cfg.get("tpu", False))
+    config_kernel_path = _config_kernel_path(is_tpu)
     lock_path = config_kernel_path.with_suffix(config_kernel_path.suffix + ".lock")
     lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=3.) if use_lock else nullcontext()
     with lock_ctx:
         kcfg = _load_yaml(config_kernel_path)
-        running_nodes = kcfg.get("running_nodes") or []
-        tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
         node_id = cfg["id"]
-        is_tpu = bool(cfg.get("tpu", False))
-        tpu_cfg = kcfg.get("tpu") or {}
-        available_ids = tpu_cfg.get("available_ids") if is_tpu else kcfg.get("available_ids")
+        nodes = kcfg.get("running_nodes") or []
+        available_ids = kcfg.get("available_ids")
         if available_ids is None:
             available_ids = []
         if consume_available and node_id in available_ids:
             available_ids.remove(node_id)
-            if is_tpu:
-                tpu_cfg["available_ids"] = available_ids
-                kcfg["tpu"] = tpu_cfg
-            else:
-                kcfg["available_ids"] = available_ids
-        nodes = tpu_running_nodes if is_tpu else running_nodes
+            kcfg["available_ids"] = available_ids
         node = None
         for item in nodes:
             if item.get("id") == node_id:
@@ -225,8 +222,7 @@ def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_l
         }
         notebooks.append(notebook)
         node["notebooks"] = notebooks
-        kcfg["running_nodes"] = running_nodes
-        kcfg["tpu_running_nodes"] = tpu_running_nodes
+        kcfg["running_nodes"] = nodes
         _write_yaml(config_kernel_path, kcfg)
 
 
@@ -386,14 +382,13 @@ def main():
     pos_type = cfg.get("pos_type")
     use_tpu = bool(cfg.get("tpu", False))
     if args_ns.add_running_node and cfg.get("id") is None:
-        config_kernel_path = BASE_DIR / "config_kernel.yaml"
+        config_kernel_path = _config_kernel_path(use_tpu)
         kcfg = _load_yaml(config_kernel_path)
         running_nodes = kcfg.get("running_nodes") or []
-        tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
         selected_from_available = False
         if use_tpu:
             chosen = None
-            for node in tpu_running_nodes:
+            for node in running_nodes:
                 if float(node.get("left_time", 0) or 0) <= 0:
                     continue
                 if node.get("notebooks"):
@@ -401,11 +396,10 @@ def main():
                 chosen = node.get("id")
                 break
             if chosen is None:
-                tpu_cfg = kcfg.get("tpu") or {}
-                tpu_available = tpu_cfg.get("available_ids") or []
-                if not tpu_available:
+                available_ids = kcfg.get("available_ids") or []
+                if not available_ids:
                     raise ValueError("No TPU available_ids left to assign.")
-                chosen = tpu_available[0]
+                chosen = available_ids[0]
                 selected_from_available = True
         else:
             chosen = None
@@ -430,7 +424,7 @@ def main():
         if task != "cls":
             raise ValueError("pos_type is only supported for cls task.")
         if use_tpu:
-            py_file = Path("dinov3_reg_concise_tpu.py")
+            py_file = Path("dinov3_reg_dynamic_tpu.py")
         else:
             py_file = Path("dinov3_reg_dynamic_pos.py")
     elif task == "seg":
@@ -440,7 +434,7 @@ def main():
             py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":
         if use_tpu:
-            py_file = Path("dinov3_reg_concise_tpu.py")
+            py_file = Path("dinov3_reg_dynamic_tpu.py")
         else:
             py_file = Path("dinov3_reg_dynamic.py")
     elif task == "depth":

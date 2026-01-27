@@ -153,10 +153,37 @@ def _preflight_kaggle_env():
                 _download_with_retries(url, zip_path)
             with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall("/kaggle/working")
+            repo_root = None
+            if os.path.isdir("/kaggle/working/pos"):
+                repo_root = "/kaggle/working/pos"
+            else:
+                for name in os.listdir("/kaggle/working"):
+                    cand = os.path.join("/kaggle/working", name)
+                    if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                        repo_root = cand
+                        break
+            if repo_root:
+                os.environ["POS_REPO_ROOT"] = repo_root
+                if repo_root not in sys.path:
+                    sys.path.insert(0, repo_root)
             with open(marker, "w", encoding="utf-8") as f:
                 f.write("ok\n")
         except Exception as exc:
             raise RuntimeError(f"Failed to download pos repo for timm_pe: {exc}") from exc
+    if not os.environ.get("POS_REPO_ROOT"):
+        repo_root = None
+        if os.path.isdir("/kaggle/working/pos"):
+            repo_root = "/kaggle/working/pos"
+        else:
+            for name in os.listdir("/kaggle/working"):
+                cand = os.path.join("/kaggle/working", name)
+                if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                    repo_root = cand
+                    break
+        if repo_root:
+            os.environ["POS_REPO_ROOT"] = repo_root
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
 
 def _spawn_tpu(main_fn):
     print(f"SCRIPT_REV={SCRIPT_REV}", flush=True)
@@ -225,7 +252,7 @@ def main():
     else:
         print("not kaggle", flush=True)
     args = SimpleNamespace(
-        pos_type = 'relpos',
+        pos_type = None,
         dynamic_img_size=False,
         model_type= "dinov3",
         use_abs_pos_emb=False,
@@ -234,7 +261,7 @@ def main():
         num_classes=100,
         patch_size = 16,
         batch_size=64,
-        img_sizes=[224],
+        img_sizes=[224, 192, 288],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
         lr=7e-05,
         lr_aux=1e-5,
@@ -251,7 +278,7 @@ def main():
         workers=5,
         re_prob=0.0,
         train=True,
-        val=False,
+        val=True,
         tpu_size_schedule="epoch",
         tpu_size_hold_batches=0,
         tpu_workers=0,
@@ -326,12 +353,19 @@ def main():
                 f"pos_type={args.pos_type} requires timm_pe modules. "
                 "timm_pe is not available outside Kaggle."
             )
-        repo_root = None
-        for name in os.listdir("/kaggle/working"):
-            cand = os.path.join("/kaggle/working", name)
-            if os.path.isdir(os.path.join(cand, "timm_pe")):
-                repo_root = cand
-                break
+        repo_root = os.environ.get("POS_REPO_ROOT")
+        if repo_root and os.path.isdir(repo_root):
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+        else:
+            repo_root = None
+            for name in os.listdir("/kaggle/working"):
+                cand = os.path.join("/kaggle/working", name)
+                if os.path.isdir(os.path.join(cand, "timm_pe")):
+                    repo_root = cand
+                    break
+            if repo_root:
+                sys.path.insert(0, repo_root)
         if repo_root is None:
             raise RuntimeError("Failed to locate timm_pe after downloading pos repo.")
         sys.path.insert(0, repo_root)
@@ -630,659 +664,24 @@ def main():
     
     
     
-    from typing import Literal, Optional, Dict, Tuple
-    
-    LossType = Literal["mse", "smooth_l1", "l1"]
-    
-    class PatchRowColRegressionCriterion(nn.Module):
-        def __init__(self, feat_dim, grid_h, grid_w, normalize=True, huber_beta=None):
-            """
-            Predict row and column index of each patch via regression (single resolution).
-    
-            Args:
-                feat_dim (int): Dimension of patch features (D)
-                grid_h (int): Number of patch rows (fixed)
-                grid_w (int): Number of patch columns (fixed)
-                normalize (bool): If True, normalize row/col targets to [0, 1]
-            """
-            super().__init__()
-            self.grid_h = grid_h
-            self.grid_w = grid_w
-            self.normalize = normalize
-    
-            self.row_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            self.col_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            if huber_beta is None:
-                self.loss_fn = nn.SmoothL1Loss()
-            else:
-                self.loss_fn = nn.SmoothL1Loss(beta=0.5/self.grid_h)
-    
-            rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
-            cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
-    
-            if normalize:
-                rows_2d = rows_2d / (grid_h - 1)
-                cols_2d = cols_2d / (grid_w - 1)
-    
-            row_targets = rows_2d.flatten()
-            col_targets = cols_2d.flatten()
-    
-            self.register_buffer("row_targets", row_targets, persistent=False)
-            self.register_buffer("col_targets", col_targets, persistent=False)
-    
-        def forward(self, feats):
-            """
-            Args:
-                feats: (B, N, D) patch features, N = grid_h * grid_w
-    
-            Returns:
-                avg_loss: scalar, average of row and column regression losses
-            """
-            B, N, D = feats.shape
-            assert N == self.grid_h * self.grid_w, f"Expected N = grid_h * grid_w = {self.grid_h * self.grid_w}, got N = {N}"
-    
-            x = feats.reshape(-1, D)
-    
-            row_targets = self.row_targets.repeat(B)
-            col_targets = self.col_targets.repeat(B)
-    
-            row_pred = self.row_mlp(x).squeeze(-1)
-            col_pred = self.col_mlp(x).squeeze(-1)
-    
-            loss_row = self.loss_fn(row_pred, row_targets)
-            loss_col = self.loss_fn(col_pred, col_targets)
-    
-            return (loss_row + loss_col) / 2.0
-    
-    class PatchRowColRegressionCriterionDynamic(nn.Module):
-        def __init__(self, feat_dim, grid_h, grid_w, normalize=True):
-            """
-            Predict row and column index of each patch via regression,
-            supporting dynamic training resolutions.
-    
-            Args:
-                feat_dim (int): Dimension of patch features (D)
-                grid_h (int): Max number of patch rows (upper bound)
-                grid_w (int): Max number of patch columns (upper bound)
-                normalize (bool): If True, normalize row/col targets to [0, 1]
-                                  based on the *current* hp/wp for each batch.
-            """
-            super().__init__()
-            self.grid_h = grid_h
-            self.grid_w = grid_w
-            self.normalize = normalize
-    
-            self.row_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            self.col_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            self.loss_fn = nn.SmoothL1Loss()
-    
-            rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
-            cols = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
-    
-            self.register_buffer("row_index_full", rows, persistent=False)
-            self.register_buffer("col_index_full", cols, persistent=False)
-    
-        def forward(self, feats, hp=None, wp=None):
-            """
-            Args:
-                feats: (B, N, D) patch features, with N = hp * wp for this batch.
-                hp, wp: number of patch rows / columns used for this batch
-                        (single scalar each; one resolution per batch).
-    
-            Returns:
-                avg_loss: scalar, average of row and column regression losses.
-            """
-            B, N, D = feats.shape
-    
-            if hp is None:
-                hp = self.grid_h
-            if wp is None:
-                wp = self.grid_w
-    
-            assert N == hp * wp, f"Expected N = hp * wp = {hp * wp}, got N = {N}"
-    
-            x = feats.reshape(-1, D)
-    
-            row_idx_2d = self.row_index_full[:hp, :wp]
-            col_idx_2d = self.col_index_full[:hp, :wp]
-    
-            if self.normalize:
-                row_idx_2d = row_idx_2d / max(hp - 1, 1)
-                col_idx_2d = col_idx_2d / max(wp - 1, 1)
-    
-            row_targets = row_idx_2d.flatten().repeat(B)
-            col_targets = col_idx_2d.flatten().repeat(B)
-    
-            row_pred = self.row_mlp(x).squeeze(-1)
-            col_pred = self.col_mlp(x).squeeze(-1)
-    
-            loss_row = self.loss_fn(row_pred, row_targets)
-            loss_col = self.loss_fn(col_pred, col_targets)
-    
-            return (loss_row + loss_col) / 2.0
-    
-    class PatchRowColCriterionDynamic(nn.Module):
-        def __init__(self, feat_dim, grid_h, grid_w):
-            """
-            Predict row and column of each patch independently.
-    
-            Args:
-                feat_dim (int): Dimension of patch features (D)
-                grid_h (int): Number of patch rows
-                grid_w (int): Number of patch columns
-            """
-            super().__init__()
-            self.grid_h = grid_h
-            self.grid_w = grid_w
-    
-            self.row_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, grid_h)
-            )
-    
-            self.col_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, grid_w)
-            )
-    
-            self.ce = nn.CrossEntropyLoss()
-    
-            rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w)
-            cols = torch.arange(grid_w).unsqueeze(0).repeat(grid_h, 1)
-            self.register_buffer("row_labels", rows)
-            self.register_buffer("col_labels", cols)
-    
-        def forward(self, feats, hp=None, wp=None):
-            """
-            Args:
-                feats: (B, N, D) patch features, N = grid_h * grid_w
-                wp, hp: (B,) number of patches in each row/column
-            Returns:
-                avg_loss: scalar, sum of row and column classification losses
-            """
-            B, N, D = feats.shape
-    
-            x = feats.reshape(-1, D)
-    
-            if hp is None or wp is None:
-                hp = self.grid_h
-                wp = self.grid_w
-            row_labels = self.row_labels[:hp, :wp].flatten().repeat(B)
-            col_labels = self.col_labels[:hp, :wp].flatten().repeat(B)
-    
-            row_logits = self.row_mlp(x)
-            col_logits = self.col_mlp(x)
-    
-            loss_row = self.ce(row_logits, row_labels)
-            loss_col = self.ce(col_logits, col_labels)
-    
-            return (loss_row + loss_col) / 2
-    
-    class PatchRowColCriterion(nn.Module):
-        def __init__(self, feat_dim, grid_h, grid_w):
-            """
-            Predict row and column of each patch independently.
-    
-            Args:
-                feat_dim (int): Dimension of patch features (D)
-                grid_h (int): Number of patch rows
-                grid_w (int): Number of patch columns
-            """
-            super().__init__()
-            self.grid_h = grid_h
-            self.grid_w = grid_w
-    
-            self.row_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, grid_h)
-            )
-    
-            self.col_mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, grid_w)
-            )
-    
-            self.ce = nn.CrossEntropyLoss()
-    
-            rows = torch.arange(grid_h).unsqueeze(1).repeat(1, grid_w).flatten()
-            cols = torch.arange(grid_w).repeat(grid_h)
-            self.register_buffer("row_labels", rows)
-            self.register_buffer("col_labels", cols)
-    
-        def forward(self, feats):
-            """
-            Args:
-                feats: (B, N, D) patch features, N = grid_h * grid_w
-            Returns:
-                avg_loss: scalar, sum of row and column classification losses
-            """
-            B, N, D = feats.shape
-            assert N == self.grid_h * self.grid_w, f"Expected {self.grid_h*self.grid_w} patches, got {N}"
-    
-            x = feats.reshape(-1, D)
-    
-            row_labels = self.row_labels.repeat(B)
-            col_labels = self.col_labels.repeat(B)
-    
-            row_logits = self.row_mlp(x)
-            col_logits = self.col_mlp(x)
-    
-            loss_row = self.ce(row_logits, row_labels)
-            loss_col = self.ce(col_logits, col_labels)
-    
-            return (loss_row + loss_col) / 2
-    
-    
-    
-    class PatchPositionCriterion(nn.Module):
-        def __init__(self, feat_dim, hidden_dim=256, num_classes=None):
-            """
-            Args:
-                feat_dim (int): Feature dimension of each patch (D)
-                hidden_dim (int): Hidden layer size for MLP
-                num_classes (int): Number of patches (grid_h * grid_w)
-            """
-            super().__init__()
-            self.num_classes = num_classes
-            self.mlp = nn.Sequential(
-                nn.Linear(feat_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, num_classes)
-            )
-            self.ce = nn.CrossEntropyLoss()
-    
-            self.register_buffer("patch_positions", torch.arange(num_classes), persistent=False)
-    
-        def forward(self, feats):
-            """
-            Args:
-                feats: (B, N, D) patch features
-            Returns:
-                avg_loss: scalar, mean cross-entropy over all patches
-            """
-            B, N, D = feats.shape
-            assert N == self.num_classes, f"Expected {self.num_classes} patches, got {N}"
-    
-            x = feats.reshape(-1, D)
-            labels = self.patch_positions.repeat(B)
-            logits = self.mlp(x)
-            loss = self.ce(logits, labels)
-            return loss
-    
-    class PatchPositionRegressionCriterion(nn.Module):
-        def __init__(self, feat_dim, num_classes, normalize=True):
-            """
-            Predict patch position index via regression (single resolution).
-    
-            Args:
-                feat_dim (int): Feature dimension of each patch (D)
-                num_classes (int): Number of patches (grid_h * grid_w)
-                normalize (bool): If True, normalize position targets to [0, 1]
-            """
-            super().__init__()
-            self.num_classes = num_classes
-            self.normalize = normalize
-    
-            self.mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            self.loss_fn = nn.SmoothL1Loss()
-    
-            position_targets = torch.arange(num_classes, dtype=torch.float32)
-            if normalize:
-                position_targets = position_targets / max(num_classes - 1, 1)
-            self.register_buffer("position_targets", position_targets, persistent=False)
-    
-        def forward(self, feats):
-            """
-            Args:
-                feats: (B, N, D) patch features
-            Returns:
-                loss: scalar, SmoothL1 loss over all patches
-            """
-            B, N, D = feats.shape
-            assert N == self.num_classes, f"Expected {self.num_classes} patches, got {N}"
-    
-            x = feats.reshape(-1, D)
-            targets = self.position_targets.repeat(B)
-            pred = self.mlp(x).squeeze(-1)
-            loss = self.loss_fn(pred, targets)
-            return loss
-    
-    class PatchPositionRegressionCriterionDynamic(nn.Module):
-        def __init__(self, feat_dim, max_patch_count, normalize=True):
-            """
-            Predict patch position index via regression, supporting dynamic resolutions.
-    
-            Args:
-                feat_dim (int): Feature dimension of each patch (D)
-                max_patch_count (int): Max number of patches (upper bound)
-                normalize (bool): If True, normalize position targets to [0, 1]
-                                  based on the *current* patch count for each batch.
-            """
-            super().__init__()
-            self.max_patch_count = max_patch_count
-            self.normalize = normalize
-    
-            self.mlp = nn.Sequential(
-                nn.Linear(feat_dim, 256),
-                nn.ReLU(),
-                nn.Linear(256, 1)
-            )
-    
-            self.loss_fn = nn.SmoothL1Loss()
-    
-            positions = torch.arange(max_patch_count, dtype=torch.float32)
-            self.register_buffer("position_index_full", positions, persistent=False) 
-    
-        def forward(self, feats):
-            """
-            Args:
-                feats: (B, N, D) patch features.
-            Returns:
-                loss: scalar, SmoothL1 loss over all patches.
-            """
-            B, N, D = feats.shape
-            if N > self.max_patch_count:
-                raise ValueError(f"Expected N <= max_patch_count={self.max_patch_count}, got N={N}")
-    
-            x = feats.reshape(-1, D)
-    
-            pos_idx = self.position_index_full[:N]
-    
-            if self.normalize:
-                pos_idx = pos_idx / max(N - 1, 1)
-    
-            targets = pos_idx.repeat(B)
-    
-            pred = self.mlp(x).squeeze(-1)
-    
-            loss = self.loss_fn(pred, targets)
-            return loss
-    
-    
-    
-    
-    class MultiScaleImageDataset(Dataset):
-        def __init__(self, samples, size_to_transform):
-            """
-            samples: list of (path, target)
-            size_to_transform: dict[int, T.Compose]
-            """
-            self.samples = samples
-            self.size_to_transform = size_to_transform
-    
-        def __len__(self):
-            return len(self.samples)
-    
-        def __getitem__(self, key):
-            idx, size = key
-            path, target = self.samples[idx]
-    
-            with open(path, "rb") as f:
-                img = Image.open(f).convert("RGB")
-    
-            transform = self.size_to_transform[size]
-            img = transform(img)
-    
-            return img, target
-    
-    class CustomImageDataset(Dataset):
-        def __init__(self, samples, transform=None):
-            self.samples = samples
-            self.transform = transform
-    
-        def set_transform(self, transform):
-            self.transform = transform
-    
-        def __len__(self):
-            return len(self.samples)
-    
-        def __getitem__(self, idx):
-            path, target = self.samples[idx]
-            with open(path, 'rb') as f:
-                sample = Image.open(f).convert('RGB')
-            if self.transform:
-                sample = self.transform(sample)
-            return sample, target
-    
-    class DynamicResolutionBatchSampler:
-        """
-        Yields batches of (idx, size) with dynamic batch size so that
-        batch_size * size^2 approx base_batch_size * base_img_size^2.
-        """
-    
-        def __init__(
-            self,
-            dataset,
-            image_sizes,
-            base_batch_size,
-            base_img_size,
-            shuffle: bool = True,
-            drop_last: bool = True,
-            size_schedule: str = "batch",
-            hold_batches: int = 0,
-            seed: int = 0,
-        ):
-            self.dataset_len = len(dataset)
-            self.image_sizes = list(image_sizes)
-            self.base_batch_size = base_batch_size
-            self.base_img_size = base_img_size
-            self.shuffle = shuffle
-            self.drop_last = drop_last
-            self.size_schedule = size_schedule
-            self.hold_batches = hold_batches
-            self.seed = seed
-            self.epoch = 0
-    
-            self.pixel_budget = base_batch_size * (base_img_size ** 2)
-    
-            avg_size_sq = sum(s * s for s in self.image_sizes) / len(self.image_sizes)
-            self.avg_batch_size = self.pixel_budget / avg_size_sq
-    
-        def __len__(self):
-            return math.ceil(self.dataset_len / self.avg_batch_size)
-    
-        def set_epoch(self, epoch: int):
-            self.epoch = epoch
-    
-        def __iter__(self):
-            rng = random.Random(self.seed + self.epoch)
-    
-            indices = list(range(self.dataset_len))
-            if self.shuffle:
-                rng.shuffle(indices)
-    
-            ptr = 0
-            n = len(indices)
-            size = None
-            batches_since_change = 0
-            if self.size_schedule == "epoch":
-                size = rng.choice(self.image_sizes)
-    
-            while ptr < n:
-                if self.size_schedule == "batch":
-                    size = rng.choice(self.image_sizes)
-                elif self.size_schedule == "batches":
-                    if self.hold_batches <= 0:
-                        size = rng.choice(self.image_sizes)
-                    elif size is None or batches_since_change >= self.hold_batches:
-                        size = rng.choice(self.image_sizes)
-                        batches_since_change = 0
-    
-                pixels_per_sample = size * size
-                if pixels_per_sample > 0:
-                    batch_size = max(1, self.pixel_budget // pixels_per_sample)
-                else:
-                    batch_size = self.base_batch_size
-    
-                remaining = n - ptr
-                if remaining < batch_size:
-                    if self.drop_last:
-                        break
-                    else:
-                        batch_size = remaining
-    
-                batch_indices = indices[ptr: ptr + batch_size]
-                ptr += batch_size
-    
-                yield [(idx, size) for idx in batch_indices]
-                batches_since_change += 1
-    
-    
-    class DistributedDynamicResolutionBatchSampler:
-        """
-        TPU-friendly dynamic batch sampler that keeps batch shapes identical across ranks.
-        Each rank sees a disjoint shard of the shuffled indices, while sharing the same
-        size schedule (so all ranks use the same resolution per step).
-        """
-    
-        def __init__(
-            self,
-            dataset,
-            image_sizes,
-            base_batch_size,
-            base_img_size,
-            num_replicas: int,
-            rank: int,
-            shuffle: bool = True,
-            drop_last: bool = True,
-            size_schedule: str = "epoch",
-            hold_batches: int = 0,
-            seed: int = 0,
-        ):
-            self.dataset_len = len(dataset)
-            self.image_sizes = list(image_sizes)
-            self.base_batch_size = base_batch_size
-            self.base_img_size = base_img_size
-            self.num_replicas = num_replicas
-            self.rank = rank
-            self.shuffle = shuffle
-            self.drop_last = drop_last
-            self.size_schedule = size_schedule
-            self.hold_batches = hold_batches
-            self.seed = seed
-            self.epoch = 0
-    
-            self.pixel_budget = base_batch_size * (base_img_size ** 2)
-    
-        def set_epoch(self, epoch: int):
-            self.epoch = epoch
-    
-        def _shard_indices(self, rng):
-            indices = list(range(self.dataset_len))
-            if self.shuffle:
-                rng.shuffle(indices)
-            if self.drop_last:
-                total = (len(indices) // self.num_replicas) * self.num_replicas
-                indices = indices[:total]
-            return indices[self.rank::self.num_replicas]
-    
-        def _num_batches(self, rng, indices):
-            ptr = 0
-            n = len(indices)
-            count = 0
-            size = None
-            batches_since_change = 0
-            if self.size_schedule == "epoch":
-                size = rng.choice(self.image_sizes)
-            while ptr < n:
-                if self.size_schedule == "batch":
-                    size = rng.choice(self.image_sizes)
-                elif self.size_schedule == "batches":
-                    if self.hold_batches <= 0:
-                        size = rng.choice(self.image_sizes)
-                    elif size is None or batches_since_change >= self.hold_batches:
-                        size = rng.choice(self.image_sizes)
-                        batches_since_change = 0
-                pixels_per_sample = size * size
-                if pixels_per_sample > 0:
-                    batch_size = max(1, self.pixel_budget // pixels_per_sample)
-                else:
-                    batch_size = self.base_batch_size
-    
-                remaining = n - ptr
-                if remaining < batch_size:
-                    if self.drop_last:
-                        break
-                    batch_size = remaining
-                ptr += batch_size
-                count += 1
-                batches_since_change += 1
-            return count
-    
-        def __len__(self):
-            rng = random.Random(self.seed + self.epoch)
-            indices = self._shard_indices(rng)
-            return self._num_batches(rng, indices)
-    
-        def __iter__(self):
-            rng = random.Random(self.seed + self.epoch)
-            indices = self._shard_indices(rng)
-            ptr = 0
-            n = len(indices)
-            size = None
-            batches_since_change = 0
-            if self.size_schedule == "epoch":
-                size = rng.choice(self.image_sizes)
-    
-            while ptr < n:
-                if self.size_schedule == "batch":
-                    size = rng.choice(self.image_sizes)
-                elif self.size_schedule == "batches":
-                    if self.hold_batches <= 0:
-                        size = rng.choice(self.image_sizes)
-                    elif size is None or batches_since_change >= self.hold_batches:
-                        size = rng.choice(self.image_sizes)
-                        batches_since_change = 0
-                pixels_per_sample = size * size
-                if pixels_per_sample > 0:
-                    batch_size = max(1, self.pixel_budget // pixels_per_sample)
-                else:
-                    batch_size = self.base_batch_size
-    
-                remaining = n - ptr
-                if remaining < batch_size:
-                    if self.drop_last:
-                        break
-                    batch_size = remaining
-    
-                batch_indices = indices[ptr: ptr + batch_size]
-                ptr += batch_size
-                yield [(idx, size) for idx in batch_indices]
-                batches_since_change += 1
-    
-    
-    
-    
-    
+    repo_root = os.environ.get("POS_REPO_ROOT")
+    if repo_root and repo_root not in sys.path and os.path.isdir(repo_root):
+        sys.path.insert(0, repo_root)
+    from core.patch_pos import (
+        PatchPositionCriterion,
+        PatchPositionRegressionCriterion,
+        PatchPositionRegressionCriterionDynamic,
+        PatchRowColRegressionCriterion,
+        PatchRowColRegressionCriterionDynamic,
+        PatchRowColCriterion,
+        PatchRowColCriterionDynamic,
+    )
+    from data.MultiScaleImageDataset import MultiScaleImageDataset, CustomImageDataset
+    from data.DynamicResolutionBatchSampler import (
+        DynamicResolutionBatchSampler,
+        DistributedDynamicResolutionBatchSampler,
+    )
+
     all_class_dirs = [
         d
         for train_path in TRAIN_PATHS

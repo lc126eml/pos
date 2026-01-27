@@ -1,20 +1,20 @@
-task: cls
-id: houwen
+task: seg
+id: zht121233
 pos_type: null
 method: none
 model_size: base
-run_id: 4
+run_id: 3
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: qinghui9527/cls-base-none-d-318
+kernel_sources: lemonlaila/seg-base-none-d-251
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 18
+seed: 51
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

@@ -21,25 +21,12 @@ from lock_utils import file_lock  # noqa: E402
 
 
 USAGE = """\
-Expected config_kernel.yaml fields:
+Expected config_kernel.yaml (GPU) fields:
 - sleep_time_hr: float
 - poll_interval_minutes: float
 - available_ids: [owner_id, ...]
 - exhausted_ids: [owner_id, ...]
-- tpu:
-  - available_ids: [owner_id, ...]
-  - exhausted_ids: [owner_id, ...]
-- running_nodes:  # GPU nodes
-  - id: owner_id
-    left_time: float
-    notebooks:
-      - kernel_id: owner/task-model-tag-desc-runidseed
-        total_runs: int
-        run_id: int
-        start_time: ISO8601 string or unix timestamp
-        resumed_from: kernel_id or null
-        history_ids: [kernel_id, ...]
-- tpu_running_nodes:  # TPU nodes
+- running_nodes:
   - id: owner_id
     left_time: float
     notebooks:
@@ -50,9 +37,9 @@ Expected config_kernel.yaml fields:
         resumed_from: kernel_id or null
         history_ids: [kernel_id, ...]
 - finished_notebooks: [notebook, ...]
-- finished_tpu_notebooks: [notebook, ...]
 - error_notebooks: [notebook, ...]
-- error_tpu_notebooks: [notebook, ...]
+
+config_kernel_tpu.yaml uses the same field names as config_kernel.yaml.
 """
 
 logging.basicConfig(
@@ -233,8 +220,8 @@ def main():
     parser = argparse.ArgumentParser(description="Auto resume Kaggle kernels.", epilog=USAGE)
     parser.add_argument(
         "--config",
-        default=str(BASE_DIR / "config_kernel.yaml"),
-        help="Path to config_kernel.yaml.",
+        default=None,
+        help="Override config path (defaults to config_kernel.yaml for GPU or config_kernel_tpu.yaml for TPU).",
     )
     parser.add_argument(
         "--quiet",
@@ -246,27 +233,32 @@ def main():
         action="store_true",
         help="Do not run kaggle commands; only report them.",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--tpu",
         action="store_true",
-        help="Process TPU running nodes only.",
+        help="Process TPU running nodes (uses config_kernel_tpu.yaml).",
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--gpu",
         action="store_true",
-        help="Process GPU running nodes only.",
+        help="Process GPU running nodes (uses config_kernel.yaml).",
     )
     parser.add_argument(
         "--no-lock",
         action="store_false",
         dest="lock",
         default=True,
-        help="Disable config_kernel.yaml locking.",
+        help="Disable config locking.",
     )
     args = parser.parse_args()
     verbose = not args.quiet
 
-    config_path = Path(args.config)
+    is_tpu = bool(args.tpu)
+    if args.config:
+        config_path = Path(args.config)
+    else:
+        config_path = BASE_DIR / ("config_kernel_tpu.yaml" if is_tpu else "config_kernel.yaml")
     kcfg = _load_yaml(config_path)
 
     sleep_time_hr = float(kcfg.get("sleep_time_hr", 0))
@@ -286,18 +278,10 @@ def main():
             now = _now_naive()
             changed = False
             running_nodes = kcfg.get("running_nodes") or []
-            tpu_running_nodes = kcfg.get("tpu_running_nodes") or []
             available_ids = kcfg.get("available_ids") or []
             exhausted_ids = kcfg.get("exhausted_ids") or []
-            tpu_cfg = kcfg.get("tpu") or {}
-            tpu_available_ids = tpu_cfg.get("available_ids") or []
-            tpu_exhausted_ids = tpu_cfg.get("exhausted_ids") or []
             finished_notebooks = kcfg.get("finished_notebooks") or []
-            finished_tpu_notebooks = kcfg.get("finished_tpu_notebooks") or []
             error_notebooks = kcfg.get("error_notebooks") or []
-            error_tpu_notebooks = kcfg.get("error_tpu_notebooks") or []
-            process_gpu = args.gpu or not (args.gpu or args.tpu)
-            process_tpu = args.tpu or not (args.gpu or args.tpu)
 
             def _process_nodes(nodes, is_tpu, available, exhausted):
                 nonlocal changed
@@ -321,10 +305,7 @@ def main():
                             continue
                         if status == "error":
                             logging.error(detail)
-                            if is_tpu:
-                                _move_error(notebook, error_tpu_notebooks, detail=detail)
-                            else:
-                                _move_error(notebook, error_notebooks, detail=detail)
+                            _move_error(notebook, error_notebooks, detail=detail)
                             notebooks.remove(notebook)
                             changed = True
                             continue
@@ -367,10 +348,7 @@ def main():
 
                             total_runs = int(notebook.get("total_runs", 0))
                             if notebook["run_id"] >= total_runs:
-                                if is_tpu:
-                                    _move_finished(notebook, finished_tpu_notebooks)
-                                else:
-                                    _move_finished(notebook, finished_notebooks)
+                                _move_finished(notebook, finished_notebooks)
                                 notebooks.remove(notebook)
                                 changed = True
                                 continue
@@ -474,23 +452,13 @@ def main():
 
                     node["notebooks"] = notebooks
 
-            if process_gpu:
-                _process_nodes(running_nodes, False, available_ids, exhausted_ids)
-            if process_tpu:
-                _process_nodes(tpu_running_nodes, True, tpu_available_ids, tpu_exhausted_ids)
+            _process_nodes(running_nodes, is_tpu, available_ids, exhausted_ids)
 
             kcfg["running_nodes"] = running_nodes
-            kcfg["tpu_running_nodes"] = tpu_running_nodes
             kcfg["available_ids"] = available_ids
             kcfg["exhausted_ids"] = exhausted_ids
-            if tpu_cfg:
-                tpu_cfg["available_ids"] = tpu_available_ids
-                tpu_cfg["exhausted_ids"] = tpu_exhausted_ids
-                kcfg["tpu"] = tpu_cfg
             kcfg["finished_notebooks"] = finished_notebooks
-            kcfg["finished_tpu_notebooks"] = finished_tpu_notebooks
             kcfg["error_notebooks"] = error_notebooks
-            kcfg["error_tpu_notebooks"] = error_tpu_notebooks
 
             if changed:
                 _write_yaml(config_path, kcfg)
