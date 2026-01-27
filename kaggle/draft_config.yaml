@@ -3,7 +3,7 @@ id: liucong12601
 pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
 model_size: base
-suffix: 0
+run_id: 0
 desc: lr7e-5
 is_private: false
 dataset_sources: null

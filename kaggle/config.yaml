@@ -1,20 +1,20 @@
 task: cls
-id: qinghui9527
+id: wzywzy1227
 pos_type: null
-method: colrow
+method: rope
 model_size: base
-suffix: 2
+run_id: 3
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: b201xiaoli/cls-base-colrow-d-117
+kernel_sources: wzywzy1227/cls-base-rope-d-215
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 17
+seed: 15
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

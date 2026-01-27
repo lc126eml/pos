@@ -1,23 +1,20 @@
 {
-  "id": "jjjerry12138/depth-base-rope-bs48lr1e-4-50",
-  "title": "depth base rope bs48lr1e 4 50",
-  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
+  "id": "wzywzy1227/cls-base-rope-d-315",
+  "title": "cls base rope d 315",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "liucong12601/hsm-train-part01",
-    "liucong12601/hsm-train-part02",
-    "liucong12601/hsm-train-part03",
-    "liucong12601/hsm-train-part04",
-    "liucong12601/hsm-train-part05",
-    "liucong12601/hsm-test-val"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "wzywzy1227/cls-base-rope-d-215"
+  ],
   "model_sources": []
 }

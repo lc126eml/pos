@@ -68,12 +68,14 @@ def _infer_from_source_id(source_id):
     if not match:
         raise ValueError(f"Unable to infer seed from source id: {source_id}")
     digits = match.group(1)
-    suffix = None
-    if len(digits) == 3:
-        suffix = int(digits[0])
-        seed = int(digits[1:])
-    else:
+    run_id = 0
+    if len(digits) == 2:
         seed = int(digits)
+    elif len(digits) in (3, 4):
+        run_id = int(digits[:-2])
+        seed = int(digits[-2:])
+    else:
+        raise ValueError(f"Unsupported trailing digits length in source id: {source_id}")
     rest_no_digits = rest[: -len(digits)].rstrip("-")
     methods = ("rope", "abs", "colrow", "none", "patch")
     pos_types = ("relpos", "alibi")
@@ -110,7 +112,7 @@ def _infer_from_source_id(source_id):
         raise ValueError(f"Unable to infer method or pos_type from source id: {source_id}")
     if desc == "":
         raise ValueError(f"Unable to infer desc from source id: {source_id}")
-    return task, model_size, method, seed, pos_type, desc, suffix
+    return task, model_size, method, seed, pos_type, desc, run_id
 
 
 def _load_yaml(path):
@@ -125,13 +127,13 @@ def _write_yaml(path, data):
         yaml.safe_dump(data, f, sort_keys=False)
 
 
-def _suffix_to_run_id(value):
+def _run_id_value(value):
     if value in (None, "", 0, "0"):
         return 0
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Invalid suffix value for run_id: {value}") from exc
+        raise ValueError(f"Invalid run_id value: {value}") from exc
 
 
 def _resolve_resume_source(cfg):
@@ -193,7 +195,7 @@ def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_l
             return
         notebook = {
             "kernel_id": kernel_id,
-            "run_id": _suffix_to_run_id(cfg.get("suffix")),
+            "run_id": _run_id_value(cfg.get("run_id", cfg.get("suffix"))),
             "total_runs": total_runs,
             "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "resumed_from": _resolve_resume_source(cfg),
@@ -341,7 +343,7 @@ def main():
             source_name = _get_source_name(cfg.get("dataset_sources"))
         else:
             raise ValueError(f"Unsupported resume_source: {resume_source}")
-        task, model_size, method, seed, pos_type, desc, suffix = _infer_from_source_id(source_name)
+        task, model_size, method, seed, pos_type, desc, inferred_run_id = _infer_from_source_id(source_name)
         cfg["task"] = task
         cfg["model_size"] = model_size
         cfg["method"] = method
@@ -351,11 +353,11 @@ def main():
             cfg["desc"] = desc
         else:
             cfg["desc"] = "d"
-        # if suffix is not None:
-        #     cfg["suffix"] = suffix
+        if cfg.get("resume_full_ckpt") and cfg.get("resume_infer"):
+            cfg["run_id"] = int(inferred_run_id) + 1
         print(
-            "resume_infer: source=%s task=%s model_size=%s method=%s pos_type=%s desc=%s suffix=%s seed=%s"
-            % (source_name, task, model_size, method, pos_type, desc, suffix, seed)
+            "resume_infer: source=%s task=%s model_size=%s method=%s pos_type=%s desc=%s run_id=%s seed=%s"
+            % (source_name, task, model_size, method, pos_type, desc, inferred_run_id, seed)
         )
 
     task = cfg["task"]
@@ -516,16 +518,16 @@ def main():
     if not desc:
         desc = "d"
         # raise ValueError("Missing desc in kaggle/config.yaml.")
-    suffix = cfg.get("suffix") or ""
+    run_id = cfg.get("run_id", cfg.get("suffix")) or ""
     if pos_type is not None:
         kernel_id = (
             f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
-            f"{pos_type}-{desc}-{suffix}{cfg['seed']}"
+            f"{pos_type}-{desc}-{run_id}{cfg['seed']}"
         )
     else:
         kernel_id = (
             f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-"
-            f"{cfg['method']}-{desc}-{suffix}{cfg['seed']}"
+            f"{cfg['method']}-{desc}-{run_id}{cfg['seed']}"
         )
     json_data["id"] = kernel_id
     json_data["title"] = kernel_id.split("/", 1)[1].replace("-", " ")

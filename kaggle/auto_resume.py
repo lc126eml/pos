@@ -33,7 +33,7 @@ Expected config_kernel.yaml fields:
   - id: owner_id
     left_time: float
     notebooks:
-      - kernel_id: owner/task-model-tag-desc-suffixseed
+      - kernel_id: owner/task-model-tag-desc-runidseed
         total_runs: int
         run_id: int
         start_time: ISO8601 string or unix timestamp
@@ -43,7 +43,7 @@ Expected config_kernel.yaml fields:
   - id: owner_id
     left_time: float
     notebooks:
-      - kernel_id: owner/task-model-tag-desc-suffixseed
+      - kernel_id: owner/task-model-tag-desc-runidseed
         total_runs: int
         run_id: int
         start_time: ISO8601 string or unix timestamp
@@ -132,28 +132,27 @@ def _kernel_status(kernel_id, tokens):
 
 
 def _build_kernel_id(cfg):
-    suffix = cfg.get("suffix") or ""
+    run_id = cfg.get("run_id", cfg.get("suffix")) or ""
     desc = cfg.get("desc") or "desc"
     if cfg.get("pos_type") is not None:
         tag = cfg["pos_type"]
     else:
         tag = cfg["method"]
-    return f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-{tag}-{desc}-{suffix}{cfg['seed']}"
+    return f"{cfg['id']}/{cfg['task']}-{cfg['model_size']}-{tag}-{desc}-{run_id}{cfg['seed']}"
 
 
-def _prepare_cfg_from_resume(base_cfg, resumed_from, run_id, target_id):
+def _prepare_cfg_from_resume(base_cfg, resumed_from, run_id, target_id, inferred):
+    if inferred is None:
+        raise ValueError("Missing inferred metadata for resume.")
     cfg = copy.deepcopy(base_cfg)
-    source_name = process_kaggle._get_source_name(resumed_from)
-    task, model_size, method, seed, pos_type, desc, _ = process_kaggle._infer_from_source_id(
-        source_name
-    )
+    task, model_size, method, seed, pos_type, desc, inferred_run_id = inferred
     cfg["task"] = task
     cfg["model_size"] = model_size
     cfg["method"] = method
     cfg["seed"] = seed
     cfg["pos_type"] = pos_type
     cfg["desc"] = desc or cfg.get("desc") or "desc"
-    cfg["suffix"] = run_id
+    cfg["run_id"] = run_id
     cfg["id"] = target_id
     cfg["resume_full_ckpt"] = True
     cfg["resume_source"] = "kernel"
@@ -312,7 +311,12 @@ def main():
                             continue
 
                         if status == "finished":
-                            notebook["run_id"] = int(notebook.get("run_id", 0)) + 1
+                            source_name = process_kaggle._get_source_name(kernel_id)
+                            if not source_name:
+                                raise ValueError(f"Missing source name for kernel: {kernel_id}")
+                            inferred = process_kaggle._infer_from_source_id(source_name)
+                            inferred_run_id = inferred[-1]
+                            notebook["run_id"] = int(inferred_run_id) + 1
                             resumed_from = notebook.get("resumed_from")
                             history_ids = list(notebook.get("history_ids") or [])
                             if resumed_from:
@@ -381,6 +385,7 @@ def main():
                                 resumed_from_id,
                                 notebook["run_id"],
                                 target_node.get("id"),
+                                inferred=inferred,
                             )
                             cfg["tpu"] = is_tpu
                             new_kernel_id = _build_kernel_id(cfg)
