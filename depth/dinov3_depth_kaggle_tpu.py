@@ -2572,6 +2572,7 @@ def main():
                 history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
             if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
+                logger.info("Prepare to save full checkpoint ...")
                 if IS_MASTER:
                     ckpt = {
                         "epoch": epoch + 1,

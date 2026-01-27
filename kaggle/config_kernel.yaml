@@ -1,5 +1,4 @@
 available_ids:
-- rushly
 - cfy002
 - rqmiraitowa
 - zht121233
@@ -70,6 +69,7 @@ exhausted_ids:
 - yangjiamin
 - zzr123123
 - denghaimeng
+- jinzhanbo
 tpu:
   available_ids:
   - xulin5522
@@ -162,21 +162,6 @@ running_nodes:
     resumed_from: xuwenhui123/seg-base-abs-d-50
     history_ids: []
   left_time: 5.155777413611114
-- id: jinzhanbo
-  left_time: 6.775653035555555
-  notebooks:
-  - kernel_id: jinzhanbo/seg-base-colrow-d-150
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-27 03:58:30'
-    resumed_from: jinzhanbo/seg-base-colrow-d-50
-    history_ids: []
-  - kernel_id: jinzhanbo/seg-base-colrow-d-151
-    run_id: 1
-    total_runs: 8
-    start_time: '2026-01-27 03:58:30'
-    resumed_from: jinzhanbo/seg-base-colrow-d-51
-    history_ids: []
 - id: geminiyy
   left_time: 6.40165382
   notebooks:
@@ -548,6 +533,23 @@ running_nodes:
     - zzr123123/depth-base-rope-d-450
     - denghaimeng/depth-base-rope-d-550
   left_time: 30
+- id: rushly
+  notebooks:
+  - kernel_id: rushly/seg-base-colrow-d-250
+    run_id: 2
+    total_runs: 8
+    start_time: '2026-01-27 15:36:03'
+    resumed_from: jinzhanbo/seg-base-colrow-d-150
+    history_ids:
+    - jinzhanbo/seg-base-colrow-d-50
+  - kernel_id: rushly/seg-base-colrow-d-251
+    run_id: 2
+    total_runs: 8
+    start_time: '2026-01-27 15:36:03'
+    resumed_from: jinzhanbo/seg-base-colrow-d-151
+    history_ids:
+    - jinzhanbo/seg-base-colrow-d-51
+  left_time: 30
 finished_notebooks: []
 finished_tpu_notebooks:
 - kernel_id: liucong12601/cls-base-rope-d-50
@@ -574,39 +576,27 @@ tpu_running_nodes:
 - id: yuanhahah
   left_time: 19
   notebooks:
-  - kernel_id: yuanhahah/depth-base-rope-batch_size40_lr7e-05-50
+  - kernel_id: yuanhahah/cls-base-relpos-d-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 13:17:52'
+    start_time: '2026-01-27 15:38:53'
     resumed_from: null
     history_ids: []
 - id: cycyxcy
   left_time: 20
   notebooks:
-  - kernel_id: cycyxcy/depth-base-rope-batch_size40_lr5e-05-50
+  - kernel_id: cycyxcy/cls-base-alibi-d-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 13:18:03'
+    start_time: '2026-01-27 15:38:13'
     resumed_from: null
     history_ids: []
 - id: jjjerry12138
   left_time: 12
-  notebooks:
-  - kernel_id: jjjerry12138/depth-base-rope-batch_size40_lr1e-05-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-27 13:18:13'
-    resumed_from: null
-    history_ids: []
+  notebooks: null
 - id: liucong12601
   left_time: 7
-  notebooks:
-  - kernel_id: liucong12601/depth-base-rope-batch_size40_lr0.0001-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-27 13:18:22'
-    resumed_from: null
-    history_ids: []
+  notebooks: null
 - id: pycjn666
   left_time: 12
   notebooks: null

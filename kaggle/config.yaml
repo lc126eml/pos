@@ -1,20 +1,20 @@
-task: depth
-id: srmmmm
+task: seg
+id: rushly
 pos_type: null
-method: rope
+method: colrow
 model_size: base
-run_id: 7
+run_id: 2
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: denghaimeng/depth-base-rope-d-650
+kernel_sources: jinzhanbo/seg-base-colrow-d-151
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 50
+seed: 51
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
