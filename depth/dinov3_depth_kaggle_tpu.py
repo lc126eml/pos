@@ -167,7 +167,7 @@ def main():
         eval_split="val",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=True,
+        use_rot_pos_emb=False,
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
@@ -177,7 +177,7 @@ def main():
         scale_jitter_sw=(1.0, 1.01),
         batch_size=40,
         patch_size=16,
-        lr=0.0001,
+        lr=5e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
@@ -234,7 +234,7 @@ def main():
         resume_optimizer=False,
         resume_bs=True,
         resume_img_size=False,
-        total_run_time_hr=1.5,
+        total_run_time_hr=9.0,
         train=True,
         val=False,
         final_use_sliding_window=True,
@@ -2574,6 +2574,7 @@ def main():
             if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
                 logger.info("Prepare to save full checkpoint ...")
                 if IS_MASTER:
+                    gc.collect()
                     ckpt = {
                         "epoch": epoch + 1,
                         "model": model.state_dict(),
