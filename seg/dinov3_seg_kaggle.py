@@ -11,6 +11,9 @@ import logging
 import random
 import gc
 import subprocess
+import shutil
+import urllib.request
+import zipfile
 from types import SimpleNamespace
 from typing import Tuple, Optional, Dict, Union, Sequence
 
@@ -25,6 +28,10 @@ from PIL import Image
 
 import torchvision.transforms.functional as TF
 from torchvision.transforms import ColorJitter
+# =============================================================================
+# Kaggle environment setup
+# =============================================================================
+_IS_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
 train_start_time = time.time()
 # from importlib.metadata import version, PackageNotFoundError
 # ver = version("timm").split('.')[-1]
@@ -38,12 +45,132 @@ sys.path.insert(0, LOCAL_TIMM)
 import timm
 print("timm:", timm.__version__, flush=True)
 print("torch:", torch.__version__, flush=True)
-# =============================================================================
-# Kaggle environment setup
-# =============================================================================
-_IS_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
+
+def _download_with_retries(url, dst, retries=3, timeout=30):
+    tmp_path = dst + ".part"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/zip",
+    }
+
+    def _cleanup_tmp():
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    def _finalize():
+        if not zipfile.is_zipfile(tmp_path):
+            raise RuntimeError("Downloaded file is not a zip.")
+        os.replace(tmp_path, dst)
+
+    def _try_curl():
+        curl = shutil.which("curl")
+        if not curl:
+            print("download: curl not found", flush=True)
+            return False
+        print("download: trying curl", flush=True)
+        cmd = [
+            curl,
+            "-L",
+            "--retry",
+            "3",
+            "--retry-all-errors",
+            "--max-redirs",
+            "20",
+            "--connect-timeout",
+            str(timeout),
+            "-H",
+            f"User-Agent: {headers['User-Agent']}",
+            "-H",
+            f"Accept: {headers['Accept']}",
+            "-o",
+            tmp_path,
+            url,
+        ]
+        subprocess.check_call(cmd)
+        _finalize()
+        print("download: curl ok", flush=True)
+        return True
+
+    def _try_requests():
+        try:
+            import requests  # type: ignore
+        except Exception:
+            print("download: requests not available", flush=True)
+            return False
+        print("download: trying requests", flush=True)
+        resp = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
+        resp.raise_for_status()
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+        _finalize()
+        print("download: requests ok", flush=True)
+        return True
+
+    def _try_urllib():
+        print("download: trying urllib", flush=True)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(tmp_path, mode="wb") as f:
+                shutil.copyfileobj(resp, f)
+        _finalize()
+        print("download: urllib ok", flush=True)
+        return True
+
+    methods = [_try_curl, _try_requests, _try_urllib]
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        for method in methods:
+            try:
+                ok = method()
+                if ok:
+                    return
+            except Exception as exc:
+                last_exc = exc
+                print(f"download: method failed ({exc})", flush=True)
+                _cleanup_tmp()
+        if attempt < retries:
+            time.sleep(2 * attempt)
+    raise RuntimeError(f"Downloaded file is not a zip. Last error: {last_exc}")
 
 
+def _ensure_pos_repo():
+    if not _IS_KAGGLE:
+        return None
+    marker = "/kaggle/working/pos_repo_ready"
+    if not os.path.exists(marker):
+        url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
+        zip_path = "/kaggle/working/pos.zip"
+        if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
+            os.remove(zip_path)
+        if not os.path.exists(zip_path):
+            _download_with_retries(url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall("/kaggle/working")
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("ok\n")
+    repo_root = None
+    if os.path.isdir("/kaggle/working/pos"):
+        repo_root = "/kaggle/working/pos"
+    else:
+        for name in os.listdir("/kaggle/working"):
+            cand = os.path.join("/kaggle/working", name)
+            if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                repo_root = cand
+                break
+    if repo_root:
+        os.environ["POS_REPO_ROOT"] = repo_root
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+    return repo_root
+
+
+_ensure_pos_repo()
+from core.patch_pos import PatchRowColRegressionCriterion
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -52,7 +179,7 @@ if _IS_KAGGLE:
     base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
 args = SimpleNamespace(
     model_type="dinov3",
-    use_abs_pos_emb=True,
+    use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
@@ -99,7 +226,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-abs-d-150/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-none-d-250/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -166,727 +293,13 @@ if hasattr(args, "seg_head"):
 ImageLike = Union[Image.Image, np.ndarray, torch.Tensor]
 MaskLike = Union[Image.Image, np.ndarray, torch.Tensor]
 
-def _to_pil_rgb(image: ImageLike) -> Image.Image:
-    if isinstance(image, Image.Image):
-        return image.convert("RGB")
-    if isinstance(image, torch.Tensor):
-        x = image.detach().cpu()
-        if x.ndim == 3 and x.shape[0] in (1, 3):
-            x = x.permute(1, 2, 0)
-        image = x.numpy()
-    if isinstance(image, np.ndarray):
-        arr = image
-        if arr.ndim == 2:
-            arr = np.stack([arr] * 3, axis=-1)
-        if arr.shape[-1] == 1:
-            arr = np.repeat(arr, 3, axis=-1)
-        if arr.dtype != np.uint8:
-            arr = np.clip(arr, 0.0, 1.0) if arr.max() <= 1.5 else np.clip(arr / 255.0, 0.0, 1.0)
-            arr = (arr * 255.0).round().astype(np.uint8)
-        return Image.fromarray(arr, mode="RGB")
-    raise TypeError(f"Unsupported image type: {type(image)}")
+from seg.seg_aug import TrainSegAug, EvalSegPreprocess, EvalSegPreprocessMSFlip
 
-def _to_pil_mask(mask: MaskLike) -> Image.Image:
-    if isinstance(mask, Image.Image):
-        return mask.convert("I")
-    if isinstance(mask, torch.Tensor):
-        m = mask.detach().cpu()
-        if m.ndim == 3 and m.shape[0] == 1:
-            m = m.squeeze(0)
-        if m.ndim == 3 and m.shape[-1] == 1:
-            m = m.squeeze(-1)
-        mask = m.numpy()
-    if isinstance(mask, np.ndarray):
-        arr = mask
-        if arr.ndim == 3 and arr.shape[-1] == 1:
-            arr = arr.squeeze(-1)
-        if arr.ndim != 2:
-            raise ValueError(f"Mask must be [H,W]; got {arr.shape}")
-        if arr.dtype != np.int32:
-            arr = arr.astype(np.int32, copy=False)
-        return Image.fromarray(arr, mode="I")
-    raise TypeError(f"Unsupported mask type: {type(mask)}")
-
-def _pil_to_tensor01(pil_img: Image.Image) -> torch.Tensor:
-    x = torch.from_numpy(np.array(pil_img)).float() / 255.0
-    return x.permute(2, 0, 1).contiguous()
-
-def _mask_to_tensor(mask_pil: Image.Image) -> torch.Tensor:
-    arr = np.array(mask_pil, dtype=np.int64)
-    return torch.from_numpy(arr)
-
-def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
-    mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-    std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-    if len(mean_v) == 1:
-        mean_v = mean_v * 3
-    if len(std_v) == 1:
-        std_v = std_v * 3
-    mean_t = torch.tensor(mean_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
-    std_t = torch.tensor(std_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
-    return (img_t - mean_t) / std_t
-
-def train_aug_seg_resize_random_crop(
-    image: ImageLike,
-    mask: MaskLike,
-    target_size: Tuple[int, int],
-    *,
-    hflip_prob: float = 0.5,
-    scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
-    cat_max_ratio: Optional[float] = None,
-    cat_max_ratio_tries: int = 10,
-    ignore_index: Optional[int] = None,
-    color_jitter: Optional[Dict[str, float]] = None,
-    color_jitter_prob: float = 0.0,
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    Ht, Wt = target_size
-    pil = _to_pil_rgb(image)
-    m = _to_pil_mask(mask)
-
-    W0, H0 = pil.size
-    base = max(Ht / H0, Wt / W0)
-    if scale_jitter is None:
-        jitter = 1.0
-    else:
-        j0, j1 = scale_jitter
-        j0 = max(1.0, float(j0))
-        if j1 is None:
-            j1 = (1.0 / base) if base < 1.0 else j0
-        j1 = max(j0, float(j1))
-        jitter = random.uniform(j0, j1)
-    scale = base * jitter
-    newH = int(round(H0 * scale))
-    newW = int(round(W0 * scale))
-    if newH < Ht or newW < Wt:
-        newH = int(round(H0 * base))
-        newW = int(round(W0 * base))
-
-    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
-    pil = pil.resize((newW, newH), resample=resample)
-    m = m.resize((newW, newH), resample=Image.NEAREST)
-
-    def _is_crop_ok(mask_crop: Image.Image) -> bool:
-        if cat_max_ratio is None or cat_max_ratio >= 1.0:
-            return True
-        mask_np = np.array(mask_crop, dtype=np.int64)
-        if ignore_index is not None:
-            mask_np = mask_np[mask_np != ignore_index]
-        if mask_np.size == 0:
-            return True
-        counts = np.bincount(mask_np.reshape(-1))
-        max_ratio = counts.max() / counts.sum()
-        return max_ratio < cat_max_ratio
-
-    top = 0
-    left = 0
-    m_crop = None
-    tries = max(1, int(cat_max_ratio_tries))
-    for _ in range(tries):
-        top = 0 if newH == Ht else random.randint(0, newH - Ht)
-        left = 0 if newW == Wt else random.randint(0, newW - Wt)
-        m_crop = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
-        if _is_crop_ok(m_crop):
-            break
-    pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
-    if m_crop is None:
-        m_crop = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
-    m = m_crop
-
-    if random.random() < hflip_prob:
-        pil = TF.hflip(pil)
-        m = TF.hflip(m)
-
-    if (
-        color_jitter is not None
-        and any(v > 0 for v in color_jitter.values())
-        and (color_jitter_prob > 0)
-        and (random.random() < color_jitter_prob)
-    ):
-        pil = ColorJitter(**color_jitter)(pil)
-
-    img_t = _pil_to_tensor01(pil)
-    if normalize:
-        img_t = _normalize_img(img_t, mean, std)
-    mask_t = _mask_to_tensor(m)
-    return img_t, mask_t
-
-def eval_preprocess_seg_keep_ar(
-    image: ImageLike,
-    mask: MaskLike,
-    target_size: Tuple[int, int],
-    *,
-    target_by: str = "shorter",
-    eval_crop_mode: str = "pad",
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
-    pil = _to_pil_rgb(image)
-    m = _to_pil_mask(mask)
-    W0, H0 = pil.size
-    Ht, Wt = target_size
-
-    if target_by == "shorter":
-        scale = min(Ht, Wt) / min(H0, W0)
-    elif target_by == "longer":
-        scale = max(Ht, Wt) / max(H0, W0)
-    else:
-        raise ValueError(f"target_by must be 'shorter' or 'longer', got {target_by}")
-
-    newH = int(round(H0 * scale))
-    newW = int(round(W0 * scale))
-    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
-    pil = pil.resize((newW, newH), resample=resample)
-    m = m.resize((newW, newH), resample=Image.NEAREST)
-
-    top = max(0, (newH - Ht) // 2)
-    left = max(0, (newW - Wt) // 2)
-    pad = (0, 0, 0, 0)
-    mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-    if len(mean_v) == 1:
-        mean_v = mean_v * 3
-    pad_fill = tuple(int(round(v * 255.0)) for v in mean_v[:3])
-
-    if eval_crop_mode == "crop":
-        pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
-        m = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
-    elif eval_crop_mode == "pad":
-        if newH < Ht or newW < Wt:
-            pad_h = max(0, Ht - newH)
-            pad_w = max(0, Wt - newW)
-            pad_top = pad_h // 2
-            pad_left = pad_w // 2
-            pad_bottom = pad_h - pad_top
-            pad_right = pad_w - pad_left
-            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
-            m = TF.pad(m, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
-            pad = (pad_left, pad_top, pad_right, pad_bottom)
-    elif eval_crop_mode == "crop_or_pad":
-        if newH >= Ht and newW >= Wt:
-            pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
-            m = TF.crop(m, top=top, left=left, height=Ht, width=Wt)
-        else:
-            pad_h = max(0, Ht - newH)
-            pad_w = max(0, Wt - newW)
-            pad_top = pad_h // 2
-            pad_left = pad_w // 2
-            pad_bottom = pad_h - pad_top
-            pad_right = pad_w - pad_left
-            pil = TF.pad(pil, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
-            m = TF.pad(m, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
-            pad = (pad_left, pad_top, pad_right, pad_bottom)
-    else:
-        raise ValueError(f"eval_crop_mode must be 'pad', 'crop', or 'crop_or_pad', got {eval_crop_mode}")
-
-    img_t = _pil_to_tensor01(pil)
-    if normalize:
-        img_t = _normalize_img(img_t, mean, std)
-    mask_t = _mask_to_tensor(m)
-
-    meta = {
-        "orig_h": float(H0), "orig_w": float(W0),
-        "resized_h": float(newH), "resized_w": float(newW),
-        "scale_h": float(newH) / float(H0),
-        "scale_w": float(newW) / float(W0),
-        "crop_top": float(top), "crop_left": float(left),
-        "pad_left": float(pad[0]), "pad_top": float(pad[1]),
-        "pad_right": float(pad[2]), "pad_bottom": float(pad[3]),
-        "out_h": float(pil.size[1]), "out_w": float(pil.size[0]),
-    }
-    return img_t, mask_t, meta
-
-class TrainSegAug:
-    def __init__(
-        self,
-        target_size: Tuple[int, int],
-        *,
-        hflip_prob: float = 0.5,
-        scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
-        cat_max_ratio: Optional[float] = None,
-        cat_max_ratio_tries: int = 10,
-        ignore_index: Optional[int] = None,
-        color_jitter: Optional[Dict[str, float]] = None,
-        color_jitter_prob: float = 0.0,
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    ) -> None:
-        self.target_size = target_size
-        self.hflip_prob = hflip_prob
-        self.scale_jitter = scale_jitter
-        self.cat_max_ratio = cat_max_ratio
-        self.cat_max_ratio_tries = cat_max_ratio_tries
-        self.ignore_index = ignore_index
-        self.color_jitter = None if color_jitter is None else dict(color_jitter)
-        self.color_jitter_prob = color_jitter_prob
-        self.normalize = normalize
-        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-        if len(mean_v) == 1:
-            mean_v = mean_v * 3
-        if len(std_v) == 1:
-            std_v = std_v * 3
-        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
-        self._std_t = torch.tensor(std_v).view(3, 1, 1)
-
-    def __call__(self, image: ImageLike, mask: MaskLike) -> Tuple[torch.Tensor, torch.Tensor]:
-        img_t, mask_t = train_aug_seg_resize_random_crop(
-            image,
-            mask,
-            self.target_size,
-            hflip_prob=self.hflip_prob,
-            scale_jitter=self.scale_jitter,
-            cat_max_ratio=self.cat_max_ratio,
-            cat_max_ratio_tries=self.cat_max_ratio_tries,
-            ignore_index=self.ignore_index,
-            color_jitter=self.color_jitter,
-            color_jitter_prob=self.color_jitter_prob,
-            normalize=False,
-        )
-        if self.normalize:
-            mean_t = self._mean_t.to(dtype=img_t.dtype)
-            std_t = self._std_t.to(dtype=img_t.dtype)
-            img_t = (img_t - mean_t) / std_t
-        return img_t, mask_t
-
-class EvalSegPreprocess:
-    def __init__(
-        self,
-        target_size: Tuple[int, int],
-        *,
-        target_by: str = "shorter",
-        eval_crop_mode: str = "pad",
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    ) -> None:
-        self.target_size = target_size
-        self.target_by = target_by
-        self.eval_crop_mode = eval_crop_mode
-        self.normalize = normalize
-        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-        if len(mean_v) == 1:
-            mean_v = mean_v * 3
-        if len(std_v) == 1:
-            std_v = std_v * 3
-        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
-        self._std_t = torch.tensor(std_v).view(3, 1, 1)
-
-    def __call__(self, image: ImageLike, mask: MaskLike):
-        img_t, mask_t, meta = eval_preprocess_seg_keep_ar(
-            image,
-            mask,
-            self.target_size,
-            target_by=self.target_by,
-            eval_crop_mode=self.eval_crop_mode,
-            normalize=False,
-        )
-        if self.normalize:
-            mean_t = self._mean_t.to(dtype=img_t.dtype)
-            std_t = self._std_t.to(dtype=img_t.dtype)
-            img_t = (img_t - mean_t) / std_t
-        return img_t, mask_t, meta
-
-
-def eval_preprocess_seg_multiscale(
-    image: ImageLike,
-    mask: MaskLike,
-    base_target_size: Tuple[int, int],
-    *,
-    scales: Tuple[float, ...] = (0.5, 0.75, 1.0, 1.25, 1.5),
-    flip: bool = True,
-    target_by: str = "shorter",
-    eval_crop_mode: str = "pad",
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-) -> list[Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]]:
-    out_list = []
-    for s in scales:
-        ts = (int(round(base_target_size[0] * s)), int(round(base_target_size[1] * s)))
-        img_t, mask_t, meta = eval_preprocess_seg_keep_ar(
-            image,
-            mask,
-            ts,
-            target_by=target_by,
-            eval_crop_mode=eval_crop_mode,
-            normalize=normalize,
-            mean=mean,
-            std=std,
-        )
-        meta["scale"] = float(s)
-        meta["flip"] = False
-        out_list.append((img_t, mask_t, meta))
-        if flip:
-            img_f = torch.flip(img_t, dims=[2])
-            mask_f = torch.flip(mask_t, dims=[1])
-            meta_f = dict(meta)
-            meta_f["flip"] = True
-            out_list.append((img_f, mask_f, meta_f))
-    return out_list
-
-
-class EvalSegPreprocessMSFlip:
-    def __init__(
-        self,
-        base_target_size: Tuple[int, int],
-        *,
-        scales: Tuple[float, ...] = (0.5, 0.75, 1.0, 1.25, 1.5),
-        flip: bool = True,
-        target_by: str = "shorter",
-        eval_crop_mode: str = "pad",
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    ) -> None:
-        self.base_target_size = base_target_size
-        self.scales = scales
-        self.flip = flip
-        self.target_by = target_by
-        self.eval_crop_mode = eval_crop_mode
-        self.normalize = normalize
-        self.mean = mean
-        self.std = std
-
-    def __call__(
-        self, image: ImageLike, mask: MaskLike
-    ) -> list[Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]]:
-        return eval_preprocess_seg_multiscale(
-            image,
-            mask,
-            self.base_target_size,
-            scales=self.scales,
-            flip=self.flip,
-            target_by=self.target_by,
-            eval_crop_mode=self.eval_crop_mode,
-            normalize=self.normalize,
-            mean=self.mean,
-            std=self.std,
-        )
-
-# =============================================================================
 # Segmentation heads and losses
 # =============================================================================
-def _make_group_norm(num_channels: int, max_groups: int = 32) -> nn.GroupNorm:
-    groups = min(max_groups, num_channels)
-    while groups > 1 and (num_channels % groups) != 0:
-        groups -= 1
-    return nn.GroupNorm(groups, num_channels)
+from seg.seg_head import PPMliteFCNHead, UPerNetTokenHead, FCNSegHead, LinearSegHead
 
-class PPMliteFCNHead(nn.Module):
-    def __init__(
-        self,
-        embed_dim: int,
-        num_classes: int,
-        grid_size: tuple,
-        out_size: tuple,
-        mid_channels: int = 256,
-        ppm_bins=(1, 2, 3),
-        ppm_channels: int = 64,
-        dropout: float = 0.1,
-        norm: str = "gn",
-        align_corners: bool = False,
-    ):
-        super().__init__()
-        self.grid_size = grid_size
-        self.out_size = out_size
-        self.ppm_bins = tuple(ppm_bins)
-        self.align_corners = align_corners
-
-        def norm2d(c: int):
-            if norm == "bn":
-                return nn.BatchNorm2d(c)
-            if norm == "gn":
-                return _make_group_norm(c)
-            raise ValueError(f"Unknown norm='{norm}', use 'bn' or 'gn'.")
-
-        self.in_proj = nn.Sequential(
-            nn.Conv2d(embed_dim, mid_channels, kernel_size=1, bias=False),
-            norm2d(mid_channels),
-            nn.ReLU(inplace=True),
-        )
-        self.ppm = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(mid_channels, ppm_channels, kernel_size=1, bias=False),
-                norm2d(ppm_channels),
-                nn.ReLU(inplace=True),
-            )
-            for _ in self.ppm_bins
-        ])
-
-        in_fuse = mid_channels + len(self.ppm_bins) * ppm_channels
-        self.bottleneck = nn.Sequential(
-            nn.Conv2d(in_fuse, mid_channels, kernel_size=3, padding=1, bias=False),
-            norm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-        )
-        self.classifier = nn.Conv2d(mid_channels, num_classes, kernel_size=1)
-
-    def forward(self, x_tokens: torch.Tensor, *, grid_size=None, out_size=None) -> torch.Tensor:
-        B, N, C = x_tokens.shape
-        Hp, Wp = grid_size if grid_size is not None else self.grid_size
-        assert N == Hp * Wp, f"Expected N={Hp*Wp} tokens, got N={N}"
-
-        x = x_tokens.transpose(1, 2).contiguous().view(B, C, Hp, Wp)
-        x = self.in_proj(x)
-
-        ppm_outs = [x]
-        for bin_sz, branch in zip(self.ppm_bins, self.ppm):
-            pooled = F.adaptive_avg_pool2d(x, output_size=(bin_sz, bin_sz))
-            pooled = branch(pooled)
-            up = F.interpolate(pooled, size=(Hp, Wp), mode="bilinear", align_corners=self.align_corners)
-            ppm_outs.append(up)
-
-        x = torch.cat(ppm_outs, dim=1)
-        x = self.bottleneck(x)
-        logits = self.classifier(x)
-
-        out_size = out_size if out_size is not None else self.out_size
-        logits = F.interpolate(logits, size=out_size, mode="bilinear", align_corners=self.align_corners)
-        return logits
-
-class FCNSegHead(nn.Module):
-    def __init__(self, embed_dim, num_classes, grid_size, out_size, mid_channels=256, dropout=0.1, norm="gn"):
-        super().__init__()
-        self.grid_size = grid_size
-        self.out_size = out_size
-
-        if norm == "bn":
-            norm2d = nn.BatchNorm2d
-        elif norm == "gn":
-            norm2d = _make_group_norm
-        else:
-            raise ValueError(f"Unknown norm: {norm}")
-
-        self.proj = nn.Sequential(
-            nn.Conv2d(embed_dim, mid_channels, kernel_size=3, padding=1, bias=False),
-            norm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-            nn.Conv2d(mid_channels, num_classes, kernel_size=1),
-        )
-
-    def forward(self, x_tokens, *, grid_size=None, out_size=None):
-        B, N, C = x_tokens.shape
-        H, W = grid_size if grid_size is not None else self.grid_size
-        assert N == H * W, f"Token count N={N} != H*W={H*W}"
-
-        x = x_tokens.transpose(1, 2).contiguous().view(B, C, H, W)
-        logits = self.proj(x)
-        out_size = out_size if out_size is not None else self.out_size
-        logits = F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
-        return logits
-
-class LinearSegHead(nn.Module):
-    def __init__(self, embed_dim, num_classes, grid_size, out_size, dropout=0.1):
-        super().__init__()
-        self.grid_size = grid_size
-        self.out_size = out_size
-        self.dropout = nn.Dropout2d(dropout)
-        self.cls = nn.Conv2d(embed_dim, num_classes, kernel_size=1)
-
-    def forward(self, x_tokens, *, grid_size=None, out_size=None):
-        B, N, C = x_tokens.shape
-        H, W = grid_size if grid_size is not None else self.grid_size
-        assert N == H * W, f"Token count N={N} != H*W={H*W}"
-
-        x = x_tokens.transpose(1, 2).contiguous().view(B, C, H, W)
-        x = self.dropout(x)
-        logits = self.cls(x)
-        out_size = out_size if out_size is not None else self.out_size
-        logits = F.interpolate(logits, size=out_size, mode="bilinear", align_corners=False)
-        return logits
-
-class UPerNetTokenHead(nn.Module):
-    def __init__(
-        self,
-        embed_dims: Sequence[int],
-        num_classes: int,
-        *,
-        grid_size: Optional[tuple] = None,
-        grid_sizes: Optional[Sequence[tuple]] = None,
-        out_size: Optional[tuple] = None,
-        fpn_channels: int = 256,
-        ppm_bins=(1, 2, 3, 6),
-        dropout: float = 0.1,
-        norm: str = "gn",
-        align_corners: bool = False,
-    ):
-        super().__init__()
-        self.grid_size = grid_size
-        self.grid_sizes = grid_sizes
-        self.out_size = out_size
-        self.align_corners = align_corners
-        self.ppm_bins = tuple(ppm_bins)
-
-        def norm2d(c: int):
-            if norm == "bn":
-                return nn.BatchNorm2d(c)
-            if norm == "gn":
-                return _make_group_norm(c)
-            raise ValueError(f"Unknown norm='{norm}', use 'bn' or 'gn'.")
-
-        self.lateral_convs = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(in_c, fpn_channels, kernel_size=1, bias=False),
-                norm2d(fpn_channels),
-                nn.ReLU(inplace=True),
-            )
-            for in_c in embed_dims
-        ])
-        self.fpn_convs = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(fpn_channels, fpn_channels, kernel_size=3, padding=1, bias=False),
-                norm2d(fpn_channels),
-                nn.ReLU(inplace=True),
-            )
-            for _ in embed_dims
-        ])
-
-        self.ppm = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(fpn_channels, fpn_channels, kernel_size=1, bias=False),
-                norm2d(fpn_channels),
-                nn.ReLU(inplace=True),
-            )
-            for _ in self.ppm_bins
-        ])
-        ppm_in = fpn_channels * (1 + len(self.ppm_bins))
-        self.ppm_bottleneck = nn.Sequential(
-            nn.Conv2d(ppm_in, fpn_channels, kernel_size=3, padding=1, bias=False),
-            norm2d(fpn_channels),
-            nn.ReLU(inplace=True),
-        )
-
-        fuse_in = fpn_channels * len(embed_dims)
-        self.fuse = nn.Sequential(
-            nn.Conv2d(fuse_in, fpn_channels, kernel_size=3, padding=1, bias=False),
-            norm2d(fpn_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-        )
-        self.classifier = nn.Conv2d(fpn_channels, num_classes, kernel_size=1)
-
-    def _tokens_to_map(self, x: torch.Tensor, grid_hw: tuple) -> torch.Tensor:
-        if x.dim() == 4:
-            return x
-        B, N, C = x.shape
-        Hp, Wp = grid_hw
-        assert N == Hp * Wp, f"Expected N={Hp*Wp} tokens, got N={N}"
-        return x.transpose(1, 2).contiguous().view(B, C, Hp, Wp)
-
-    def forward(self, features, *, grid_sizes=None, out_size=None) -> torch.Tensor:
-        if grid_sizes is None:
-            grid_sizes = self.grid_sizes
-        maps = []
-        for i, feat in enumerate(features):
-            if feat.dim() == 4:
-                maps.append(feat)
-                continue
-            if grid_sizes is not None:
-                grid_hw = grid_sizes[i]
-            elif self.grid_size is not None:
-                grid_hw = self.grid_size
-            else:
-                raise ValueError("grid_size(s) required for token inputs.")
-            maps.append(self._tokens_to_map(feat, grid_hw))
-
-        laterals = [conv(m) for conv, m in zip(self.lateral_convs, maps)]
-
-        top = laterals[-1]
-        ppm_outs = [top]
-        for bin_sz, ppm_conv in zip(self.ppm_bins, self.ppm):
-            pooled = F.adaptive_avg_pool2d(top, output_size=(bin_sz, bin_sz))
-            pooled = ppm_conv(pooled)
-            up = F.interpolate(pooled, size=top.shape[2:], mode="bilinear", align_corners=self.align_corners)
-            ppm_outs.append(up)
-        laterals[-1] = self.ppm_bottleneck(torch.cat(ppm_outs, dim=1))
-
-        for i in range(len(laterals) - 1, 0, -1):
-            up = F.interpolate(laterals[i], size=laterals[i - 1].shape[2:],
-                               mode="bilinear", align_corners=self.align_corners)
-            laterals[i - 1] = laterals[i - 1] + up
-
-        fpn_outs = [conv(lat) for conv, lat in zip(self.fpn_convs, laterals)]
-        base_size = fpn_outs[0].shape[2:]
-        fused = [fpn_outs[0]]
-        for feat in fpn_outs[1:]:
-            fused.append(F.interpolate(feat, size=base_size, mode="bilinear",
-                                       align_corners=self.align_corners))
-        x = torch.cat(fused, dim=1)
-        x = self.fuse(x)
-        logits = self.classifier(x)
-
-        out_size = out_size if out_size is not None else self.out_size
-        if out_size is not None:
-            logits = F.interpolate(logits, size=out_size, mode="bilinear", align_corners=self.align_corners)
-        return logits
-
-class MMSegCrossEntropyLoss(nn.Module):
-    def __init__(self, ignore_index=-1, loss_weight=1.0, avg_non_ignore=True):
-        super().__init__()
-        self.ignore_index = ignore_index
-        self.loss_weight = loss_weight
-        self.avg_non_ignore = avg_non_ignore
-
-    def forward(self, logits, target):
-        if not self.avg_non_ignore:
-            return self.loss_weight * F.cross_entropy(
-                logits, target, ignore_index=self.ignore_index, reduction="mean"
-            )
-        loss = F.cross_entropy(logits, target, ignore_index=self.ignore_index, reduction="none")
-        valid = (target != self.ignore_index)
-        denom = valid.sum().clamp_min(1).to(loss.dtype)
-        return self.loss_weight * (loss[valid].sum() / denom)
-
-class PatchRowColRegressionCriterion(nn.Module):
-    def __init__(self, feat_dim, grid_h, grid_w, normalize=True, huber_beta=None):
-        super().__init__()
-        self.grid_h = grid_h
-        self.grid_w = grid_w
-        self.normalize = normalize
-
-        self.row_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
-        self.col_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
-        if huber_beta is None:
-            self.loss_fn = nn.SmoothL1Loss()
-        else:
-            self.loss_fn = nn.SmoothL1Loss(beta=0.5 / self.grid_h)
-
-        rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
-        cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
-        if normalize:
-            rows_2d = rows_2d / (grid_h - 1)
-            cols_2d = cols_2d / (grid_w - 1)
-        self.register_buffer("row_targets", rows_2d.flatten(), persistent=False)
-        self.register_buffer("col_targets", cols_2d.flatten(), persistent=False)
-
-    def forward(self, feats):
-        B, N, D = feats.shape
-        assert N == self.grid_h * self.grid_w, f"Expected N={self.grid_h*self.grid_w}, got N={N}"
-
-        x = feats.reshape(-1, D)
-        row_targets = self.row_targets.repeat(B)
-        col_targets = self.col_targets.repeat(B)
-        row_pred = self.row_mlp(x).squeeze(-1)
-        col_pred = self.col_mlp(x).squeeze(-1)
-        loss_row = self.loss_fn(row_pred, row_targets)
-        loss_col = self.loss_fn(col_pred, col_targets)
-        return (loss_row + loss_col) / 2.0
-
+from seg.seg_loss import MMSegCrossEntropyLoss
 
 MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
 TRAIN_IMAGE_PATH = os.path.join(args.base_path, "images", "training")

@@ -51,6 +51,8 @@ Expected config_kernel.yaml fields:
         history_ids: [kernel_id, ...]
 - finished_notebooks: [notebook, ...]
 - finished_tpu_notebooks: [notebook, ...]
+- error_notebooks: [notebook, ...]
+- error_tpu_notebooks: [notebook, ...]
 """
 
 logging.basicConfig(
@@ -182,6 +184,15 @@ def _move_finished(notebook, finished_notebooks):
     finished_notebooks.append(finished)
 
 
+def _move_error(notebook, error_notebooks, detail=None):
+    errored = dict(notebook)
+    if detail:
+        errored["error_detail"] = detail
+    for key in ("run_id", "resumed_from"):
+        errored.pop(key, None)
+    error_notebooks.append(errored)
+
+
 def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids, is_tpu):
     node_notebooks = node.get("notebooks") or []
     for candidate in running_nodes:
@@ -283,6 +294,8 @@ def main():
             tpu_exhausted_ids = tpu_cfg.get("exhausted_ids") or []
             finished_notebooks = kcfg.get("finished_notebooks") or []
             finished_tpu_notebooks = kcfg.get("finished_tpu_notebooks") or []
+            error_notebooks = kcfg.get("error_notebooks") or []
+            error_tpu_notebooks = kcfg.get("error_tpu_notebooks") or []
             process_gpu = args.gpu or not (args.gpu or args.tpu)
             process_tpu = args.tpu or not (args.gpu or args.tpu)
 
@@ -308,6 +321,12 @@ def main():
                             continue
                         if status == "error":
                             logging.error(detail)
+                            if is_tpu:
+                                _move_error(notebook, error_tpu_notebooks, detail=detail)
+                            else:
+                                _move_error(notebook, error_notebooks, detail=detail)
+                            notebooks.remove(notebook)
+                            changed = True
                             continue
 
                         if status == "finished":
@@ -408,7 +427,7 @@ def main():
                             else:
                                 ok, output = _push_kernel(cfg)
                             if not ok:
-                                quota_msg = "Maximum weekly GPU quota of 30.00 hours reached"
+                                quota_msg = "Maximum weekly GPU quota"
                                 if quota_msg in output:
                                     target_node = _move_to_new_node(
                                         target_node,
@@ -446,7 +465,10 @@ def main():
                                     else:
                                         ok, output = _push_kernel(cfg)
                                 if not ok:
-                                    logging.error(output)
+                                    if output:
+                                        logging.error("Kernel push failed output:\n%s", output)
+                                    else:
+                                        logging.error("Kernel push failed with no output.")
                                     continue
                             changed = True
 
@@ -467,6 +489,8 @@ def main():
                 kcfg["tpu"] = tpu_cfg
             kcfg["finished_notebooks"] = finished_notebooks
             kcfg["finished_tpu_notebooks"] = finished_tpu_notebooks
+            kcfg["error_notebooks"] = error_notebooks
+            kcfg["error_tpu_notebooks"] = error_tpu_notebooks
 
             if changed:
                 _write_yaml(config_path, kcfg)

@@ -1,20 +1,20 @@
-task: seg
-id: rqmiraitowa
+task: cls
+id: houwen
 pos_type: null
-method: abs
+method: none
 model_size: base
-run_id: 2
+run_id: 4
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: xuwenhui123/seg-base-abs-d-150
+kernel_sources: qinghui9527/cls-base-none-d-318
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 50
+seed: 18
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

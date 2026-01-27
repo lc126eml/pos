@@ -1,3 +1,5 @@
+# cls
+
 ### sinayliu/cls-base-none-lr1e-4-50
 Train Loss: 0.7185 | Train Acc: 0.8000 | Valid Acc: 0.5774 | train_time: 99.3s | val_time: 4.3s Best Accuracy: 0.5806
 ### pycjn666/cls-base-none-lr2e-4-50
@@ -9,17 +11,22 @@ Train Loss: 0.8806 | Train Acc: 0.7542 | Valid Acc: 0.5924 | train_time: 96.9s |
 ### zjl001/cls-base-none-lr3e-5-50
 Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s | val_time: 4.4s Best Accuracy: 0.5486
 
-liucong12601/cls-base-rope-d-50
+### liucong12601/cls-base-rope-d-50
 0.684410036	0.808547437	0.645799994	94.76681852	4.197659016	130
 
-sinayliu/cls-base-abs-d-50
+### liucong12601/cls-base-rope-d-51
+0.728503227	0.794474185	0.640199959	96.40247488	4.087512255	130
+
+
+### sinayliu/cls-base-abs-d-50
 0.539301336	0.850435436	0.625400007	93.97559118	4.103694439	130
 
-liucong12601/cls-base-rope-d-50
-sinayliu/cls-base-abs-d-50
-pycjn666/cls-base-colrow-d-50
-jjjerry12138/cls-base-alibi-d-50
-zjl001/cls-base-relpos-d-50
+### yuanhahah/cls-base-relpos-d-50
+0.522795796	0.855515122	0.638599992	98.03561115	4.177647114	130
+
+### cycyxcy/cls-base-alibi-d-50
+0.568491817	0.84163481	0.628399968	94.14329076	4.277119875	130
+
 
 liucong12601/depth-base-none-lr7e-5-50
 430	2026-01-26 15:41:04,272 - INFO - Epoch 1/130 step 60: loss=6.9503 tpu_mem=6738/6840/16128MB

@@ -13,6 +13,7 @@ import random
 import subprocess
 import re
 import shutil
+import resource
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -175,7 +176,7 @@ def main():
         color_jitter_prob=0.5,
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
-        batch_size=40,
+        batch_size=16,
         patch_size=16,
         lr=5e-05,
         lr_aux=1e-5,
@@ -200,10 +201,10 @@ def main():
         debug_loss_stats=False,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=100,
+        log_interval=10,
         show_peak_gpu_mem=True,
-        log_all_ranks=False,
-        debug_xla=False,
+        log_all_ranks=True,
+        debug_xla=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         silog_w=0.0,
         depth_norm="median",
@@ -1731,6 +1732,26 @@ def main():
     tpu_info_last_vals = None
     tpu_info_peak_mb = None
 
+    def _cpu_peak_mb():
+        try:
+            rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        except Exception:
+            return None
+        if rss_kb is None:
+            return None
+        return float(rss_kb) / 1024.0
+
+    def _cpu_total_mb():
+        try:
+            pages = os.sysconf("SC_PHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+        except (ValueError, AttributeError, OSError):
+            return None
+        if pages is None or page_size is None:
+            return None
+        return (pages * page_size) / (1024.0 * 1024.0)
+    cpu_total_mb = _cpu_total_mb()
+
     def _tpu_info_mem():
         nonlocal tpu_info_checked, tpu_info_available, tpu_info_last_ts, tpu_info_last_vals, tpu_info_peak_mb
         if RANK != 0:
@@ -2431,6 +2452,12 @@ def main():
                     elif not tpu_mem_warned:
                         tpu_mem_warned = True
                         print("TPU memory info unavailable; skipping TPU mem logging.", flush=True)
+                    cpu_peak = _cpu_peak_mb()
+                    if cpu_peak is not None:
+                        if cpu_total_mb is not None:
+                            msg += f" cpu_peak={cpu_peak:.0f}/{cpu_total_mb:.0f}MB"
+                        else:
+                            msg += f" cpu_peak={cpu_peak:.0f}MB"
                 logger.info(msg)
 
         denom = max(total_samples, 1)
@@ -2591,6 +2618,9 @@ def main():
                 xm.save(ckpt, last_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
+                    del ckpt
+                gc.collect()
+                _xla_sync()
             elif args.save_weights:
                 if IS_MASTER:
                     weights = {
@@ -2603,6 +2633,9 @@ def main():
                 xm.save(weights, last_weights_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved weights checkpoint to '%s'", last_weights_path)
+                    del weights
+                gc.collect()
+                _xla_sync()
     
             if args.total_run_time_hr is not None:
                 elapsed = time.time() - train_start_time

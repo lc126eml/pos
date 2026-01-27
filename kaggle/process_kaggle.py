@@ -44,6 +44,28 @@ def _py_value(value):
     return repr(value)
 
 
+def _abbr_token(text):
+    parts = re.split(r"[_-]+", str(text))
+    if len(parts) > 1:
+        return "".join(p[0] for p in parts if p)
+    return re.sub(r"[^A-Za-z0-9]+", "", str(text))
+
+
+def _abbr_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "T" if value else "F"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    text = str(value)
+    if re.search(r"[_-]+", text):
+        return _abbr_token(text)
+    return re.sub(r"[^A-Za-z0-9]+", "", text)
+
+
 def _get_source_name(value):
     sources = _as_list(value)
     if not sources:
@@ -156,7 +178,7 @@ def _resolve_resume_source(cfg):
 def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_lock=True):
     config_kernel_path = BASE_DIR / "config_kernel.yaml"
     lock_path = config_kernel_path.with_suffix(config_kernel_path.suffix + ".lock")
-    lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=30.) if use_lock else nullcontext()
+    lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=3.) if use_lock else nullcontext()
     with lock_ctx:
         kcfg = _load_yaml(config_kernel_path)
         running_nodes = kcfg.get("running_nodes") or []
@@ -214,7 +236,7 @@ def _update_args_block(text, updates, add_missing=None):
     found = {key: False for key in updates}
     add_missing = set(add_missing or [])
     patterns = {
-        key: re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)([^,]+)(,?)(\s*#.*)?\s*$")
+        key: re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)(.*?)(,?)(\s*#.*)?\s*$")
         for key in updates
     }
     indent = None
@@ -412,7 +434,10 @@ def main():
         else:
             py_file = Path("dinov3_reg_dynamic_pos.py")
     elif task == "seg":
-        py_file = Path("seg") / "dinov3_seg_kaggle.py"
+        if use_tpu:
+            py_file = Path("seg") / "dinov3_seg_kaggle_tpu.py"
+        else:
+            py_file = Path("seg") / "dinov3_seg_kaggle.py"
     elif task == "cls":
         if use_tpu:
             py_file = Path("dinov3_reg_concise_tpu.py")
@@ -525,13 +550,13 @@ def main():
                 val = cfg.get(key)
             if val is None:
                 continue
-            if isinstance(val, float):
-                val_str = f"{val:.6g}"
-            else:
-                val_str = str(val)
-            parts.append(f"{key}{val_str}")
+            key_str = _abbr_token(key)
+            val_str = _abbr_value(val)
+            if not val_str:
+                continue
+            parts.append(f"{key_str}{val_str}")
         if parts:
-            desc = "_".join(parts)
+            desc = "-".join(parts)
     if not desc:
         desc = "d"
         # raise ValueError("Missing desc in kaggle/config.yaml.")

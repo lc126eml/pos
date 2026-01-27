@@ -70,18 +70,14 @@ exhausted_ids:
 - jinzhanbo
 - geminiyy
 - xuwenhui123
+- zhikaiwang
+- chenhao1213
+- ywhicher
+- chengchi1007
+- yyyyjay
+- qinghui9527
 tpu:
   available_ids:
-  - xulin5522
-  - cdong121
-  - ohyeah00
-  - asdsad0000
-  - du55148
-  - sollasi
-  - qqmail4092
-  - cheaterchow
-  - elong1202
-  - cshlhs
   - cq1234
   - tangjudge
   - b201xiaoli
@@ -141,125 +137,13 @@ tpu:
   - eastwangwei
   - jiangshuai0210
   - roseqw
+  - yuanhahah
   exhausted_ids:
   - liucong12601
   - sinayliu
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: zhikaiwang
-  notebooks:
-  - kernel_id: zhikaiwang/cls-base-none-d-315
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:11:14'
-    resumed_from: zhikaiwang/cls-base-none-d-215
-    history_ids:
-    - cheaterchow/cls-base-none-d-15
-    - cheaterchow/cls-base-none-d-115
-  - kernel_id: zhikaiwang/cls-base-none-d-317
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 09:59:30'
-    resumed_from: zhikaiwang/cls-base-none-d-217
-    history_ids:
-    - elong1202/cls-base-none-d-17
-    - elong1202/cls-base-none-d-117
-  left_time: 7.001915853333331
-- id: chenhao1213
-  notebooks:
-  - kernel_id: chenhao1213/cls-base-none-d-316
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:11:14'
-    resumed_from: chenhao1213/cls-base-none-d-216
-    history_ids:
-    - cheaterchow/cls-base-none-d-16
-    - cheaterchow/cls-base-none-d-116
-  - kernel_id: chenhao1213/cls-base-abs-d-317
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:34:38'
-    resumed_from: chenhao1213/cls-base-abs-d-217
-    history_ids:
-    - cshlhs/cls-base-abs-d-17
-    - cshlhs/cls-base-abs-d-117
-  left_time: 7.0874638133333345
-- id: ywhicher
-  notebooks:
-  - kernel_id: ywhicher/cls-base-abs-d-316
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:34:38'
-    resumed_from: ywhicher/cls-base-abs-d-216
-    history_ids:
-    - cq1234/cls-base-abs-d-16
-    - cq1234/cls-base-abs-d-116
-  - kernel_id: ywhicher/cls-base-colrow-d-315
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:34:38'
-    resumed_from: ywhicher/cls-base-colrow-d-215
-    history_ids:
-    - tangjudge/cls-base-colrow-d-15
-    - tangjudge/cls-base-colrow-d-115
-  left_time: 6.928891914444447
-- id: qinghui9527
-  notebooks:
-  - kernel_id: qinghui9527/cls-base-colrow-d-217
-    run_id: 2
-    total_runs: 8
-    start_time: '2026-01-27 10:54:27'
-    resumed_from: b201xiaoli/cls-base-colrow-d-117
-    history_ids:
-    - b201xiaoli/cls-base-colrow-d-17
-  - kernel_id: qinghui9527/cls-base-none-d-318
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:46:37'
-    resumed_from: qinghui9527/cls-base-none-d-218
-    history_ids:
-    - elong1202/cls-base-none-d-18
-    - elong1202/cls-base-none-d-118
-  left_time: 18.484704575277778
-- id: chengchi1007
-  notebooks:
-  - kernel_id: chengchi1007/cls-base-abs-d-318
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:46:37'
-    resumed_from: chengchi1007/cls-base-abs-d-218
-    history_ids:
-    - cshlhs/cls-base-abs-d-18
-    - cshlhs/cls-base-abs-d-118
-  - kernel_id: chengchi1007/cls-base-abs-d-315
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:46:37'
-    resumed_from: chengchi1007/cls-base-abs-d-215
-    history_ids:
-    - cq1234/cls-base-abs-d-15
-    - cq1234/cls-base-abs-d-115
-  left_time: 6.984027490000001
-- id: yyyyjay
-  notebooks:
-  - kernel_id: yyyyjay/cls-base-colrow-d-316
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:49:53'
-    resumed_from: yyyyjay/cls-base-colrow-d-216
-    history_ids:
-    - tangjudge/cls-base-colrow-d-16
-    - tangjudge/cls-base-colrow-d-116
-  - kernel_id: yyyyjay/cls-base-colrow-d-318
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-27 10:46:37'
-    resumed_from: yyyyjay/cls-base-colrow-d-218
-    history_ids:
-    - b201xiaoli/cls-base-colrow-d-18
-    - b201xiaoli/cls-base-colrow-d-118
-  left_time: 6.929744196111113
 - id: quepimao
   notebooks:
   - kernel_id: quepimao/cls-base-rope-d-316
@@ -307,51 +191,56 @@ running_nodes:
     resumed_from: lemonlaila/seg-base-none-d-151
     history_ids:
     - cycyxcy/seg-base-none-d-51
-  - kernel_id: lemonlaila/seg-base-none-d-250
-    run_id: 2
+  - kernel_id: lemonlaila/seg-base-none-d-350
+    run_id: 3
     total_runs: 6
-    start_time: '2026-01-27 09:57:01'
-    resumed_from: cycyxcy/seg-base-none-d-50
-    history_ids: []
-  left_time: 18.170112513055557
+    start_time: '2026-01-27 21:57:43'
+    resumed_from: lemonlaila/seg-base-none-d-250
+    history_ids:
+    - cycyxcy/seg-base-none-d-50
+  left_time: 6.158432620000001
 - id: yccwff
   notebooks:
-  - kernel_id: yccwff/depth-base-colrow-rc200-350
-    run_id: 3
+  - kernel_id: yccwff/depth-base-colrow-rc200-450
+    run_id: 4
     total_runs: 5
-    start_time: '2026-01-27 10:46:37'
-    resumed_from: luanjing/depth-base-colrow-rc200-250
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: yccwff/depth-base-colrow-rc200-350
     history_ids:
     - jcy666/depth-base-colrow-rc200-50
     - luanjing/depth-base-colrow-rc200-150
-  - kernel_id: yccwff/depth-base-colrow-rc200-353
-    run_id: 3
+    - luanjing/depth-base-colrow-rc200-250
+  - kernel_id: yccwff/depth-base-colrow-rc200-453
+    run_id: 4
     total_runs: 5
-    start_time: '2026-01-27 10:49:53'
-    resumed_from: ssss7777/depth-base-colrow-rc200-253
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: yccwff/depth-base-colrow-rc200-353
     history_ids:
     - starysinger/depth-base-colrow-rc200-53
     - ssss7777/depth-base-colrow-rc200-153
-  left_time: 30
+    - ssss7777/depth-base-colrow-rc200-253
+  left_time: 6.90113209111111
 - id: asssmer
   notebooks:
-  - kernel_id: asssmer/depth-base-colrow-rc200-351
-    run_id: 3
+  - kernel_id: asssmer/depth-base-colrow-rc200-451
+    run_id: 4
     total_runs: 5
-    start_time: '2026-01-27 10:54:27'
-    resumed_from: zhoujiahui0199/depth-base-colrow-rc200-251
+    start_time: '2026-01-27 22:33:31'
+    resumed_from: asssmer/depth-base-colrow-rc200-351
     history_ids:
     - jcy666/depth-base-colrow-rc200-51
     - zhoujiahui0199/depth-base-colrow-rc200-151
-  - kernel_id: asssmer/depth-base-colrow-rc200-352
-    run_id: 3
+    - zhoujiahui0199/depth-base-colrow-rc200-251
+  - kernel_id: asssmer/depth-base-colrow-rc200-452
+    run_id: 4
     total_runs: 5
-    start_time: '2026-01-27 11:06:35'
-    resumed_from: ssss7777/depth-base-colrow-rc200-252
+    start_time: '2026-01-27 22:45:04'
+    resumed_from: asssmer/depth-base-colrow-rc200-352
     history_ids:
     - starysinger/depth-base-colrow-rc200-52
     - ssss7777/depth-base-colrow-rc200-152
-  left_time: 30
+    - ssss7777/depth-base-colrow-rc200-252
+  left_time: 6.707119914444441
 - id: huoqiuxia
   notebooks:
   - kernel_id: huoqiuxia/seg-base-abs-d-251
@@ -361,108 +250,135 @@ running_nodes:
     resumed_from: xuwenhui123/seg-base-abs-d-151
     history_ids:
     - xuwenhui123/seg-base-abs-d-51
+  - kernel_id: huoqiuxia/cls-base-none-d-417
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-27 21:34:22'
+    resumed_from: zhikaiwang/cls-base-none-d-317
+    history_ids:
+    - elong1202/cls-base-none-d-17
+    - elong1202/cls-base-none-d-117
+    - zhikaiwang/cls-base-none-d-217
   left_time: 21.940824426666666
 - id: hysz0821
-  notebooks: []
+  notebooks:
+  - kernel_id: hysz0821/cls-base-none-d-415
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-27 21:45:51'
+    resumed_from: zhikaiwang/cls-base-none-d-315
+    history_ids:
+    - cheaterchow/cls-base-none-d-15
+    - cheaterchow/cls-base-none-d-115
+    - zhikaiwang/cls-base-none-d-215
+  - kernel_id: hysz0821/cls-base-none-d-416
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-27 21:45:51'
+    resumed_from: chenhao1213/cls-base-none-d-316
+    history_ids:
+    - cheaterchow/cls-base-none-d-16
+    - cheaterchow/cls-base-none-d-116
+    - chenhao1213/cls-base-none-d-216
   left_time: 21.336476645000005
 - id: kanwenbin
-  notebooks: []
+  notebooks:
+  - kernel_id: kanwenbin/cls-base-abs-d-417
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-27 22:09:05'
+    resumed_from: chenhao1213/cls-base-abs-d-317
+    history_ids:
+    - cshlhs/cls-base-abs-d-17
+    - cshlhs/cls-base-abs-d-117
+    - chenhao1213/cls-base-abs-d-217
+  - kernel_id: kanwenbin/cls-base-abs-d-416
+    run_id: 4
+    total_runs: 8
+    start_time: '2026-01-27 22:09:05'
+    resumed_from: ywhicher/cls-base-abs-d-316
+    history_ids:
+    - cq1234/cls-base-abs-d-16
+    - cq1234/cls-base-abs-d-116
+    - ywhicher/cls-base-abs-d-216
   left_time: 21.336476645000005
 - id: top1pcl
   notebooks:
-  - kernel_id: top1pcl/depth-base-rope-d-751
-    run_id: 7
+  - kernel_id: top1pcl/cls-base-colrow-d-415
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:04:28'
-    resumed_from: denghaimeng/depth-base-rope-d-651
+    start_time: '2026-01-27 22:09:05'
+    resumed_from: ywhicher/cls-base-colrow-d-315
     history_ids:
-    - zongjiaxin/depth-base-rope-d-451
-    - denghaimeng/depth-base-rope-d-551
-  - kernel_id: top1pcl/depth-base-rope-d-752
-    run_id: 7
+    - tangjudge/cls-base-colrow-d-15
+    - tangjudge/cls-base-colrow-d-115
+    - ywhicher/cls-base-colrow-d-215
+  - kernel_id: top1pcl/cls-base-abs-d-418
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:04:28'
-    resumed_from: jjjerry12138/depth-base-rope-d-652
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: chengchi1007/cls-base-abs-d-318
     history_ids:
-    - yangjiamin/depth-base-rope-d-452
-    - jjjerry12138/depth-base-rope-d-552
-  left_time: 30
+    - cshlhs/cls-base-abs-d-18
+    - cshlhs/cls-base-abs-d-118
+    - chengchi1007/cls-base-abs-d-218
+  left_time: 18.269426329444443
 - id: yangyangchengcheng
   notebooks:
-  - kernel_id: yangyangchengcheng/depth-base-rope-d-753
-    run_id: 7
+  - kernel_id: yangyangchengcheng/cls-base-abs-d-415
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:04:28'
-    resumed_from: jjjerry12138/depth-base-rope-d-653
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: chengchi1007/cls-base-abs-d-315
     history_ids:
-    - yangjiamin/depth-base-rope-d-453
-    - jjjerry12138/depth-base-rope-d-553
-  - kernel_id: yangyangchengcheng/depth-base-none-d-752
-    run_id: 7
+    - cq1234/cls-base-abs-d-15
+    - cq1234/cls-base-abs-d-115
+    - chengchi1007/cls-base-abs-d-215
+  - kernel_id: yangyangchengcheng/cls-base-colrow-d-416
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:19:43'
-    resumed_from: zongjiaxin/depth-base-none-d-652
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: yyyyjay/cls-base-colrow-d-316
     history_ids:
-    - zjl001/depth-base-none-d-452
-    - zongjiaxin/depth-base-none-d-552
-  left_time: 30
+    - tangjudge/cls-base-colrow-d-16
+    - tangjudge/cls-base-colrow-d-116
+    - yyyyjay/cls-base-colrow-d-216
+  left_time: 19.857685325277778
 - id: ttzyty
   notebooks:
-  - kernel_id: ttzyty/depth-base-colrow-d-750
-    run_id: 7
+  - kernel_id: ttzyty/cls-base-colrow-d-418
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:19:43'
-    resumed_from: yangjiamin/depth-base-colrow-d-650
+    start_time: '2026-01-27 22:21:12'
+    resumed_from: yyyyjay/cls-base-colrow-d-318
     history_ids:
-    - zongjiaxin/depth-base-colrow-d-450
-    - yangjiamin/depth-base-colrow-d-550
-  - kernel_id: ttzyty/depth-base-abs-d-751
-    run_id: 7
+    - b201xiaoli/cls-base-colrow-d-18
+    - b201xiaoli/cls-base-colrow-d-118
+    - yyyyjay/cls-base-colrow-d-218
+  - kernel_id: ttzyty/cls-base-colrow-d-317
+    run_id: 3
     total_runs: 8
-    start_time: '2026-01-27 12:19:43'
-    resumed_from: zjl001/depth-base-abs-d-651
+    start_time: '2026-01-27 22:33:31'
+    resumed_from: qinghui9527/cls-base-colrow-d-217
     history_ids:
-    - jjjerry12138/depth-base-abs-d-451
-    - zjl001/depth-base-abs-d-551
-  left_time: 30
+    - b201xiaoli/cls-base-colrow-d-17
+    - b201xiaoli/cls-base-colrow-d-117
+  left_time: 21.060210309444443
 - id: houwen
   notebooks:
-  - kernel_id: houwen/depth-base-abs-d-752
-    run_id: 7
+  - kernel_id: houwen/cls-base-none-d-418
+    run_id: 4
     total_runs: 8
-    start_time: '2026-01-27 12:19:43'
-    resumed_from: smartchaochao/depth-base-abs-d-652
+    start_time: '2026-01-27 22:56:40'
+    resumed_from: qinghui9527/cls-base-none-d-318
     history_ids:
-    - zhoujiahui0199/depth-base-abs-d-452
-    - smartchaochao/depth-base-abs-d-552
-  - kernel_id: houwen/depth-base-colrow-d-751
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-01-27 12:32:07'
-    resumed_from: yangjiamin/depth-base-colrow-d-651
-    history_ids:
-    - denghaimeng/depth-base-colrow-d-451
-    - yangjiamin/depth-base-colrow-d-551
-  left_time: 30
+    - elong1202/cls-base-none-d-18
+    - elong1202/cls-base-none-d-118
+    - qinghui9527/cls-base-none-d-218
+  left_time: 21.269124953333336
 - id: srmmmm
-  notebooks:
-  - kernel_id: srmmmm/depth-base-colrow-d-753
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-01-27 12:32:07'
-    resumed_from: zzr123123/depth-base-colrow-d-653
-    history_ids:
-    - smartchaochao/depth-base-colrow-d-453
-    - zzr123123/depth-base-colrow-d-553
-  - kernel_id: srmmmm/depth-base-rope-d-750
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-01-27 12:32:07'
-    resumed_from: denghaimeng/depth-base-rope-d-650
-    history_ids:
-    - zzr123123/depth-base-rope-d-450
-    - denghaimeng/depth-base-rope-d-550
-  left_time: 30
+  notebooks: []
+  left_time: 20.328188381944443
 - id: rushly
   notebooks:
   - kernel_id: rushly/seg-base-colrow-d-250
@@ -550,6 +466,76 @@ finished_notebooks:
   - cycyxcy/depth-base-abs-d-453
   - smartchaochao/depth-base-abs-d-553
   - smartchaochao/depth-base-abs-d-653
+- kernel_id: yangyangchengcheng/depth-base-none-d-752
+  total_runs: 8
+  start_time: '2026-01-27 12:19:43'
+  history_ids:
+  - zjl001/depth-base-none-d-452
+  - zongjiaxin/depth-base-none-d-552
+  - zongjiaxin/depth-base-none-d-652
+- kernel_id: houwen/depth-base-abs-d-752
+  total_runs: 8
+  start_time: '2026-01-27 12:19:43'
+  history_ids:
+  - zhoujiahui0199/depth-base-abs-d-452
+  - smartchaochao/depth-base-abs-d-552
+  - smartchaochao/depth-base-abs-d-652
+- kernel_id: ttzyty/depth-base-colrow-d-750
+  total_runs: 8
+  start_time: '2026-01-27 12:19:43'
+  history_ids:
+  - zongjiaxin/depth-base-colrow-d-450
+  - yangjiamin/depth-base-colrow-d-550
+  - yangjiamin/depth-base-colrow-d-650
+- kernel_id: ttzyty/depth-base-abs-d-751
+  total_runs: 8
+  start_time: '2026-01-27 12:19:43'
+  history_ids:
+  - jjjerry12138/depth-base-abs-d-451
+  - zjl001/depth-base-abs-d-551
+  - zjl001/depth-base-abs-d-651
+- kernel_id: houwen/depth-base-colrow-d-751
+  total_runs: 8
+  start_time: '2026-01-27 12:32:07'
+  history_ids:
+  - denghaimeng/depth-base-colrow-d-451
+  - yangjiamin/depth-base-colrow-d-551
+  - yangjiamin/depth-base-colrow-d-651
+- kernel_id: srmmmm/depth-base-colrow-d-753
+  total_runs: 8
+  start_time: '2026-01-27 12:32:07'
+  history_ids:
+  - smartchaochao/depth-base-colrow-d-453
+  - zzr123123/depth-base-colrow-d-553
+  - zzr123123/depth-base-colrow-d-653
+- kernel_id: srmmmm/depth-base-rope-d-750
+  total_runs: 8
+  start_time: '2026-01-27 12:32:07'
+  history_ids:
+  - zzr123123/depth-base-rope-d-450
+  - denghaimeng/depth-base-rope-d-550
+  - denghaimeng/depth-base-rope-d-650
+- kernel_id: top1pcl/depth-base-rope-d-751
+  total_runs: 8
+  start_time: '2026-01-27 12:04:28'
+  history_ids:
+  - zongjiaxin/depth-base-rope-d-451
+  - denghaimeng/depth-base-rope-d-551
+  - denghaimeng/depth-base-rope-d-651
+- kernel_id: top1pcl/depth-base-rope-d-752
+  total_runs: 8
+  start_time: '2026-01-27 12:04:28'
+  history_ids:
+  - yangjiamin/depth-base-rope-d-452
+  - jjjerry12138/depth-base-rope-d-552
+  - jjjerry12138/depth-base-rope-d-652
+- kernel_id: yangyangchengcheng/depth-base-rope-d-753
+  total_runs: 8
+  start_time: '2026-01-27 12:04:28'
+  history_ids:
+  - yangjiamin/depth-base-rope-d-453
+  - jjjerry12138/depth-base-rope-d-553
+  - jjjerry12138/depth-base-rope-d-653
 finished_tpu_notebooks:
 - kernel_id: liucong12601/cls-base-rope-d-50
   total_runs: 1
@@ -571,64 +557,195 @@ finished_tpu_notebooks:
   total_runs: 1
   start_time: '2026-01-26 18:42:33'
   history_ids: []
+error_notebooks: []
+error_tpu_notebooks: []
 tpu_running_nodes:
-- id: yuanhahah
-  left_time: 19
+- id: liucong12601
+  left_time: 0.6
   notebooks:
-  - kernel_id: yuanhahah/cls-base-relpos-d-50
+  - kernel_id: liucong12601/cls-base-rope-tpu-52
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 15:47:40'
+    start_time: '2026-01-27 22:04:13'
     resumed_from: null
     history_ids: []
 - id: cycyxcy
-  left_time: 20
+  left_time: 10
   notebooks:
-  - kernel_id: cycyxcy/cls-base-alibi-d-50
+  - kernel_id: cycyxcy/seg-base-none-tpu-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 15:48:01'
+    start_time: '2026-01-27 22:26:24'
     resumed_from: null
     history_ids: []
 - id: jjjerry12138
   left_time: 12
   notebooks:
-  - kernel_id: jjjerry12138/depth-base-none-batch_size40_lr5e-05-50
+  - kernel_id: jjjerry12138/depth-base-none-bs16_lr5e-05-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 16:16:48'
+    start_time: '2026-01-27 21:59:56'
     resumed_from: null
     history_ids: []
-- id: liucong12601
-  left_time: 7
+- id: sinayliu
+  left_time: 9.125966971666667
   notebooks:
-  - kernel_id: liucong12601/cls-base-rope-d-51
+  - kernel_id: sinayliu/seg-base-none-tpu-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-27 16:27:12'
+    start_time: '2026-01-27 22:24:41'
+    resumed_from: null
+    history_ids: []
+- id: zjl001
+  left_time: 12
+  notebooks:
+  - kernel_id: zjl001/cls-base-rope-tpu-53
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:04:40'
+    resumed_from: null
+    history_ids: []
+- id: jacksisi
+  left_time: 5.100604859999999
+  notebooks:
+  - kernel_id: jacksisi/cls-base-abs-tpu-53
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:06:59'
+    resumed_from: null
+    history_ids: []
+- id: xulijuan
+  left_time: 20
+  notebooks:
+  - kernel_id: xulijuan/cls-base-abs-tpu-52
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:07:09'
+    resumed_from: null
+    history_ids: []
+- id: wenyangtang
+  left_time: 5.118104859999999
+  notebooks:
+  - kernel_id: wenyangtang/cls-base-abs-tpu-51
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:07:30'
+    resumed_from: null
+    history_ids: []
+- id: liucong126
+  left_time: 5.12171597111111
+  notebooks:
+  - kernel_id: liucong126/cls-base-colrow-tpu-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:07:54'
+    resumed_from: null
+    history_ids: []
+- id: ampere888
+  left_time: 11
+  notebooks:
+  - kernel_id: ampere888/cls-base-colrow-tpu-51
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:00'
     resumed_from: null
     history_ids: []
 - id: pycjn666
   left_time: 12
-  notebooks: null
-- id: sinayliu
-  left_time: 9.125966971666667
-  notebooks: []
-- id: zjl001
-  left_time: 12
-  notebooks: null
-- id: jacksisi
-  left_time: 5.100604859999999
-  notebooks: []
-- id: xulijuan
+  notebooks:
+  - kernel_id: pycjn666/cls-base-colrow-tpu-52
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:09'
+    resumed_from: null
+    history_ids: []
+- id: xulin5522
   left_time: 20
-  notebooks: null
-- id: wenyangtang
-  left_time: 5.118104859999999
-  notebooks: []
-- id: liucong126
-  left_time: 5.12171597111111
-  notebooks: []
-- id: ampere888
-  left_time: 11
-  notebooks: null
+  notebooks:
+  - kernel_id: xulin5522/cls-base-colrow-tpu-53
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:18'
+    resumed_from: null
+    history_ids: []
+- id: cdong121
+  left_time: 20
+  notebooks:
+  - kernel_id: cdong121/cls-base-none-tpu-53
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:42'
+    resumed_from: null
+    history_ids: []
+- id: ohyeah00
+  left_time: 20
+  notebooks:
+  - kernel_id: ohyeah00/cls-base-none-tpu-52
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:48'
+    resumed_from: null
+    history_ids: []
+- id: asdsad0000
+  left_time: 20
+  notebooks:
+  - kernel_id: asdsad0000/cls-base-none-tpu-51
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:08:54'
+    resumed_from: null
+    history_ids: []
+- id: du55148
+  left_time: 20
+  notebooks:
+  - kernel_id: du55148/cls-base-none-tpu-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:09:01'
+    resumed_from: null
+    history_ids: []
+- id: sollasi
+  left_time: 20
+  notebooks:
+  - kernel_id: sollasi/cls-base-patch-tpu-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:11:40'
+    resumed_from: null
+    history_ids: []
+- id: qqmail4092
+  left_time: 20
+  notebooks:
+  - kernel_id: qqmail4092/cls-base-patch-tpu-51
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:12:11'
+    resumed_from: null
+    history_ids: []
+- id: cheaterchow
+  left_time: 20
+  notebooks:
+  - kernel_id: cheaterchow/seg-base-none-tpu_debug-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:41:00'
+    resumed_from: null
+    history_ids: []
+- id: elong1202
+  left_time: 20
+  notebooks:
+  - kernel_id: elong1202/depth-base-none-tpu-debug-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 22:41:27'
+    resumed_from: null
+    history_ids: []
+- id: cshlhs
+  left_time: 20
+  notebooks:
+  - kernel_id: cshlhs/cls-base-none-is224192288-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-27 23:15:49'
+    resumed_from: null
+    history_ids: []
