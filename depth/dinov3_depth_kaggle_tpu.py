@@ -206,7 +206,6 @@ def main():
     # Kaggle environment setup
     # =============================================================================
     _IS_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.path.exists("/kaggle/working"))
-    _preflight_kaggle_env()
     
     # ----------------------------------------------------------------------------
     # timm: prefer local Kaggle repo
@@ -1567,4 +1566,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _preflight_kaggle_env()
     _spawn_tpu(main)

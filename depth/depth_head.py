@@ -359,136 +359,117 @@ def custom_interpolate(x: torch.Tensor, size: Tuple[int, int] = None, scale_fact
 class DPTHead(nn.Module):
     def __init__(
         self,
-        dim_in: int,
-        patch_size: int = 14,
-        output_dim: int = 1,
-        activation: str = "inv_log",
-        conf_activation: str = "expp1",
+        in_channels: int,
         features: int = 256,
+        use_bn: bool = False,
         out_channels: List[int] = [256, 512, 1024, 1024],
-        intermediate_layer_idx: List[int] = [0, 1, 2, 3], # Use indices for the feature list
-        pos_embed: bool = False, # Disabled to avoid dependency issues
-        feature_only: bool = False,
-        down_ratio: int = 1,
+        use_clstoken: bool = False,
+        patch_size: int = 14,
     ) -> None:
-        super(DPTHead, self).__init__()
-        self.patch_size = patch_size
-        self.activation = activation
-        self.conf_activation = conf_activation
-        self.pos_embed = pos_embed
-        self.feature_only = feature_only
-        self.down_ratio = down_ratio
-        self.intermediate_layer_idx = intermediate_layer_idx
-        
-        self.norm = nn.LayerNorm(dim_in)
-        self.projects = nn.ModuleList([nn.Conv2d(in_channels=dim_in, out_channels=oc, kernel_size=1, stride=1, padding=0) for oc in out_channels])
-        
-        self.resize_layers = nn.ModuleList([
-            nn.ConvTranspose2d(in_channels=out_channels[0], out_channels=out_channels[0], kernel_size=4, stride=4, padding=0),
-            nn.ConvTranspose2d(in_channels=out_channels[1], out_channels=out_channels[1], kernel_size=2, stride=2, padding=0),
-            nn.Identity(),
-            nn.Conv2d(in_channels=out_channels[3], out_channels=out_channels[3], kernel_size=3, stride=2, padding=1),
+        super().__init__()
+        self.use_clstoken = use_clstoken
+        self.patch_size = int(patch_size)
+
+        self.projects = nn.ModuleList([
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channel,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ) for out_channel in out_channels
         ])
-        
+
+        self.resize_layers = nn.ModuleList([
+            nn.ConvTranspose2d(
+                in_channels=out_channels[0],
+                out_channels=out_channels[0],
+                kernel_size=4,
+                stride=4,
+                padding=0,
+            ),
+            nn.ConvTranspose2d(
+                in_channels=out_channels[1],
+                out_channels=out_channels[1],
+                kernel_size=2,
+                stride=2,
+                padding=0,
+            ),
+            nn.Identity(),
+            nn.Conv2d(
+                in_channels=out_channels[3],
+                out_channels=out_channels[3],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+            ),
+        ])
+
+        if use_clstoken:
+            self.readout_projects = nn.ModuleList()
+            for _ in range(len(self.projects)):
+                self.readout_projects.append(
+                    nn.Sequential(
+                        nn.Linear(2 * in_channels, in_channels),
+                        nn.GELU(),
+                    )
+                )
+
         self.scratch = _make_scratch(out_channels, features, expand=False)
         self.scratch.stem_transpose = None
         self.scratch.refinenet1 = _make_fusion_block(features)
         self.scratch.refinenet2 = _make_fusion_block(features)
         self.scratch.refinenet3 = _make_fusion_block(features)
         self.scratch.refinenet4 = _make_fusion_block(features, has_residual=False)
+
         head_features_1 = features
         head_features_2 = 32
-        
-        if feature_only:
-            self.scratch.output_conv1 = nn.Conv2d(head_features_1, head_features_1, kernel_size=3, stride=1, padding=1)
-        else:
-            self.scratch.output_conv1 = nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1)
-            conv2_in_channels = head_features_1 // 2
-            self.scratch.output_conv2 = nn.Sequential(
-                nn.Conv2d(conv2_in_channels, head_features_2, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(head_features_2, output_dim, kernel_size=1, stride=1, padding=0),
-            )
+        self.scratch.output_conv1 = nn.Conv2d(
+            head_features_1,
+            head_features_1 // 2,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+        )
+        self.scratch.output_conv2 = nn.Sequential(
+            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(head_features_2, 1, kernel_size=1, stride=1, padding=0),
+            nn.Softplus(beta=1.0, threshold=20.0),
+        )
 
-    def forward(self, features: List[torch.Tensor], images: torch.Tensor, patch_start_idx: int, frames_chunk_size: int = 8) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        B, S, _, H, W = images.shape
-        
-        if frames_chunk_size is None or frames_chunk_size >= S:
-            return self._forward_impl(features, images, patch_start_idx)
-            
-        assert frames_chunk_size > 0
-        all_preds, all_conf = [], []
-        for frames_start_idx in range(0, S, frames_chunk_size):
-            frames_end_idx = min(frames_start_idx + frames_chunk_size, S)
-            if self.feature_only:
-                chunk_output = self._forward_impl(features, images, patch_start_idx, frames_start_idx, frames_end_idx)
-                all_preds.append(chunk_output)
-            else:
-                chunk_preds, chunk_conf = self._forward_impl(features, images, patch_start_idx, frames_start_idx, frames_end_idx)
-                all_preds.append(chunk_preds)
-                all_conf.append(chunk_conf)
-        if self.feature_only:
-            return torch.cat(all_preds, dim=1)
-        else:
-            return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1)
-
-    def _forward_impl(self, features: List[torch.Tensor], images: torch.Tensor, patch_start_idx: int, frames_start_idx: int = None, frames_end_idx: int = None) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        if frames_start_idx is not None and frames_end_idx is not None:
-            images = images[:, frames_start_idx:frames_end_idx].contiguous()
-            
-        B, S, _, H, W = images.shape
-        patch_h, patch_w = H // self.patch_size, W // self.patch_size
+    def forward(self, out_features: List[torch.Tensor], patch_h: int, patch_w: int) -> torch.Tensor:
         out = []
-        dpt_idx = 0
-        
-        # The `features` is the list of features from the backbone's intermediate layers
-        # We iterate through the indices [0, 1, 2, 3] to get the 4 feature maps
-        for layer_idx in self.intermediate_layer_idx:
-            x = features[layer_idx][:, patch_start_idx:] # Use features directly, remove CLS/pose tokens
-            x = x.unsqueeze(1) # Add sequence dimension for compatibility
-            if frames_start_idx is not None and frames_end_idx is not None:
-                x = x[:, frames_start_idx:frames_end_idx]
-                
-            x = x.view(B * S, -1, x.shape[-1])
-            x = self.norm(x)
+        for i, x in enumerate(out_features):
+            if self.use_clstoken:
+                x, cls_token = x[0], x[1]
+                readout = cls_token.unsqueeze(1).expand_as(x)
+                x = self.readout_projects[i](torch.cat((x, readout), -1))
+            else:
+                x = x[0]
+
             x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
-            x = self.projects[dpt_idx](x)
-            if self.pos_embed:
-                x = self._apply_pos_embed(x, W, H)
-            x = self.resize_layers[dpt_idx](x)
+            x = self.projects[i](x)
+            x = self.resize_layers[i](x)
             out.append(x)
-            dpt_idx += 1
-            
-        out = self.scratch_forward(out)
-        out = custom_interpolate(out, (int(patch_h * self.patch_size / self.down_ratio), int(patch_w * self.patch_size / self.down_ratio)), mode="bilinear", align_corners=True)
-        if self.pos_embed:
-            out = self._apply_pos_embed(out, W, H)
-        if self.feature_only:
-            return out.view(B, S, *out.shape[1:])
-            
-        out = self.scratch.output_conv2(out)
-        preds, conf = activate_head(out, activation=self.activation, conf_activation=self.conf_activation)
-        preds = preds.view(B, S, *preds.shape[1:])
-        conf = conf.view(B, S, *conf.shape[1:])
-        return preds, conf
 
-    def _apply_pos_embed(self, x: torch.Tensor, W: int, H: int, ratio: float = 0.1) -> torch.Tensor:
-        # This method is not used if pos_embed is False
-        pass
-
-    def scratch_forward(self, features: List[torch.Tensor]) -> torch.Tensor:
-        layer_1, layer_2, layer_3, layer_4 = features
+        layer_1, layer_2, layer_3, layer_4 = out
         layer_1_rn = self.scratch.layer1_rn(layer_1)
         layer_2_rn = self.scratch.layer2_rn(layer_2)
         layer_3_rn = self.scratch.layer3_rn(layer_3)
         layer_4_rn = self.scratch.layer4_rn(layer_4)
-        out = self.scratch.refinenet4(layer_4_rn, size=layer_3_rn.shape[2:])
-        del layer_4_rn, layer_4
-        out = self.scratch.refinenet3(out, layer_3_rn, size=layer_2_rn.shape[2:])
-        del layer_3_rn, layer_3
-        out = self.scratch.refinenet2(out, layer_2_rn, size=layer_1_rn.shape[2:])
-        del layer_2_rn, layer_2
-        out = self.scratch.refinenet1(out, layer_1_rn)
-        del layer_1_rn, layer_1
-        out = self.scratch.output_conv1(out)
+
+        path_4 = self.scratch.refinenet4(layer_4_rn, size=layer_3_rn.shape[2:])
+        path_3 = self.scratch.refinenet3(path_4, layer_3_rn, size=layer_2_rn.shape[2:])
+        path_2 = self.scratch.refinenet2(path_3, layer_2_rn, size=layer_1_rn.shape[2:])
+        path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
+
+        out = self.scratch.output_conv1(path_1)
+        out = F.interpolate(
+            out,
+            (int(patch_h * self.patch_size), int(patch_w * self.patch_size)),
+            mode="bilinear",
+            align_corners=True,
+        )
+        out = self.scratch.output_conv2(out)
         return out

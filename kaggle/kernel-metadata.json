@@ -1,6 +1,6 @@
 {
-  "id": "houwen/cls-base-none-d-518",
-  "title": "cls base none d 518",
+  "id": "rqmiraitowa/cls-base-rope-d-515",
+  "title": "cls base rope d 515",
   "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -14,7 +14,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "houwen/cls-base-none-d-418"
+    "rqmiraitowa/cls-base-rope-d-415"
   ],
   "model_sources": []
 }

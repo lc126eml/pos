@@ -80,6 +80,8 @@ exhausted_ids:
 - top1pcl
 - yangyangchengcheng
 - ttzyty
+- houwen
+- srmmmm
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
@@ -98,39 +100,6 @@ running_nodes:
 - id: kanwenbin
   notebooks: []
   left_time: -1.9876992194444405
-- id: houwen
-  notebooks:
-  - kernel_id: houwen/cls-base-rope-d-416
-    run_id: 4
-    total_runs: 8
-    start_time: '2026-01-27 23:19:40'
-    resumed_from: quepimao/cls-base-rope-d-316
-    history_ids:
-    - autune/cls-base-rope-d-16
-    - autune/cls-base-rope-d-116
-    - quepimao/cls-base-rope-d-216
-  left_time: 9.636488263611113
-- id: srmmmm
-  notebooks:
-  - kernel_id: srmmmm/cls-base-rope-d-418
-    run_id: 4
-    total_runs: 8
-    start_time: '2026-01-27 23:55:00'
-    resumed_from: quepimao/cls-base-rope-d-318
-    history_ids:
-    - zhuangminghui/cls-base-rope-d-18
-    - zhuangminghui/cls-base-rope-d-118
-    - quepimao/cls-base-rope-d-218
-  - kernel_id: srmmmm/cls-base-rope-d-417
-    run_id: 4
-    total_runs: 8
-    start_time: '2026-01-27 23:55:00'
-    resumed_from: wzywzy1227/cls-base-rope-d-317
-    history_ids:
-    - zhuangminghui/cls-base-rope-d-17
-    - zhuangminghui/cls-base-rope-d-117
-    - wzywzy1227/cls-base-rope-d-217
-  left_time: 20.328188381944443
 - id: rushly
   notebooks:
   - kernel_id: rushly/seg-base-colrow-d-350
@@ -179,16 +148,7 @@ running_nodes:
     history_ids:
     - xuwenhui123/seg-base-abs-d-50
     - xuwenhui123/seg-base-abs-d-150
-  - kernel_id: rqmiraitowa/cls-base-rope-d-415
-    run_id: 4
-    total_runs: 8
-    start_time: '2026-01-28 00:06:54'
-    resumed_from: wzywzy1227/cls-base-rope-d-315
-    history_ids:
-    - autune/cls-base-rope-d-15
-    - autune/cls-base-rope-d-115
-    - wzywzy1227/cls-base-rope-d-215
-  left_time: 17.978251283333332
+  left_time: 6.281088792222221
 - id: zht121233
   notebooks: []
   left_time: 27.90811298
@@ -526,4 +486,40 @@ error_notebooks:
   - elong1202/cls-base-none-d-118
   - qinghui9527/cls-base-none-d-218
   - qinghui9527/cls-base-none-d-318
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: srmmmm/cls-base-rope-d-518
+  total_runs: 8
+  start_time: '2026-01-28 11:06:33'
+  history_ids:
+  - zhuangminghui/cls-base-rope-d-18
+  - zhuangminghui/cls-base-rope-d-118
+  - quepimao/cls-base-rope-d-218
+  - quepimao/cls-base-rope-d-318
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: zht121233/cls-base-rope-d-516
+  total_runs: 8
+  start_time: '2026-01-28 11:17:11'
+  history_ids:
+  - autune/cls-base-rope-d-16
+  - autune/cls-base-rope-d-116
+  - quepimao/cls-base-rope-d-216
+  - quepimao/cls-base-rope-d-316
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: zht121233/cls-base-rope-d-517
+  total_runs: 8
+  start_time: '2026-01-28 11:48:43'
+  history_ids:
+  - zhuangminghui/cls-base-rope-d-17
+  - zhuangminghui/cls-base-rope-d-117
+  - wzywzy1227/cls-base-rope-d-217
+  - wzywzy1227/cls-base-rope-d-317
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: rqmiraitowa/cls-base-rope-d-515
+  total_runs: 8
+  start_time: '2026-01-28 11:48:43'
+  history_ids:
+  - autune/cls-base-rope-d-15
+  - autune/cls-base-rope-d-115
+  - wzywzy1227/cls-base-rope-d-215
+  - wzywzy1227/cls-base-rope-d-315
   error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'

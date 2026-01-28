@@ -1,20 +1,20 @@
 task: cls
-id: houwen
+id: rqmiraitowa
 pos_type: null
-method: none
+method: rope
 model_size: base
 run_id: 5
 desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: houwen/cls-base-none-d-418
+kernel_sources: rqmiraitowa/cls-base-rope-d-415
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 18
+seed: 15
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

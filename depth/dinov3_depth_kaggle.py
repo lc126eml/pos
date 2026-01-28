@@ -547,18 +547,18 @@ if decoder_type == "lite4":
     decoder = Lite4LayerDepthHead(embed_dim=model.embed_dim).to(DEVICE)
 elif decoder_type == "simple":
     decoder = SimpleDepthDecoderV2(embed_dim=model.embed_dim).to(DEVICE)
-elif decoder_type == "dpt":
-    patch_size = model.patch_embed.patch_size
-    if isinstance(patch_size, tuple):
-        patch_size = patch_size[0]
-    decoder = DPTHead(
-        in_channels=model.embed_dim,
-        features=256,
-        out_channels=[256, 512, 1024, 1024],
-        use_bn=False,
-        use_clstoken=False,
-        patch_size=int(patch_size),
-    ).to(DEVICE)
+    elif decoder_type == "dpt":
+        patch_size = model.patch_embed.patch_size
+        if isinstance(patch_size, tuple):
+            patch_size = patch_size[0]
+        decoder = DPTHead(
+            in_channels=model.embed_dim,
+            features=256,
+            out_channels=[256, 512, 1024, 1024],
+            use_bn=False,
+            use_clstoken=False,
+            patch_size=int(patch_size),
+        ).to(DEVICE)
 else:
     raise ValueError(f"Unsupported depth_decoder='{decoder_type}'. Use 'simple', 'lite4', or 'dpt'.")
 

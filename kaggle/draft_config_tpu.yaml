@@ -1,11 +1,11 @@
-task: cls
+task: depth
 id:   
 pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: mres
-desc_keys: ["img_sizes"]
+# desc_keys: ["img_sizes"]
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -19,7 +19,7 @@ seed: 50
 simple:
 - resume_bs: true
 - total_run_time_hr: 9.0
-- img_sizes: [224, 192, 288]
+# - img_sizes: [224, 192, 288]
 # - show_peak_gpu_mem: True
 # - val: false
 # - batch_size: 16

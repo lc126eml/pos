@@ -67,10 +67,16 @@ exhausted_ids:
 running_nodes:
 - id: jacksisi
   left_time: 12
-  notebooks: []
+  notebooks:
+  - kernel_id: jacksisi/depth-base-none-mres-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-28 11:46:57'
+    resumed_from: null
+    history_ids: []
 - id: wenyangtang
   left_time: 12
-  notebooks: []
+  notebooks: null
 - id: cycyxcy
   left_time: 10
   notebooks: []
@@ -88,16 +94,16 @@ running_nodes:
   notebooks: []
 - id: liucong126
   left_time: 5.12171597111111
-  notebooks:
+  notebooks: null
 - id: ampere888
   left_time: 11
-  notebooks:
+  notebooks: null
 - id: pycjn666
   left_time: 12
-  notebooks:
+  notebooks: null
 - id: xulin5522
   left_time: 20
-  notebooks:
+  notebooks: null
 - id: cdong121
   left_time: 10.889214259444444
   notebooks: []
@@ -112,10 +118,10 @@ running_nodes:
   notebooks: []
 - id: sollasi
   left_time: 20
-  notebooks:
+  notebooks: null
 - id: qqmail4092
   left_time: 20
-  notebooks:
+  notebooks: null
 - id: cheaterchow
   left_time: 20
   notebooks: []
@@ -154,4 +160,4 @@ finished_notebooks:
   total_runs: 1
   start_time: '2026-01-27 22:08:54'
   history_ids: []
-error_notebooks:
+error_notebooks: null
