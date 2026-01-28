@@ -4,7 +4,7 @@ pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
 model_size: base
 run_id: 0
-desc: mres
+desc: tpu
 # desc_keys: ["img_sizes"]
 is_private: false
 dataset_sources: null

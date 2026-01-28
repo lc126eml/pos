@@ -441,13 +441,12 @@ class DPTHead(nn.Module):
     def forward(self, out_features: List[torch.Tensor], patch_h: int, patch_w: int) -> torch.Tensor:
         out = []
         for i, x in enumerate(out_features):
-            if self.use_clstoken:
-                x, cls_token = x[0], x[1]
-                readout = cls_token.unsqueeze(1).expand_as(x)
-                x = self.readout_projects[i](torch.cat((x, readout), -1))
-            else:
-                x = x[0]
-
+            # if self.use_clstoken:
+            #     x, cls_token = x[0], x[1]
+            #     readout = cls_token.unsqueeze(1).expand_as(x)
+            #     x = self.readout_projects[i](torch.cat((x, readout), -1))
+            # else:
+            #     x = x[0]
             x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
             x = self.projects[i](x)
             x = self.resize_layers[i](x)

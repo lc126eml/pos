@@ -68,18 +68,30 @@ running_nodes:
 - id: jacksisi
   left_time: 12
   notebooks:
-  - kernel_id: jacksisi/depth-base-none-mres-50
+  - kernel_id: jacksisi/depth-base-none-tpu-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-28 11:46:57'
+    start_time: '2026-01-28 16:12:20'
     resumed_from: null
     history_ids: []
 - id: wenyangtang
   left_time: 12
-  notebooks: null
+  notebooks:
+  - kernel_id: wenyangtang/depth-base-none-tpu-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-28 16:08:06'
+    resumed_from: null
+    history_ids: []
 - id: cycyxcy
   left_time: 10
-  notebooks: []
+  notebooks:
+  - kernel_id: cycyxcy/cls-base-colrow-tpu-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-28 13:31:36'
+    resumed_from: null
+    history_ids: []
 - id: jjjerry12138
   left_time: 12
   notebooks: []

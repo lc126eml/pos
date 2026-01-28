@@ -181,7 +181,7 @@ if _IS_KAGGLE:
     base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
 args = SimpleNamespace(
     model_type="dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
@@ -228,7 +228,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-none-d-350/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-abs-d-350/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,

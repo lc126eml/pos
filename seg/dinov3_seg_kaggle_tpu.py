@@ -386,7 +386,7 @@ def main():
         use_rot_pos_emb=False,
         model_size='base',
         num_classes=150,
-        batch_size=8,
+        batch_size=16,
         train_img_size=336,
         eval_img_size=368,
         use_ms_flip_eval=False,
@@ -423,7 +423,7 @@ def main():
         lock=False if _IS_KAGGLE else True,
         clip_value=1.0,
         output_dir=root_dir,
-        log_interval=1,
+        log_interval=100,
         csv_interval=3,
         show_peak_gpu_mem=True,
         compile_model=False,
@@ -437,8 +437,8 @@ def main():
         total_run_time_hr=9.0,
         base_path=base_path_default,
         pos_type=None,
-        log_all_ranks=True,
-        debug_xla=True,
+        log_all_ranks=False,
+        debug_xla=False,
     )
 
     base_global_batch = 128

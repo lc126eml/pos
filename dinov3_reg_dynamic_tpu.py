@@ -260,7 +260,7 @@ def main():
         pretrained=None,
         seed=50,
         use_patch_position_loss=False,
-        use_rc_loss=False,
+        use_rc_loss=True,
         rc_alpha=600.0,
         warmup_steps_for_aux=1,
         workers=5,

@@ -579,18 +579,6 @@ def _infer_grid_hw(model, inputs):
         ph = pw = patch_size
     return (inputs.shape[-2] // ph, inputs.shape[-1] // pw)
 
-
-def _prep_dpt_features(features, grid_hw):
-    gh, gw = grid_hw
-    tokens_needed = gh * gw
-    prepped = []
-    for f in features:
-        if f.shape[1] == tokens_needed + 1:
-            f = f[:, 1:, :]
-        prepped.append((f, None))
-    return prepped
-
-
 def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
     if grid_hw is None:
         grid_hw = _infer_grid_hw(model, inputs)
@@ -620,13 +608,12 @@ def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
             intermediates_only=True,
             output_fmt="NLC",
         )
-        dpt_feats = _prep_dpt_features(features, (patch_h, patch_w))
         if use_amp:
-            dpt_feats_fp32 = [(f.float(), aux) for (f, aux) in dpt_feats]
+            dpt_feats_fp32 = [f.float() for f in features]
             with torch.amp.autocast(device_type=DEVICE.type, enabled=False):
                 pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
         else:
-            pred_depths = decoder(dpt_feats, patch_h=patch_h, patch_w=patch_w)
+            pred_depths = decoder(features, patch_h=patch_h, patch_w=patch_w)
         if pred_depths.dim() == 3:
             pred_depths = pred_depths.unsqueeze(1)
     else:

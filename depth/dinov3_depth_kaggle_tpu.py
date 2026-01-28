@@ -271,10 +271,10 @@ def main():
     if _IS_KAGGLE:
         train_roots_default = [
             "/kaggle/input/hsm-train-part01",
-            "/kaggle/input/hsm-train-part02",
-            "/kaggle/input/hsm-train-part03",
-            "/kaggle/input/hsm-train-part04",
-            "/kaggle/input/hsm-train-part05",
+            # "/kaggle/input/hsm-train-part02",
+            # "/kaggle/input/hsm-train-part03",
+            # "/kaggle/input/hsm-train-part04",
+            # "/kaggle/input/hsm-train-part05",
         ]
         eval_root_default = "/kaggle/input/hsm-test-val"
         output_root_default = "/kaggle/working"
@@ -312,7 +312,7 @@ def main():
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
-        break_at_epoch=None,
+        break_at_epoch=1,
         has_pos=False,
         weight_decay=0.05,
         overlap=0,
@@ -333,8 +333,10 @@ def main():
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
         log_interval=10,
         show_peak_gpu_mem=True,
-        log_all_ranks=True,
-        debug_xla=True,
+        log_all_ranks=False,
+        debug_xla=False,
+        debug_val_interval=50,
+        debug_val_empty_limit=5,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         silog_w=0.0,
         depth_norm="median",
@@ -859,18 +861,6 @@ def main():
             ph = pw = patch_size
         return (inputs.shape[-2] // ph, inputs.shape[-1] // pw)
     
-    
-    def _prep_dpt_features(features, grid_hw):
-        gh, gw = grid_hw
-        tokens_needed = gh * gw
-        prepped = []
-        for f in features:
-            if f.shape[1] == tokens_needed + 1:
-                f = f[:, 1:, :]
-            prepped.append((f, None))
-        return prepped
-    
-    
     def predict_depth(model, decoder, inputs, feature_layers, grid_hw=None):
         if grid_hw is None:
             grid_hw = _infer_grid_hw(model, inputs)
@@ -900,9 +890,9 @@ def main():
                 intermediates_only=True,
                 output_fmt="NLC",
             )
-            dpt_feats = _prep_dpt_features(features, (patch_h, patch_w))
-            dpt_feats_fp32 = [(f.float(), aux) for (f, aux) in dpt_feats]
-            pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
+            with torch.autocast("xla", enabled=False):
+                dpt_feats_fp32 = [f.float() for f in features]
+                pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
             if pred_depths.dim() == 3:
                 pred_depths = pred_depths.unsqueeze(1)
         else:
@@ -1321,6 +1311,13 @@ def main():
                     )
                 else:
                     msg = f"Epoch {epoch + 1}/{total_epochs} step {step}: loss={avg_loss:.4f}"
+                if getattr(args, "debug_xla", False):
+                    try:
+                        nan_count = int(torch.isnan(pred_depths).sum().item())
+                        if nan_count > 0:
+                            msg += f" pred_nan={nan_count}/{pred_depths.numel()}"
+                    except Exception as exc:
+                        msg += f" pred_nan=ERR({exc})"
                 if args.show_peak_gpu_mem:
                     info = _tpu_info_mem()
                     if info is not None:
@@ -1353,7 +1350,60 @@ def main():
         val_metrics = {"abs_rel": 0, "l1": 0, "rmse": 0, "a1": 0, "a2": 0, "a3": 0}
         steps = 0
         batch_count = 0
-    
+        debug_interval = int(getattr(args, "debug_val_interval", 0) or 0)
+        debug_empty_left = int(getattr(args, "debug_val_empty_limit", 0) or 0)
+
+        def _log_val_debug(pred, target, mask, metas, note):
+            nonlocal debug_empty_left
+            if not IS_MASTER:
+                return
+            dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
+            dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
+            thresh = max(dmin, 1e-8)
+            with torch.no_grad():
+                valid = torch.isfinite(target) & torch.isfinite(pred)
+                valid = valid & (target > thresh) & (target <= dmax)
+                if mask is not None:
+                    valid = valid & mask.bool()
+                valid_count = int(valid.sum().item())
+                total_count = int(target.numel())
+                pred_nan = int(torch.isnan(pred).sum().item())
+                pred_min = float(pred.min().item())
+                pred_max = float(pred.max().item())
+                gt_min = float(target.min().item())
+                gt_max = float(target.max().item())
+            meta_keys = []
+            meta_sample = {}
+            if isinstance(metas, dict):
+                meta_keys = list(metas.keys())
+                for k in ("resized_h", "resized_w", "pad_h", "pad_w", "scale_h", "scale_w"):
+                    if k in metas:
+                        v = metas[k]
+                        if torch.is_tensor(v):
+                            meta_sample[k] = float(v[0].item())
+                        elif isinstance(v, (list, tuple)):
+                            meta_sample[k] = float(v[0])
+                        else:
+                            meta_sample[k] = float(v)
+            logger.info(
+                "VAL_DEBUG %s batch=%s valid=%s/%s pred=[%.4g,%.4g] pred_nan=%s gt=[%.4g,%.4g] dmin=%.4g dmax=%.4g meta_keys=%s meta_sample=%s",
+                note,
+                batch_count,
+                valid_count,
+                total_count,
+                pred_min,
+                pred_max,
+                pred_nan,
+                gt_min,
+                gt_max,
+                dmin,
+                dmax,
+                meta_keys,
+                meta_sample,
+            )
+            if debug_empty_left > 0:
+                debug_empty_left -= 1
+
         with torch.no_grad():
             for val_inputs, gt_depths, metas in loader:
                 with _autocast():
@@ -1393,6 +1443,8 @@ def main():
                             for k in val_metrics:
                                 val_metrics[k] += batch_metrics.get(k, 0) * count
                             steps += count
+                        elif (debug_interval and batch_count % debug_interval == 0) or debug_empty_left > 0:
+                            _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_empty")
                     else:
                         can_batch = False
                 if not can_batch:
@@ -1403,6 +1455,8 @@ def main():
                         )
                         batch_metrics = compute_depth_metrics(pred_b, gt_b, mask=mask_b, mode=args.depth_eval_mode)
                         if not batch_metrics:
+                            if (debug_interval and batch_count % debug_interval == 0) or debug_empty_left > 0:
+                                _log_val_debug(pred_b, gt_b, mask_b, meta_b, note=f"sample{b}_empty")
                             continue
                         for k in val_metrics:
                             val_metrics[k] += batch_metrics.get(k, 0)

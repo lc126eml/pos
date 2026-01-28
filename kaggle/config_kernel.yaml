@@ -82,6 +82,9 @@ exhausted_ids:
 - ttzyty
 - houwen
 - srmmmm
+- rushly
+- cfy002
+- rqmiraitowa
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
@@ -100,55 +103,6 @@ running_nodes:
 - id: kanwenbin
   notebooks: []
   left_time: -1.9876992194444405
-- id: rushly
-  notebooks:
-  - kernel_id: rushly/seg-base-colrow-d-350
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-28 03:17:42'
-    resumed_from: rushly/seg-base-colrow-d-250
-    history_ids:
-    - jinzhanbo/seg-base-colrow-d-50
-    - jinzhanbo/seg-base-colrow-d-150
-  - kernel_id: rushly/seg-base-colrow-d-351
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-28 03:17:42'
-    resumed_from: rushly/seg-base-colrow-d-251
-    history_ids:
-    - jinzhanbo/seg-base-colrow-d-51
-    - jinzhanbo/seg-base-colrow-d-151
-  left_time: 6.611134640000001
-- id: cfy002
-  notebooks:
-  - kernel_id: cfy002/seg-base-rope-d-351
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-28 03:51:10'
-    resumed_from: cfy002/seg-base-rope-d-251
-    history_ids:
-    - geminiyy/seg-base-rope-d-51
-    - geminiyy/seg-base-rope-d-151
-  - kernel_id: cfy002/seg-base-rope-d-350
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-28 03:51:10'
-    resumed_from: cfy002/seg-base-rope-d-250
-    history_ids:
-    - geminiyy/seg-base-rope-d-50
-    - geminiyy/seg-base-rope-d-150
-  left_time: 6.3018289972222234
-- id: rqmiraitowa
-  notebooks:
-  - kernel_id: rqmiraitowa/seg-base-abs-d-350
-    run_id: 3
-    total_runs: 8
-    start_time: '2026-01-28 04:13:39'
-    resumed_from: rqmiraitowa/seg-base-abs-d-250
-    history_ids:
-    - xuwenhui123/seg-base-abs-d-50
-    - xuwenhui123/seg-base-abs-d-150
-  left_time: 6.281088792222221
 - id: zht121233
   notebooks: []
   left_time: 27.90811298
@@ -522,4 +476,44 @@ error_notebooks:
   - autune/cls-base-rope-d-115
   - wzywzy1227/cls-base-rope-d-215
   - wzywzy1227/cls-base-rope-d-315
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: rqmiraitowa/seg-base-colrow-d-450
+  total_runs: 8
+  start_time: '2026-01-28 14:58:53'
+  history_ids:
+  - jinzhanbo/seg-base-colrow-d-50
+  - jinzhanbo/seg-base-colrow-d-150
+  - rushly/seg-base-colrow-d-250
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: zht121233/seg-base-colrow-d-451
+  total_runs: 8
+  start_time: '2026-01-28 14:58:53'
+  history_ids:
+  - jinzhanbo/seg-base-colrow-d-51
+  - jinzhanbo/seg-base-colrow-d-151
+  - rushly/seg-base-colrow-d-251
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: rqmiraitowa/seg-base-rope-d-450
+  total_runs: 8
+  start_time: '2026-01-28 15:40:12'
+  history_ids:
+  - geminiyy/seg-base-rope-d-50
+  - geminiyy/seg-base-rope-d-150
+  - cfy002/seg-base-rope-d-250
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: rqmiraitowa/seg-base-rope-d-451
+  total_runs: 8
+  start_time: '2026-01-28 15:50:34'
+  history_ids:
+  - geminiyy/seg-base-rope-d-51
+  - geminiyy/seg-base-rope-d-151
+  - cfy002/seg-base-rope-d-251
+  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+- kernel_id: zht121233/seg-base-abs-d-450
+  total_runs: 8
+  start_time: '2026-01-28 16:11:00'
+  history_ids:
+  - xuwenhui123/seg-base-abs-d-50
+  - xuwenhui123/seg-base-abs-d-150
+  - rqmiraitowa/seg-base-abs-d-250
   error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
