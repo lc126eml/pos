@@ -11,13 +11,17 @@ Train Loss: 0.8806 | Train Acc: 0.7542 | Valid Acc: 0.5924 | train_time: 96.9s |
 ### zjl001/cls-base-none-lr3e-5-50
 Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s | val_time: 4.4s Best Accuracy: 0.5486
 
+
+### du55148/cls-base-none-tpu-50
+0.611393154	0.830973685	0.604399979	97.64794803	4.122288227	130
+
 ### liucong12601/cls-base-rope-d-50
 0.684410036	0.808547437	0.645799994	94.76681852	4.197659016	130
 
 ### liucong12601/cls-base-rope-d-51
 0.728503227	0.794474185	0.640199959	96.40247488	4.087512255	130
 
-  - kernel_id: liucong12601/cls-base-rope-tpu-52
+### liucong12601/cls-base-rope-tpu-52
 0.671781898	0.811751187	0.637199998	103.1516693	4.426205635	130
 
 
@@ -31,12 +35,16 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 0.568491817	0.84163481	0.628399968	94.14329076	4.277119875	130
 
 
-liucong12601/depth-base-none-lr7e-5-50
-430	2026-01-26 15:41:04,272 - INFO - Epoch 1/130 step 60: loss=6.9503 tpu_mem=6738/6840/16128MB
 
-ampere888/depth-base-rope-lr3e-5-50
-32302.8s	622	--- Epoch 92 Validation Summary ---
-32302.8s	623	2026-01-26 21:03:16,055 - INFO -   Train Loss: 11.9429 | train_time: 304.0s | val_time: 38.8s
-32302.8s	624	2026-01-26 21:03:16,057 - INFO -  Valid AbsRel: 0.0000 | Valid L1: 0.0000 | Valid RMSE: 0.0000 | Valid a1: 0.0000
+# mres cls
+### cshlhs/cls-base-none-is224192288-50
+0.940867901	0.736342847	0.596599996	91.61576748	4.223912716	130
 
+### jacksisi/cls-base-none-mres-50
+0.940867901	0.736342847	0.596599996	88.09301829	4.29629612	130
 
+### wenyangtang/cls-base-rope-mres-50
+0.93706125	0.736543715	0.625999987	89.5775888	4.116618395	130
+
+### liucong126/cls-base-abs-mres-50
+0.763247907	0.784706771	0.619599998	91.4333396	4.219184637	130

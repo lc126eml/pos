@@ -11,6 +11,9 @@ import time
 import logging
 import random
 import subprocess
+import shutil
+import urllib.request
+import zipfile
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -55,6 +58,132 @@ import timm
 
 print("timm:", timm.__version__, flush=True)
 print("torch:", torch.__version__, flush=True)
+
+
+def _download_with_retries(url, dst, retries=3, timeout=30):
+    tmp_path = dst + ".part"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/zip",
+    }
+
+    def _cleanup_tmp():
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    def _finalize():
+        if not zipfile.is_zipfile(tmp_path):
+            raise RuntimeError("Downloaded file is not a zip.")
+        os.replace(tmp_path, dst)
+
+    def _try_curl():
+        curl = shutil.which("curl")
+        if not curl:
+            print("download: curl not found", flush=True)
+            return False
+        print("download: trying curl", flush=True)
+        cmd = [
+            curl,
+            "-L",
+            "--retry",
+            "3",
+            "--retry-all-errors",
+            "--max-redirs",
+            "20",
+            "--connect-timeout",
+            str(timeout),
+            "-H",
+            f"User-Agent: {headers['User-Agent']}",
+            "-H",
+            f"Accept: {headers['Accept']}",
+            "-o",
+            tmp_path,
+            url,
+        ]
+        subprocess.check_call(cmd)
+        _finalize()
+        print("download: curl ok", flush=True)
+        return True
+
+    def _try_requests():
+        try:
+            import requests  # type: ignore
+        except Exception:
+            print("download: requests not available", flush=True)
+            return False
+        print("download: trying requests", flush=True)
+        resp = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
+        resp.raise_for_status()
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+        _finalize()
+        print("download: requests ok", flush=True)
+        return True
+
+    def _try_urllib():
+        print("download: trying urllib", flush=True)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(tmp_path, mode="wb") as f:
+                shutil.copyfileobj(resp, f)
+        _finalize()
+        print("download: urllib ok", flush=True)
+        return True
+
+    methods = [_try_curl, _try_requests, _try_urllib]
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        for method in methods:
+            try:
+                ok = method()
+                if ok:
+                    return
+            except Exception as exc:
+                last_exc = exc
+                print(f"download: method failed ({exc})", flush=True)
+                _cleanup_tmp()
+        if attempt < retries:
+            time.sleep(2 * attempt)
+    raise RuntimeError(f"Downloaded file is not a zip. Last error: {last_exc}")
+
+
+def _ensure_pos_repo():
+    if not _IS_KAGGLE:
+        return None
+
+    def _find_repo_root():
+        if os.path.isdir("/kaggle/working/pos"):
+            return "/kaggle/working/pos"
+        for name in os.listdir("/kaggle/working"):
+            cand = os.path.join("/kaggle/working", name)
+            if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                return cand
+        return None
+
+    url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
+    zip_path = "/kaggle/working/pos.zip"
+    if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
+        os.remove(zip_path)
+    if not os.path.exists(zip_path):
+        _download_with_retries(url, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall("/kaggle/working")
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+
+    repo_root = _find_repo_root()
+    if not repo_root:
+        raise RuntimeError("POS repo not found after unzip; expected /kaggle/working/pos or a repo with core/ and data/.")
+    os.environ["POS_REPO_ROOT"] = repo_root
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    print(f"POS repo ready: {repo_root}", flush=True)
+    return repo_root
 
 # =============================================================================
 # Configuration
@@ -202,1284 +331,32 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
 if args.eval_dataset == "nyu" and args.eval_depth_max is None:
     args.eval_depth_max = 10.0
 
-# =============================================================================
-# Depth augmentations (inline from depth/aug.py)
-# =============================================================================
-ImageLike = Union[Image.Image, np.ndarray, torch.Tensor]
-DepthLike = Union[np.ndarray, torch.Tensor]
-
-
-def _to_pil_rgb(image: ImageLike) -> Image.Image:
-    if isinstance(image, Image.Image):
-        return image.convert("RGB")
-    if isinstance(image, torch.Tensor):
-        x = image.detach().cpu()
-        if x.ndim == 3 and x.shape[0] in (1, 3):
-            x = x.permute(1, 2, 0)
-        image = x.numpy()
-    if isinstance(image, np.ndarray):
-        arr = image
-        if arr.ndim == 2:
-            arr = np.stack([arr] * 3, axis=-1)
-        if arr.shape[-1] == 1:
-            arr = np.repeat(arr, 3, axis=-1)
-        if arr.dtype != np.uint8:
-            arr = np.clip(arr, 0.0, 1.0) if arr.max() <= 1.5 else np.clip(arr / 255.0, 0.0, 1.0)
-            arr = (arr * 255.0).round().astype(np.uint8)
-        return Image.fromarray(arr)
-    raise TypeError(f"Unsupported image type: {type(image)}")
-
-
-def _to_depth_1chw(depth: DepthLike) -> torch.Tensor:
-    if isinstance(depth, torch.Tensor):
-        d = depth.detach().float().cpu()
-        if d.ndim == 2:
-            d = d.unsqueeze(0)
-        elif d.ndim == 3 and d.shape[-1] == 1:
-            d = d.permute(2, 0, 1)
-        if d.ndim != 3 or d.shape[0] != 1:
-            raise ValueError(f"Depth must be [H,W] or [H,W,1] or [1,H,W]; got {tuple(d.shape)}")
-        return d
-    if isinstance(depth, np.ndarray):
-        d = torch.from_numpy(depth).float()
-        if d.ndim == 2:
-            d = d.unsqueeze(0)
-        elif d.ndim == 3 and d.shape[-1] == 1:
-            d = d.permute(2, 0, 1)
-        if d.ndim != 3 or d.shape[0] != 1:
-            raise ValueError(f"Depth must be [H,W] or [H,W,1]; got {depth.shape}")
-        return d
-    raise TypeError(f"Unsupported depth type: {type(depth)}")
-
-
-def _pil_to_tensor01(pil_img: Image.Image) -> torch.Tensor:
-    x = torch.from_numpy(np.array(pil_img)).float() / 255.0
-    return x.permute(2, 0, 1).contiguous()
-
-
-def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
-    mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-    std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-    if len(mean_v) == 1:
-        mean_v = mean_v * 3
-    if len(std_v) == 1:
-        std_v = std_v * 3
-    mean_t = torch.tensor(mean_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
-    std_t = torch.tensor(std_v, dtype=img_t.dtype, device=img_t.device).view(3, 1, 1)
-    return (img_t - mean_t) / std_t
-
-
-def _resize_depth_with_mask(
-    depth_1chw: torch.Tensor,
-    size_hw: Tuple[int, int],
-    *,
-    valid_thresh: float = 0.1,
-    eps: float = 1e-6,
-) -> torch.Tensor:
-    d = depth_1chw.unsqueeze(0).float()
-    valid = torch.isfinite(d) & (d > 0)
-    m = valid.float()
-    dm = d * m
-
-    H, W = d.shape[-2:]
-    Ht, Wt = size_hw
-    is_down = (Ht <= H) and (Wt <= W)
-
-    if is_down:
-        dm_rs = F.interpolate(dm, size=size_hw, mode="area")
-        m_rs = F.interpolate(m, size=size_hw, mode="area")
-    else:
-        dm_rs = F.interpolate(dm, size=size_hw, mode="bilinear", align_corners=False)
-        m_rs = F.interpolate(m, size=size_hw, mode="bilinear", align_corners=False)
-
-    d_rs = dm_rs / (m_rs + eps)
-    valid_rs = m_rs > valid_thresh
-    d_rs = torch.where(valid_rs, d_rs, torch.zeros_like(d_rs))
-
-    return d_rs.squeeze(0)
-
-
-def _round_to_multiple(x: int, m: int) -> int:
-    return int(round(x / m) * m)
-
-
-def train_aug_depth_ar_resize_random_crop(
-    image: ImageLike,
-    depth: DepthLike,
-    target_size: Tuple[int, int],
-    *,
-    hflip_prob: float = 0.5,
-    scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
-    color_jitter: Optional[Dict[str, float]] = None,
-    color_jitter_prob: float = 0.8,
-    gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
-    gamma_jitter_prob: float = 0.0,
-    grayscale_prob: float = 0.05,
-    blur_prob: float = 0.0,
-    blur_kernel: Tuple[int, int] = (5, 5),
-    blur_sigma: Tuple[float, float] = (0.1, 1.0),
-    noise_std: Optional[Tuple[float, float]] = (0.0, 0.0),
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    ensure_multiple_of: Optional[int] = None,
-    depth_valid_thresh: float = 0.1,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    Ht, Wt = target_size
-    pil = _to_pil_rgb(image)
-    d = _to_depth_1chw(depth)
-
-    W0, H0 = pil.size
-
-    base = max(Ht / H0, Wt / W0)
-    if scale_jitter is None:
-        jitter = 1.0
-    else:
-        j0, j1 = scale_jitter
-        j0 = max(1.0, float(j0))
-        if j1 is None:
-            j1 = (1.0 / base) if base < 1.0 else j0
-        j1 = max(j0, float(j1))
-        jitter = random.uniform(j0, j1)
-    scale = base * jitter
-
-    newH = int(round(H0 * scale))
-    newW = int(round(W0 * scale))
-
-    if newH < Ht or newW < Wt:
-        scale = base
-        newH = int(round(H0 * scale))
-        newW = int(round(W0 * scale))
-
-    if ensure_multiple_of is not None and ensure_multiple_of > 1:
-        newH = max(Ht, _round_to_multiple(newH, ensure_multiple_of))
-        newW = max(Wt, _round_to_multiple(newW, ensure_multiple_of))
-
-    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
-    pil = pil.resize((newW, newH), resample=resample)
-    d = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
-
-    top = 0 if newH == Ht else random.randint(0, newH - Ht)
-    left = 0 if newW == Wt else random.randint(0, newW - Wt)
-
-    pil = TF.crop(pil, top=top, left=left, height=Ht, width=Wt)
-    d = d[:, top:top + Ht, left:left + Wt]
-
-    if random.random() < hflip_prob:
-        pil = TF.hflip(pil)
-        d = torch.flip(d, dims=[2])
-
-    if (
-        color_jitter is not None
-        and any(v > 0 for v in color_jitter.values())
-        and (color_jitter_prob > 0)
-        and (random.random() < color_jitter_prob)
-    ):
-        pil = ColorJitter(**color_jitter)(pil)
-
-    if gamma_jitter is not None and gamma_jitter_prob > 0 and random.random() < gamma_jitter_prob:
-        g0, g1 = gamma_jitter
-        if g0 != 1.0 or g1 != 1.0:
-            gamma = random.uniform(g0, g1)
-            pil = TF.adjust_gamma(pil, gamma=gamma)
-
-    if grayscale_prob > 0 and random.random() < grayscale_prob:
-        pil = TF.to_grayscale(pil, num_output_channels=3)
-
-    if blur_prob > 0 and random.random() < blur_prob:
-        pil = GaussianBlur(kernel_size=blur_kernel, sigma=blur_sigma)(pil)
-
-    img_t = _pil_to_tensor01(pil)
-
-    if noise_std is not None:
-        n0, n1 = noise_std
-        if n1 > 0:
-            std = random.uniform(n0, n1)
-            if std > 0:
-                img_t = (img_t + torch.randn_like(img_t) * std).clamp(0.0, 1.0)
-
-    if normalize:
-        img_t = _normalize_img(img_t, mean, std)
-
-    return img_t, d.contiguous().float()
-
-
-def eval_preprocess_depth_keep_ar(
-    image: ImageLike,
-    depth: DepthLike,
-    target_size: Tuple[int, int],
-    *,
-    target_by: str = "height",
-    eval_crop_mode: str = "pad",
-    eval_prescale: float = 1.0,
-    ensure_multiple_of: Optional[int] = 32,
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    depth_valid_thresh: float = 0.0,
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
-    pil = _to_pil_rgb(image)
-    d = _to_depth_1chw(depth)
-
-    W0, H0 = pil.size
-    Ht, Wt = target_size
-
-    prescale = max(1e-6, float(eval_prescale))
-    if target_by == "height":
-        newH = int(round(Ht * prescale))
-        scale = newH / H0
-        newW = int(round(W0 * scale))
-    elif target_by == "long_side":
-        long_target = int(round(max(Ht, Wt) * prescale))
-        long0 = max(H0, W0)
-        scale = long_target / long0
-        newH = int(round(H0 * scale))
-        newW = int(round(W0 * scale))
-    else:
-        raise ValueError(f"target_by must be 'height' or 'long_side', got {target_by}")
-
-    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
-    pil_rs = pil.resize((newW, newH), resample=resample)
-    d_rs = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
-    resize_h = newH
-    resize_w = newW
-
-    crop_top = crop_left = 0
-    pad_left = pad_top = pad_right = pad_bottom = 0
-    if eval_crop_mode not in ("pad", "crop", "crop_or_pad"):
-        raise ValueError(f"eval_crop_mode must be 'pad', 'crop', or 'crop_or_pad', got {eval_crop_mode}")
-    if eval_crop_mode == "crop" or (eval_crop_mode == "crop_or_pad" and newH >= Ht and newW >= Wt):
-        top = max(0, (newH - Ht) // 2)
-        left = max(0, (newW - Wt) // 2)
-        pil_rs = TF.crop(pil_rs, top=top, left=left, height=Ht, width=Wt)
-        d_rs = d_rs[:, top:top + Ht, left:left + Wt]
-        crop_top = top
-        crop_left = left
-        newH, newW = Ht, Wt
-    elif eval_crop_mode in ("pad", "crop_or_pad"):
-        if newH < Ht or newW < Wt:
-            pad_h = max(0, Ht - newH)
-            pad_w = max(0, Wt - newW)
-            pad_top = pad_h // 2
-            pad_left = pad_w // 2
-            pad_bottom = pad_h - pad_top
-            pad_right = pad_w - pad_left
-            mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-            if len(mean_v) == 1:
-                mean_v = mean_v * 3
-            pad_fill = tuple(int(round(m * 255.0)) for m in mean_v[:3])
-            pil_rs = TF.pad(pil_rs, padding=(pad_left, pad_top, pad_right, pad_bottom), fill=pad_fill)
-            d_rs = F.pad(d_rs, (pad_left, pad_right, pad_top, pad_bottom), mode="constant", value=0.0)
-            newH = newH + pad_top + pad_bottom
-            newW = newW + pad_left + pad_right
-
-    pad_h = 0
-    pad_w = 0
-    if ensure_multiple_of is not None and ensure_multiple_of > 1:
-        pad_h = (ensure_multiple_of - (newH % ensure_multiple_of)) % ensure_multiple_of
-        pad_w = (ensure_multiple_of - (newW % ensure_multiple_of)) % ensure_multiple_of
-        if pad_h or pad_w:
-            mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-            if len(mean_v) == 1:
-                mean_v = mean_v * 3
-            pad_fill = tuple(int(round(m * 255.0)) for m in mean_v[:3])
-            pil_rs = TF.pad(pil_rs, padding=(0, 0, pad_w, pad_h), fill=pad_fill)
-            d_rs = F.pad(d_rs, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
-
-    meta = {
-        "orig_h": float(H0), "orig_w": float(W0),
-        "resized_h": float(newH), "resized_w": float(newW),
-        "resize_h": float(resize_h), "resize_w": float(resize_w),
-        "scale_h": float(resize_h) / float(H0),
-        "scale_w": float(resize_w) / float(W0),
-        "pad_h": float(pad_h), "pad_w": float(pad_w),
-        "padded_h": float(newH + pad_h), "padded_w": float(newW + pad_w),
-        "crop_top": float(crop_top), "crop_left": float(crop_left),
-        "pad_left": float(pad_left), "pad_top": float(pad_top),
-        "pad_right": float(pad_right), "pad_bottom": float(pad_bottom),
-    }
-    img_t = _pil_to_tensor01(pil_rs)
-    if normalize:
-        img_t = _normalize_img(img_t, mean, std)
-    return img_t, d_rs.contiguous().float(), meta
-
-
-def eval_preprocess_depth_no_resize(
-    image: ImageLike,
-    depth: DepthLike,
-    *,
-    ensure_multiple_of: Optional[int] = None,
-    normalize: bool = True,
-    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
-    pil = _to_pil_rgb(image)
-    d = _to_depth_1chw(depth)
-
-    W0, H0 = pil.size
-    img_t = _pil_to_tensor01(pil)
-
-    pad_h = 0
-    pad_w = 0
-    if ensure_multiple_of is not None and ensure_multiple_of > 1:
-        pad_h = (ensure_multiple_of - (H0 % ensure_multiple_of)) % ensure_multiple_of
-        pad_w = (ensure_multiple_of - (W0 % ensure_multiple_of)) % ensure_multiple_of
-        if pad_h or pad_w:
-            img_t = TF.pad(img_t, padding=(0, 0, pad_w, pad_h), fill=0)
-            d = F.pad(d, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
-
-    if normalize:
-        img_t = _normalize_img(img_t, mean, std)
-
-    meta = {
-        "orig_h": float(H0), "orig_w": float(W0),
-        "resized_h": float(H0), "resized_w": float(W0),
-        "scale_h": 1.0, "scale_w": 1.0,
-        "pad_h": float(pad_h), "pad_w": float(pad_w),
-        "padded_h": float(H0 + pad_h), "padded_w": float(W0 + pad_w),
-    }
-    return img_t, d.contiguous().float(), meta
-
-
-class TrainDepthAug:
-    def __init__(
-        self,
-        target_size: Tuple[int, int],
-        *,
-        hflip_prob: float = 0.5,
-        scale_jitter: Optional[Tuple[float, Optional[float]]] = (1.0, None),
-        color_jitter: Optional[Dict[str, float]] = None,
-        color_jitter_prob: float = 0.5,
-        gamma_jitter: Optional[Tuple[float, float]] = (0.9, 1.1),
-        gamma_jitter_prob: float = 0.0,
-        grayscale_prob: float = 0.05,
-        blur_prob: float = 0.0,
-        blur_kernel: Tuple[int, int] = (5, 5),
-        blur_sigma: Tuple[float, float] = (0.1, 1.0),
-        noise_std: Optional[Tuple[float, float]] = (0.0, 0.0),
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-        ensure_multiple_of: Optional[int] = None,
-        depth_valid_thresh: float = 0.1,
-    ) -> None:
-        self.target_size = target_size
-        self.hflip_prob = hflip_prob
-        self.scale_jitter = scale_jitter
-        if color_jitter is None:
-            color_jitter = dict(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05)
-        self.color_jitter = dict(color_jitter)
-        self.color_jitter_prob = color_jitter_prob
-        self.gamma_jitter = gamma_jitter
-        self.gamma_jitter_prob = gamma_jitter_prob
-        self.grayscale_prob = grayscale_prob
-        self.blur_prob = blur_prob
-        self.blur_kernel = blur_kernel
-        self.blur_sigma = blur_sigma
-        self.noise_std = noise_std
-        self.normalize = normalize
-        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-        if len(mean_v) == 1:
-            mean_v = mean_v * 3
-        if len(std_v) == 1:
-            std_v = std_v * 3
-        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
-        self._std_t = torch.tensor(std_v).view(3, 1, 1)
-        self.ensure_multiple_of = ensure_multiple_of
-        self.depth_valid_thresh = depth_valid_thresh
-
-    def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor]:
-        img_t, depth_t = train_aug_depth_ar_resize_random_crop(
-            image,
-            depth,
-            self.target_size,
-            hflip_prob=self.hflip_prob,
-            scale_jitter=self.scale_jitter,
-            color_jitter=self.color_jitter,
-            color_jitter_prob=self.color_jitter_prob,
-            gamma_jitter=self.gamma_jitter,
-            gamma_jitter_prob=self.gamma_jitter_prob,
-            grayscale_prob=self.grayscale_prob,
-            blur_prob=self.blur_prob,
-            blur_kernel=self.blur_kernel,
-            blur_sigma=self.blur_sigma,
-            noise_std=self.noise_std,
-            normalize=False,
-            ensure_multiple_of=self.ensure_multiple_of,
-            depth_valid_thresh=self.depth_valid_thresh,
-        )
-        if self.normalize:
-            mean_t = self._mean_t.to(dtype=img_t.dtype)
-            std_t = self._std_t.to(dtype=img_t.dtype)
-            img_t = (img_t - mean_t) / std_t
-        return img_t, depth_t
-
-
-class EvalDepthPreprocess:
-    def __init__(
-        self,
-        target_size: Tuple[int, int],
-        *,
-        target_by: str = "height",
-        eval_crop_mode: str = "pad",
-        eval_prescale: float = 1.0,
-        ensure_multiple_of: Optional[int] = 32,
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-        depth_valid_thresh: float = 0.0,
-    ) -> None:
-        self.target_size = target_size
-        self.target_by = target_by
-        self.eval_crop_mode = eval_crop_mode
-        self.eval_prescale = eval_prescale
-        self.ensure_multiple_of = ensure_multiple_of
-        self.normalize = normalize
-        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-        if len(mean_v) == 1:
-            mean_v = mean_v * 3
-        if len(std_v) == 1:
-            std_v = std_v * 3
-        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
-        self._std_t = torch.tensor(std_v).view(3, 1, 1)
-        self.depth_valid_thresh = depth_valid_thresh
-
-    def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
-        img_t, depth_t, meta = eval_preprocess_depth_keep_ar(
-            image,
-            depth,
-            self.target_size,
-            target_by=self.target_by,
-            eval_crop_mode=self.eval_crop_mode,
-            eval_prescale=self.eval_prescale,
-            ensure_multiple_of=self.ensure_multiple_of,
-            normalize=False,
-            depth_valid_thresh=self.depth_valid_thresh,
-        )
-        if self.normalize:
-            mean_t = self._mean_t.to(dtype=img_t.dtype)
-            std_t = self._std_t.to(dtype=img_t.dtype)
-            img_t = (img_t - mean_t) / std_t
-        return img_t, depth_t, meta
-
-
-class EvalDepthPreprocessNoResize:
-    def __init__(
-        self,
-        *,
-        ensure_multiple_of: Optional[int] = None,
-        normalize: bool = True,
-        mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    ) -> None:
-        self.ensure_multiple_of = ensure_multiple_of
-        self.normalize = normalize
-        mean_v = mean if isinstance(mean, (list, tuple)) else [float(mean)]
-        std_v = std if isinstance(std, (list, tuple)) else [float(std)]
-        if len(mean_v) == 1:
-            mean_v = mean_v * 3
-        if len(std_v) == 1:
-            std_v = std_v * 3
-        self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
-        self._std_t = torch.tensor(std_v).view(3, 1, 1)
-
-    def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
-        img_t, depth_t, meta = eval_preprocess_depth_no_resize(
-            image,
-            depth,
-            ensure_multiple_of=self.ensure_multiple_of,
-            normalize=False,
-        )
-        if self.normalize:
-            mean_t = self._mean_t.to(dtype=img_t.dtype)
-            std_t = self._std_t.to(dtype=img_t.dtype)
-            img_t = (img_t - mean_t) / std_t
-        return img_t, depth_t, meta
-
+_ensure_pos_repo()
 
 # =============================================================================
-# Dataset (multi-root HyperSim)
+# Depth augmentations (from depth/aug.py)
 # =============================================================================
-class HyperSimSimple(Dataset):
-    def __init__(
-        self,
-        roots: Union[str, Sequence[str]],
-        resolution: Tuple[int, int],
-        split: Optional[str] = None,
-        sample_rate: float = 1.0,
-        pair_transform=None,
-        **kwargs,
-    ):
-        super().__init__()
-        if isinstance(roots, (list, tuple)):
-            root_list = list(roots)
-        else:
-            root_list = [roots]
-
-        if split is not None:
-            root_list = [os.path.join(r, split) if os.path.isdir(os.path.join(r, split)) else r for r in root_list]
-
-        self.roots = root_list
-        self.resolution = resolution
-        self._setup_resolution()
-        self.dataset_label = "HyperSimSimple"
-        self.is_train = (split == "train")
-
-        if pair_transform is None:
-            target_size = (self.resolution[1], self.resolution[0]) if isinstance(self.resolution, (list, tuple)) else (self.resolution, self.resolution)
-            if self.is_train:
-                self.pair_transform = TrainDepthAug(
-                    target_size=target_size,
-                    normalize=True,
-                    depth_valid_thresh=0.1,
-                )
-            else:
-                self.pair_transform = EvalDepthPreprocess(
-                    target_size=target_size,
-                    target_by="height",
-                    ensure_multiple_of=32,
-                    normalize=True,
-                    depth_valid_thresh=0.0,
-                )
-        else:
-            self.pair_transform = pair_transform
-
-        self.image_paths: List[str] = []
-        for root in self.roots:
-            if not os.path.isdir(root):
-                continue
-            self.image_paths.extend(glob.glob(os.path.join(root, "**", "*_rgb.png"), recursive=True))
-
-        if not self.image_paths:
-            raise FileNotFoundError(f"No '*_rgb.png' files found in roots: {self.roots}")
-
-        if sample_rate < 1.0:
-            num_samples = int(len(self.image_paths) * sample_rate)
-            self.image_paths = random.sample(self.image_paths, num_samples)
-
-        self.image_paths.sort()
-
-    def _setup_resolution(self):
-        if isinstance(self.resolution, int):
-            self.resolution = (self.resolution, self.resolution)
-        elif isinstance(self.resolution, (list, tuple)):
-            assert len(self.resolution) == 2, "Resolution must be an int or a (width, height) tuple."
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, idx):
-        if idx >= len(self.image_paths):
-            raise IndexError("Index out of range")
-
-        impath = self.image_paths[idx]
-        depthpath = impath.replace("_rgb.png", "_depth.npy")
-
-        rgb_bgr = cv2.imread(impath, cv2.IMREAD_COLOR)
-        if rgb_bgr is None:
-            raise IOError(f"Could not load image={impath} with cv2")
-        rgb_image = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
-        depthmap = np.load(depthpath)
-        depthmap[~np.isfinite(depthmap)] = 0.0
-        depthmap = depthmap.astype(np.float32)
-
-        out = self.pair_transform(rgb_image, depthmap)
-        if isinstance(out, tuple) and len(out) == 3:
-            img_t, depth_t, meta = out
-        else:
-            img_t, depth_t = out
-            h, w = depth_t.shape[-2], depth_t.shape[-1]
-            meta = {
-                "orig_h": float(h),
-                "orig_w": float(w),
-                "resized_h": float(h),
-                "resized_w": float(w),
-                "scale_h": 1.0,
-                "scale_w": 1.0,
-                "pad_h": 0.0,
-                "pad_w": 0.0,
-                "padded_h": float(h),
-                "padded_w": float(w),
-            }
-        return img_t, depth_t, meta
-
+from depth.aug import TrainDepthAug, EvalDepthPreprocess, EvalDepthPreprocessNoResize
 
 # =============================================================================
-# Depth losses (inline from depth/depth_loss.py)
+# Dataset (from depth/hypersim_simple_dataset.py)
 # =============================================================================
-
-def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
-    if x.dim() == 3:
-        return x.unsqueeze(1)
-    if x.dim() == 4:
-        return x
-    raise ValueError(f"Expected (B,H,W) or (B,1,H,W); got {tuple(x.shape)}")
-
-
-def _default_mask(gt: torch.Tensor, eps: float) -> torch.Tensor:
-    return (torch.isfinite(gt) & (gt > eps)).float()
-
-
-def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
-    a_00 = torch.sum(mask * prediction * prediction, (1, 2))
-    a_01 = torch.sum(mask * prediction, (1, 2))
-    a_11 = torch.sum(mask, (1, 2))
-
-    b_0 = torch.sum(mask * prediction * target, (1, 2))
-    b_1 = torch.sum(mask * target, (1, 2))
-
-    x_0 = torch.zeros_like(b_0)
-    x_1 = torch.zeros_like(b_1)
-
-    det = a_00 * a_11 - a_01 * a_01
-    valid = det > 0
-
-    x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
-    x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
-
-    x_0[~valid] = 1.0
-    x_1[~valid] = 0.0
-
-    return x_0, x_1
-
-
-def _reduction_batch(image_loss: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    denom = torch.sum(M)
-    if denom == 0:
-        return image_loss.sum() * 0.0
-    return torch.sum(image_loss) / denom
-
-
-def _gradient_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                   reduction=_reduction_batch) -> torch.Tensor:
-    M = torch.sum(mask, (1, 2))
-    diff = (prediction - target) * mask
-
-    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
-    mask_x = mask[:, :, 1:] * mask[:, :, :-1]
-    grad_x = grad_x * mask_x
-
-    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
-    mask_y = mask[:, 1:, :] * mask[:, :-1, :]
-    grad_y = grad_y * mask_y
-
-    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
-    return reduction(image_loss, M)
-
-
-def _l1_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-             reduction=_reduction_batch) -> torch.Tensor:
-    M = torch.sum(mask, (1, 2))
-    res = torch.abs(prediction - target)
-    image_loss = torch.sum(mask * res, (1, 2))
-    return reduction(image_loss, M)
-
-
-class SILogLoss(nn.Module):
-    def __init__(self, beta: float = 0.15, correction: int = 1, per_image: bool = True):
-        super().__init__()
-        self.beta = float(beta)
-        self.correction = int(correction)
-        self.per_image = bool(per_image)
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
-        pred = _ensure_4d(pred).float()
-        target = _ensure_4d(target).float()
-        mask = _ensure_4d(mask).float()
-
-        with torch.amp.autocast(device_type=pred.device.type, enabled=False):
-            valid = (mask > 0.5) & torch.isfinite(pred) & torch.isfinite(target)
-            mask = valid.float()
-            pred = torch.where(valid, pred, torch.ones_like(pred))
-            target = torch.where(valid, target, torch.ones_like(target))
-            alpha = 1e-7
-            pred = torch.clamp(pred, min=alpha)
-            target = torch.clamp(target, min=alpha)
-
-            g = torch.log(pred) - torch.log(target)
-            if self.per_image:
-                B = g.shape[0]
-                g_flat = g.reshape(B, -1)
-                m_flat = mask.reshape(B, -1)
-                mask_sum = m_flat.sum(dim=1)
-                valid_img = mask_sum > 0
-
-                mask_sum_safe = mask_sum.clamp_min(1.0)
-                mean = (g_flat * m_flat).sum(dim=1) / mask_sum_safe
-                denom_var = (mask_sum_safe - float(self.correction)).clamp_min(1.0)
-                var = ((g_flat - mean[:, None]) ** 2 * m_flat).sum(dim=1) / denom_var
-                Dg = var + self.beta * mean.pow(2)
-                loss_per_img = 10.0 * torch.sqrt(Dg)
-                if valid_img.any():
-                    return loss_per_img[valid_img].mean()
-                return pred.sum() * 0.0
-
-            denom = mask.sum().clamp_min(1.0)
-            mean = (g * mask).sum() / denom
-            denom_var = (denom - float(self.correction)).clamp_min(1.0)
-            var = ((g - mean) ** 2 * mask).sum() / denom_var
-            Dg = var + self.beta * mean.pow(2)
-            return 10.0 * torch.sqrt(Dg)
-
-
-class MonocularDepthHybridLoss(nn.Module):
-    def __init__(
-        self,
-        l1_w: float = 1.0,
-        grad_w: float = 0.5,
-        silog_w: float = 0.0,
-        silog_beta: float = 0.15,
-        scales: int = 4,
-        reduction: str = "batch-based",
-        eps: float = 1e-8,
-        silog_on_aligned: bool = False,
-    ):
-        super().__init__()
-        self.l1_w = float(l1_w)
-        self.grad_w = float(grad_w)
-        self.silog_w = float(silog_w)
-        self.scales = int(scales)
-        self.eps = float(eps)
-        self.silog_on_aligned = bool(silog_on_aligned)
-
-        if reduction == "batch-based":
-            self._reduction = _reduction_batch
-        else:
-            raise ValueError("Only 'batch-based' reduction is supported.")
-
-        self._silog = SILogLoss(beta=silog_beta)
-
-    def forward(self, prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None,
-                interpolate: bool = True):
-        prediction = _ensure_4d(prediction)
-        target = _ensure_4d(target)
-
-        if interpolate and prediction.shape[-2:] != target.shape[-2:]:
-            prediction = F.interpolate(prediction, target.shape[-2:], mode="bilinear", align_corners=True)
-
-        if mask is None:
-            mask = _default_mask(target, self.eps)
-        else:
-            mask = _ensure_4d(mask).float()
-
-        pred_hw = prediction[:, 0]
-        tgt_hw = target[:, 0]
-        m_hw = mask[:, 0]
-
-        scale, shift = compute_scale_and_shift(pred_hw, tgt_hw, m_hw)
-        pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
-
-        total = pred_aligned.new_zeros(())
-        if self.l1_w > 0:
-            total = total + self.l1_w * _l1_loss(pred_aligned[:, 0], target[:, 0], m_hw, self._reduction)
-
-        if self.grad_w > 0:
-            grad_total = pred_aligned.new_zeros(())
-            for scale_i in range(self.scales):
-                step = 2 ** scale_i
-                grad_total = grad_total + _gradient_loss(
-                    pred_aligned[:, 0, ::step, ::step],
-                    target[:, 0, ::step, ::step],
-                    m_hw[:, ::step, ::step],
-                    reduction=self._reduction,
-                )
-            total = total + self.grad_w * grad_total
-
-        if self.silog_w > 0:
-            silog_pred = pred_aligned if self.silog_on_aligned else prediction
-            total = total + self.silog_w * self._silog(silog_pred, target, mask)
-
-        return total
-
+from depth.hypersim_simple_dataset import HyperSimSimple
 
 # =============================================================================
-# Depth heads (inline from depth/depth_head.py and depth_anything/dpt.py)
+# Depth losses (from depth/depth_loss.py)
 # =============================================================================
-class DWConvBlock(nn.Module):
-    def __init__(self, c, gn_groups=16):
-        super().__init__()
-        self.dw = nn.Conv2d(c, c, 3, padding=1, groups=c, bias=False)
-        self.pw = nn.Conv2d(c, c, 1, bias=False)
-        self.gn = nn.GroupNorm(min(gn_groups, c), c)
-        self.act = nn.GELU()
-
-    def forward(self, x):
-        return self.act(self.gn(self.pw(self.dw(x))))
-
-
-class Lite4LayerDepthHead(nn.Module):
-    def __init__(
-        self,
-        embed_dim: int = 768,
-        fuse_ch: int = 128,
-        dec_ch: int = 128,
-        use_softplus: bool = True,
-    ):
-        super().__init__()
-        self.use_softplus = use_softplus
-        self.ln = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(4)])
-        self.proj = nn.ModuleList([nn.Linear(embed_dim, fuse_ch) for _ in range(4)])
-        self.layer_mix = nn.ModuleList([DWConvBlock(fuse_ch) for _ in range(4)])
-        self.fuse = nn.Sequential(
-            nn.Conv2d(4 * fuse_ch, dec_ch, kernel_size=1, bias=False),
-            nn.GroupNorm(min(16, dec_ch), dec_ch),
-            nn.GELU(),
-        )
-        self.refine1 = DWConvBlock(dec_ch)
-        self.refine2 = DWConvBlock(dec_ch)
-        self.head = nn.Conv2d(dec_ch, 1, kernel_size=3, padding=1)
-        self.softplus = nn.Softplus(beta=1.0, threshold=20.0)
-
-    def _tokens_to_map(self, t, gh, gw, ln, proj):
-        t = ln(t)
-        t = proj(t)
-        t = t.permute(0, 2, 1).contiguous().view(t.size(0), -1, gh, gw)
-        return t
-
-    def forward(self, feats4, grid_hw=None, out_hw=None):
-        assert len(feats4) == 4
-        N = feats4[0].shape[1]
-        for t in feats4[1:]:
-            assert t.shape[1] == N
-
-        if grid_hw is None:
-            gh = int(math.sqrt(N))
-            gw = N // gh
-            assert gh * gw == N
-        else:
-            gh, gw = grid_hw
-            assert gh * gw == N
-
-        maps = []
-        for i in range(4):
-            m = self._tokens_to_map(feats4[i], gh, gw, self.ln[i], self.proj[i])
-            m = self.layer_mix[i](m)
-            maps.append(m)
-
-        x = torch.cat(maps, dim=1)
-        x = self.fuse(x)
-
-        x = F.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = x + self.refine1(x)
-
-        x = F.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = x + self.refine2(x)
-
-        if out_hw is not None:
-            x = F.interpolate(x, size=out_hw, mode="bilinear", align_corners=False)
-
-        logits = self.head(x)
-        if self.use_softplus:
-            depth = self.softplus(logits) + 1e-6
-        else:
-            depth = torch.exp(torch.clamp(logits, min=-10, max=10))
-
-        return depth
-
-
-class SimpleDepthDecoderV2(nn.Module):
-    def __init__(self, embed_dim=768, mid_ch=256, out_range=None):
-        super().__init__()
-        self.out_range = out_range
-        self.in_proj = nn.Conv2d(embed_dim, mid_ch, kernel_size=1)
-
-        def block(ch):
-            return nn.Sequential(
-                nn.GroupNorm(32, ch),
-                nn.GELU(),
-                nn.Conv2d(ch, ch, kernel_size=3, padding=1),
-                nn.GroupNorm(32, ch),
-                nn.GELU(),
-                nn.Conv2d(ch, ch, kernel_size=3, padding=1),
-            )
-
-        self.refine1 = block(mid_ch)
-        self.refine2 = block(mid_ch // 2)
-        self.refine3 = block(mid_ch // 4)
-
-        self.reduce2 = nn.Conv2d(mid_ch, mid_ch // 2, kernel_size=1)
-        self.reduce3 = nn.Conv2d(mid_ch // 2, mid_ch // 4, kernel_size=1)
-
-        self.head = nn.Conv2d(mid_ch // 4, 1, kernel_size=3, padding=1)
-        self.softplus = nn.Softplus(beta=1.0, threshold=20.0)
-
-    def forward(self, features, grid_hw=None, out_hw=None):
-        B, Np1, D = features.shape
-        x = features[:, 1:, :]
-        N = x.shape[1]
-
-        if grid_hw is None:
-            gh = int(math.sqrt(N))
-            gw = N // gh
-            assert gh * gw == N
-        else:
-            gh, gw = grid_hw
-            assert gh * gw == N
-
-        x = x.permute(0, 2, 1).reshape(B, D, gh, gw)
-        x = self.in_proj(x)
-
-        x = x + self.refine1(x)
-        x = F.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = self.reduce2(x)
-        x = x + self.refine2(x)
-
-        x = F.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = self.reduce3(x)
-        x = x + self.refine3(x)
-
-        if out_hw is not None:
-            x = F.interpolate(x, size=out_hw, mode="bilinear", align_corners=False)
-
-        logits = self.head(x)
-        depth = self.softplus(logits) + 1e-6
-
-        if self.out_range is not None:
-            dmin, dmax = self.out_range
-            depth = dmin + (dmax - dmin) * torch.sigmoid(logits)
-
-        return depth
-
-
-class ResidualConvUnit(nn.Module):
-    def __init__(self, features, activation, bn):
-        super().__init__()
-        self.bn = bn
-        self.groups = 1
-        self.conv1 = nn.Conv2d(features, features, kernel_size=3, stride=1, padding=1, bias=True, groups=self.groups)
-        self.conv2 = nn.Conv2d(features, features, kernel_size=3, stride=1, padding=1, bias=True, groups=self.groups)
-        if self.bn:
-            self.bn1 = nn.BatchNorm2d(features)
-            self.bn2 = nn.BatchNorm2d(features)
-        self.activation = activation
-        self.skip_add = nn.quantized.FloatFunctional()
-
-    def forward(self, x):
-        out = self.activation(x)
-        out = self.conv1(out)
-        if self.bn:
-            out = self.bn1(out)
-        out = self.activation(out)
-        out = self.conv2(out)
-        if self.bn:
-            out = self.bn2(out)
-        return self.skip_add.add(out, x)
-
-
-class FeatureFusionBlock(nn.Module):
-    def __init__(self, features, activation, deconv=False, bn=False, expand=False, align_corners=True, size=None):
-        super().__init__()
-        self.deconv = deconv
-        self.align_corners = align_corners
-        self.groups = 1
-        self.expand = expand
-        out_features = features
-        if self.expand:
-            out_features = features // 2
-        self.out_conv = nn.Conv2d(features, out_features, kernel_size=1, stride=1, padding=0, bias=True, groups=1)
-        self.resConfUnit1 = ResidualConvUnit(features, activation, bn)
-        self.resConfUnit2 = ResidualConvUnit(features, activation, bn)
-        self.skip_add = nn.quantized.FloatFunctional()
-        self.size = size
-
-    def forward(self, *xs, size=None):
-        output = xs[0]
-        if len(xs) == 2:
-            res = self.resConfUnit1(xs[1])
-            output = self.skip_add.add(output, res)
-        output = self.resConfUnit2(output)
-        if (size is None) and (self.size is None):
-            modifier = {"scale_factor": 2}
-        elif size is None:
-            modifier = {"size": self.size}
-        else:
-            modifier = {"size": size}
-        output = F.interpolate(output, **modifier, mode="bilinear", align_corners=self.align_corners)
-        output = self.out_conv(output)
-        return output
-
-
-def _make_fusion_block(features, use_bn, size=None):
-    return FeatureFusionBlock(
-        features,
-        nn.ReLU(False),
-        deconv=False,
-        bn=use_bn,
-        expand=False,
-        align_corners=True,
-        size=size,
-    )
-
-
-def _make_scratch(in_shape, out_shape, groups=1, expand=False):
-    scratch = nn.Module()
-    out_shape1 = out_shape
-    out_shape2 = out_shape
-    out_shape3 = out_shape
-    if len(in_shape) >= 4:
-        out_shape4 = out_shape
-    if expand:
-        out_shape1 = out_shape
-        out_shape2 = out_shape * 2
-        out_shape3 = out_shape * 4
-        if len(in_shape) >= 4:
-            out_shape4 = out_shape * 8
-    scratch.layer1_rn = nn.Conv2d(in_shape[0], out_shape1, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    scratch.layer2_rn = nn.Conv2d(in_shape[1], out_shape2, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    scratch.layer3_rn = nn.Conv2d(in_shape[2], out_shape3, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    if len(in_shape) >= 4:
-        scratch.layer4_rn = nn.Conv2d(in_shape[3], out_shape4, kernel_size=3, stride=1, padding=1, bias=False, groups=groups)
-    return scratch
-
-
-class DPTHead(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        features=256,
-        use_bn=False,
-        out_channels=[256, 512, 1024, 1024],
-        use_clstoken=False,
-        patch_size: int = 14,
-    ):
-        super().__init__()
-        self.use_clstoken = use_clstoken
-        self.patch_size = int(patch_size)
-
-        self.projects = nn.ModuleList([
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=out_channel,
-                kernel_size=1,
-                stride=1,
-                padding=0,
-            ) for out_channel in out_channels
-        ])
-
-        self.resize_layers = nn.ModuleList([
-            nn.ConvTranspose2d(
-                in_channels=out_channels[0],
-                out_channels=out_channels[0],
-                kernel_size=4,
-                stride=4,
-                padding=0),
-            nn.ConvTranspose2d(
-                in_channels=out_channels[1],
-                out_channels=out_channels[1],
-                kernel_size=2,
-                stride=2,
-                padding=0),
-            nn.Identity(),
-            nn.Conv2d(
-                in_channels=out_channels[3],
-                out_channels=out_channels[3],
-                kernel_size=3,
-                stride=2,
-                padding=1)
-        ])
-
-        if use_clstoken:
-            self.readout_projects = nn.ModuleList()
-            for _ in range(len(self.projects)):
-                self.readout_projects.append(
-                    nn.Sequential(
-                        nn.Linear(2 * in_channels, in_channels),
-                        nn.GELU()
-                    )
-                )
-
-        self.scratch = _make_scratch(
-            out_channels,
-            features,
-            groups=1,
-            expand=False,
-        )
-
-        self.scratch.stem_transpose = None
-        self.scratch.refinenet1 = _make_fusion_block(features, use_bn)
-        self.scratch.refinenet2 = _make_fusion_block(features, use_bn)
-        self.scratch.refinenet3 = _make_fusion_block(features, use_bn)
-        self.scratch.refinenet4 = _make_fusion_block(features, use_bn)
-
-        head_features_1 = features
-        head_features_2 = 32
-
-        self.scratch.output_conv1 = nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1)
-        self.scratch.output_conv2 = nn.Sequential(
-            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(head_features_2, 1, kernel_size=1, stride=1, padding=0),
-            nn.Softplus(beta=1.0, threshold=20.0)
-        )
-
-    def forward(self, out_features, patch_h, patch_w):
-        out = []
-        for i, x in enumerate(out_features):
-            if self.use_clstoken:
-                x, cls_token = x[0], x[1]
-                readout = cls_token.unsqueeze(1).expand_as(x)
-                x = self.readout_projects[i](torch.cat((x, readout), -1))
-            else:
-                x = x[0]
-
-            x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
-            x = self.projects[i](x)
-            x = self.resize_layers[i](x)
-            out.append(x)
-
-        layer_1, layer_2, layer_3, layer_4 = out
-        layer_1_rn = self.scratch.layer1_rn(layer_1)
-        layer_2_rn = self.scratch.layer2_rn(layer_2)
-        layer_3_rn = self.scratch.layer3_rn(layer_3)
-        layer_4_rn = self.scratch.layer4_rn(layer_4)
-
-        path_4 = self.scratch.refinenet4(layer_4_rn, size=layer_3_rn.shape[2:])
-        path_3 = self.scratch.refinenet3(path_4, layer_3_rn, size=layer_2_rn.shape[2:])
-        path_2 = self.scratch.refinenet2(path_3, layer_2_rn, size=layer_1_rn.shape[2:])
-        path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
-
-        out = self.scratch.output_conv1(path_1)
-        out = F.interpolate(out, (int(patch_h * self.patch_size), int(patch_w * self.patch_size)), mode="bilinear", align_corners=True)
-        out = self.scratch.output_conv2(out)
-        return out
-
+from depth.depth_loss import MonocularDepthHybridLoss
 
 # =============================================================================
-# Patch position losses (inline from core/patch_pos.py)
+# Depth heads (from depth/depth_head.py)
 # =============================================================================
-class PatchRowColRegressionCriterion(nn.Module):
-    def __init__(
-        self,
-        feat_dim,
-        grid_h,
-        grid_w,
-        normalize=True,
-        huber_beta=None,
-        loss_type: str = "smooth_l1",
-    ):
-        super().__init__()
-        self.grid_h = grid_h
-        self.grid_w = grid_w
-        self.normalize = normalize
+from depth.depth_head import Lite4LayerDepthHead, SimpleDepthDecoderV2, DPTHead
 
-        self.row_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-        )
-        self.col_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-        )
-
-        if loss_type == "l1":
-            self.loss_fn = nn.L1Loss()
-        elif loss_type == "smooth_l1":
-            if huber_beta is None:
-                self.loss_fn = nn.SmoothL1Loss()
-            else:
-                self.loss_fn = nn.SmoothL1Loss(beta=huber_beta)
-        elif loss_type == "mse":
-            self.loss_fn = nn.MSELoss()
-        else:
-            raise ValueError(f"Unsupported loss_type: {loss_type}")
-
-        rows_2d = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
-        cols_2d = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
-
-        if normalize:
-            rows_2d = rows_2d / (grid_h - 1)
-            cols_2d = cols_2d / (grid_w - 1)
-
-        row_targets = rows_2d.flatten()
-        col_targets = cols_2d.flatten()
-
-        self.register_buffer("row_targets", row_targets, persistent=False)
-        self.register_buffer("col_targets", col_targets, persistent=False)
-
-    def forward(self, feats):
-        B, N, D = feats.shape
-        assert N == self.grid_h * self.grid_w
-
-        x = feats.reshape(-1, D)
-        row_targets = self.row_targets.repeat(B)
-        col_targets = self.col_targets.repeat(B)
-
-        row_pred = self.row_mlp(x).squeeze(-1)
-        col_pred = self.col_mlp(x).squeeze(-1)
-
-        loss_row = self.loss_fn(row_pred, row_targets)
-        loss_col = self.loss_fn(col_pred, col_targets)
-        return (loss_row + loss_col) / 2.0
-
-
-class PatchRowColRegressionCriterionDynamic(nn.Module):
-    def __init__(
-        self,
-        feat_dim,
-        grid_h,
-        grid_w,
-        normalize=True,
-        loss_type: str = "smooth_l1",
-    ):
-        super().__init__()
-        self.grid_h = grid_h
-        self.grid_w = grid_w
-        self.normalize = normalize
-
-        self.row_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-        )
-        self.col_mlp = nn.Sequential(
-            nn.Linear(feat_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-        )
-
-        if loss_type == "l1":
-            self.loss_fn = nn.L1Loss()
-        elif loss_type == "smooth_l1":
-            self.loss_fn = nn.SmoothL1Loss()
-        elif loss_type == "mse":
-            self.loss_fn = nn.MSELoss()
-        else:
-            raise ValueError(f"Unsupported loss_type: {loss_type}")
-
-        rows = torch.arange(grid_h, dtype=torch.float32).unsqueeze(1).repeat(1, grid_w)
-        cols = torch.arange(grid_w, dtype=torch.float32).unsqueeze(0).repeat(grid_h, 1)
-        self.register_buffer("row_index_full", rows, persistent=False)
-        self.register_buffer("col_index_full", cols, persistent=False)
-
-    def forward(self, feats, hp=None, wp=None):
-        B, N, D = feats.shape
-        if hp is None:
-            hp = self.grid_h
-        if wp is None:
-            wp = self.grid_w
-        assert N == hp * wp
-
-        x = feats.reshape(-1, D)
-        row_idx_2d = self.row_index_full[:hp, :wp]
-        col_idx_2d = self.col_index_full[:hp, :wp]
-        if self.normalize:
-            row_idx_2d = row_idx_2d / max(hp - 1, 1)
-            col_idx_2d = col_idx_2d / max(wp - 1, 1)
-
-        row_targets = row_idx_2d.flatten().repeat(B)
-        col_targets = col_idx_2d.flatten().repeat(B)
-
-        row_pred = self.row_mlp(x).squeeze(-1)
-        col_pred = self.col_mlp(x).squeeze(-1)
-
-        loss_row = self.loss_fn(row_pred, row_targets)
-        loss_col = self.loss_fn(col_pred, col_targets)
-        return (loss_row + loss_col) / 2.0
-
+# =============================================================================
+# Patch position losses (from core/patch_pos.py)
+# =============================================================================
+from core.patch_pos import PatchRowColRegressionCriterion, PatchRowColRegressionCriterionDynamic
 
 # =============================================================================
 # Model setup

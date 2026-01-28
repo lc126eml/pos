@@ -50,140 +50,128 @@ def _preflight_kaggle_env():
         except Exception as exc:
             print(f"WARNING: tensorflow-cpu setup failed ({exc}); continuing.")
 
-    marker = "/kaggle/working/pos_repo_ready"
-    if not os.path.exists(marker):
-        url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
-        zip_path = "/kaggle/working/pos.zip"
-
-        def _download_with_retries(url, dst, retries=3, timeout=30):
-            tmp_path = dst + ".part"
-            headers = {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/zip",
-            }
-
-            def _cleanup_tmp():
-                try:
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                except Exception:
-                    pass
-
-            def _finalize():
-                if not zipfile.is_zipfile(tmp_path):
-                    raise RuntimeError("Downloaded file is not a zip.")
-                os.replace(tmp_path, dst)
-
-            def _try_curl():
-                curl = shutil.which("curl")
-                if not curl:
-                    print("download: curl not found", flush=True)
-                    return False
-                print("download: trying curl", flush=True)
-                cmd = [
-                    curl,
-                    "-L",
-                    "--retry",
-                    "3",
-                    "--retry-all-errors",
-                    "--max-redirs",
-                    "20",
-                    "--connect-timeout",
-                    str(timeout),
-                    "-H",
-                    f"User-Agent: {headers['User-Agent']}",
-                    "-H",
-                    f"Accept: {headers['Accept']}",
-                    "-o",
-                    tmp_path,
-                    url,
-                ]
-                subprocess.check_call(cmd)
-                _finalize()
-                print("download: curl ok", flush=True)
-                return True
-
-            def _try_requests():
-                try:
-                    import requests  # type: ignore
-                except Exception:
-                    print("download: requests not available", flush=True)
-                    return False
-                print("download: trying requests", flush=True)
-                resp = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
-                resp.raise_for_status()
-                with open(tmp_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                        if chunk:
-                            f.write(chunk)
-                _finalize()
-                print("download: requests ok", flush=True)
-                return True
-
-            def _try_urllib():
-                print("download: trying urllib", flush=True)
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    with open(tmp_path, mode="wb") as f:
-                        shutil.copyfileobj(resp, f)
-                _finalize()
-                print("download: urllib ok", flush=True)
-                return True
-
-            methods = [_try_curl, _try_requests, _try_urllib]
-            last_exc = None
-            for attempt in range(1, retries + 1):
-                for method in methods:
-                    try:
-                        ok = method()
-                        if ok:
-                            return
-                    except Exception as exc:
-                        last_exc = exc
-                        print(f"download: method failed ({exc})", flush=True)
-                        _cleanup_tmp()
-                if attempt < retries:
-                    time.sleep(2 * attempt)
-            raise RuntimeError(f"Downloaded file is not a zip. Last error: {last_exc}")
-
-        try:
-            if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
-                os.remove(zip_path)
-            if not os.path.exists(zip_path):
-                _download_with_retries(url, zip_path)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall("/kaggle/working")
-            repo_root = None
-            if os.path.isdir("/kaggle/working/pos"):
-                repo_root = "/kaggle/working/pos"
-            else:
-                for name in os.listdir("/kaggle/working"):
-                    cand = os.path.join("/kaggle/working", name)
-                    if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
-                        repo_root = cand
-                        break
-            if repo_root:
-                os.environ["POS_REPO_ROOT"] = repo_root
-                if repo_root not in sys.path:
-                    sys.path.insert(0, repo_root)
-            with open(marker, "w", encoding="utf-8") as f:
-                f.write("ok\n")
-        except Exception as exc:
-            raise RuntimeError(f"Failed to download pos repo for timm_pe: {exc}") from exc
-    if not os.environ.get("POS_REPO_ROOT"):
-        repo_root = None
+    def _find_repo_root():
         if os.path.isdir("/kaggle/working/pos"):
-            repo_root = "/kaggle/working/pos"
-        else:
-            for name in os.listdir("/kaggle/working"):
-                cand = os.path.join("/kaggle/working", name)
-                if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
-                    repo_root = cand
-                    break
-        if repo_root:
-            os.environ["POS_REPO_ROOT"] = repo_root
-            if repo_root not in sys.path:
-                sys.path.insert(0, repo_root)
+            return "/kaggle/working/pos"
+        for name in os.listdir("/kaggle/working"):
+            cand = os.path.join("/kaggle/working", name)
+            if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                return cand
+        return None
+
+    url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
+    zip_path = "/kaggle/working/pos.zip"
+
+    def _download_with_retries(url, dst, retries=3, timeout=30):
+        tmp_path = dst + ".part"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/zip",
+        }
+
+        def _cleanup_tmp():
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+        def _finalize():
+            if not zipfile.is_zipfile(tmp_path):
+                raise RuntimeError("Downloaded file is not a zip.")
+            os.replace(tmp_path, dst)
+
+        def _try_curl():
+            curl = shutil.which("curl")
+            if not curl:
+                print("download: curl not found", flush=True)
+                return False
+            print("download: trying curl", flush=True)
+            cmd = [
+                curl,
+                "-L",
+                "--retry",
+                "3",
+                "--retry-all-errors",
+                "--max-redirs",
+                "20",
+                "--connect-timeout",
+                str(timeout),
+                "-H",
+                f"User-Agent: {headers['User-Agent']}",
+                "-H",
+                f"Accept: {headers['Accept']}",
+                "-o",
+                tmp_path,
+                url,
+            ]
+            subprocess.check_call(cmd)
+            _finalize()
+            print("download: curl ok", flush=True)
+            return True
+
+        def _try_requests():
+            try:
+                import requests  # type: ignore
+            except Exception:
+                print("download: requests not available", flush=True)
+                return False
+            print("download: trying requests", flush=True)
+            resp = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
+            resp.raise_for_status()
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+            _finalize()
+            print("download: requests ok", flush=True)
+            return True
+
+        def _try_urllib():
+            print("download: trying urllib", flush=True)
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with open(tmp_path, mode="wb") as f:
+                    shutil.copyfileobj(resp, f)
+            _finalize()
+            print("download: urllib ok", flush=True)
+            return True
+
+        methods = [_try_curl, _try_requests, _try_urllib]
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            for method in methods:
+                try:
+                    ok = method()
+                    if ok:
+                        return
+                except Exception as exc:
+                    last_exc = exc
+                    print(f"download: method failed ({exc})", flush=True)
+                    _cleanup_tmp()
+            if attempt < retries:
+                time.sleep(2 * attempt)
+        raise RuntimeError(f"Downloaded file is not a zip. Last error: {last_exc}")
+
+    try:
+        if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
+            os.remove(zip_path)
+        if not os.path.exists(zip_path):
+            _download_with_retries(url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall("/kaggle/working")
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download pos repo for timm_pe: {exc}") from exc
+
+    repo_root = _find_repo_root()
+    if not repo_root:
+        raise RuntimeError("POS repo not found after unzip; expected /kaggle/working/pos or a repo with core/ and data/.")
+    os.environ["POS_REPO_ROOT"] = repo_root
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    print(f"POS repo ready: {repo_root}", flush=True)
 
 def _spawn_tpu(main_fn):
     print(f"SCRIPT_REV={SCRIPT_REV}", flush=True)

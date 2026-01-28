@@ -34,7 +34,7 @@ def _to_pil_rgb(image: ImageLike) -> Image.Image:
             # assume float in [0,1] or [0,255]
             arr = np.clip(arr, 0.0, 1.0) if arr.max() <= 1.5 else np.clip(arr / 255.0, 0.0, 1.0)
             arr = (arr * 255.0).round().astype(np.uint8)
-        return Image.fromarray(arr, mode="RGB")
+        return Image.fromarray(arr)
     raise TypeError(f"Unsupported image type: {type(image)}")
 
 

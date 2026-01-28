@@ -141,31 +141,33 @@ def _download_with_retries(url, dst, retries=3, timeout=30):
 def _ensure_pos_repo():
     if not _IS_KAGGLE:
         return None
-    marker = "/kaggle/working/pos_repo_ready"
-    if not os.path.exists(marker):
-        url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
-        zip_path = "/kaggle/working/pos.zip"
-        if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
-            os.remove(zip_path)
-        if not os.path.exists(zip_path):
-            _download_with_retries(url, zip_path)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall("/kaggle/working")
-        with open(marker, "w", encoding="utf-8") as f:
-            f.write("ok\n")
-    repo_root = None
-    if os.path.isdir("/kaggle/working/pos"):
-        repo_root = "/kaggle/working/pos"
-    else:
+    def _find_repo_root():
+        if os.path.isdir("/kaggle/working/pos"):
+            return "/kaggle/working/pos"
         for name in os.listdir("/kaggle/working"):
             cand = os.path.join("/kaggle/working", name)
             if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
-                repo_root = cand
-                break
-    if repo_root:
-        os.environ["POS_REPO_ROOT"] = repo_root
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
+                return cand
+        return None
+
+    url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
+    zip_path = "/kaggle/working/pos.zip"
+    if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
+        os.remove(zip_path)
+    if not os.path.exists(zip_path):
+        _download_with_retries(url, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall("/kaggle/working")
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+
+    repo_root = _find_repo_root()
+    if not repo_root:
+        raise RuntimeError("POS repo not found after unzip; expected /kaggle/working/pos or a repo with core/ and data/.")
+    os.environ["POS_REPO_ROOT"] = repo_root
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    print(f"POS repo ready: {repo_root}", flush=True)
     return repo_root
 
 
@@ -204,7 +206,7 @@ args = SimpleNamespace(
     epochs=130,
     overlap=0,
     start_epoch=0,
-    seed=51,
+    seed=50,
     use_rc_loss=False,
     use_patch_position_loss=False,
     huber_beta=0.1,
@@ -226,7 +228,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-none-d-251/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-none-d-350/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,

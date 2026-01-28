@@ -7,6 +7,7 @@ import time
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+import re
 
 import yaml
 import logging
@@ -174,7 +175,8 @@ def _move_finished(notebook, finished_notebooks):
 def _move_error(notebook, error_notebooks, detail=None):
     errored = dict(notebook)
     if detail:
-        errored["error_detail"] = detail
+        cleaned = re.sub(r"\s+", " ", str(detail)).strip()
+        errored["error_detail"] = cleaned
     for key in ("run_id", "resumed_from"):
         errored.pop(key, None)
     error_notebooks.append(errored)

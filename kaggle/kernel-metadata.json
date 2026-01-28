@@ -1,7 +1,7 @@
 {
-  "id": "zht121233/seg-base-none-d-351",
-  "title": "seg base none d 351",
-  "code_file": "../seg/dinov3_seg_kaggle.py",
+  "id": "houwen/cls-base-none-d-518",
+  "title": "cls base none d 518",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
@@ -10,11 +10,11 @@
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "awsaf49/ade20k-dataset"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "lemonlaila/seg-base-none-d-251"
+    "houwen/cls-base-none-d-418"
   ],
   "model_sources": []
 }
