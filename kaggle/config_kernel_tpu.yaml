@@ -128,11 +128,5 @@ running_nodes:
 - id: robinrainy
   left_time: 20
   notebooks:
-  - kernel_id: robinrainy/depth-small-none-tpu8c-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-29 14:56:07'
-    resumed_from: null
-    history_ids: []
 finished_notebooks: null
 error_notebooks: null

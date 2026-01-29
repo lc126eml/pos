@@ -1,17 +1,17 @@
 task: depth
-id: liucong12601
+id: roseqw
 pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
-model_size: base
+model_size: small
 run_id: 0
-desc: lr7e-5
+desc: gpu
 is_private: false
 dataset_sources: null
 kernel_sources: null
 resume_full_ckpt: false
 resume_source: kernel
 resume_infer: false
-tpu: true
+tpu: false
 tpu_workers: 0
 tpu_threads: 1
 seed: 50

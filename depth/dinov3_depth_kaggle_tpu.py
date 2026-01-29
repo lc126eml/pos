@@ -340,6 +340,7 @@ def main():
         debug_val_empty_limit=5,
         use_bf16=False,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
+        align_mode="mean_std",
         silog_w=0.0,
         grad_w=0.5, #0.5
         depth_norm="median",
@@ -898,8 +899,6 @@ def main():
             with torch.autocast("xla", enabled=False):
                 dpt_feats_fp32 = [f.float() for f in features]
                 pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
-                if IS_MASTER:
-                    print("decoder features", int(torch.isnan(pred_depths).sum().item()))
             if pred_depths.dim() == 3:
                 pred_depths = pred_depths.unsqueeze(1)
         else:
@@ -1002,6 +1001,7 @@ def main():
         silog_on_aligned=silog_on_aligned,
         det_threshold=getattr(args, "loss_det_threshold", 1e-6),
         min_valid_pixels=getattr(args, "min_valid_pixels", 0),
+        align_mode=getattr(args, "align_mode", "scale_shift"),
         debug=getattr(args, "debug_loss_stats", False),
     )
     

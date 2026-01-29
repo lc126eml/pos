@@ -104,6 +104,7 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
+    align_mode="scale_shift",
     silog_w=0.0,
     depth_norm="median",  # kept for logging/compat
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
@@ -705,6 +706,7 @@ criterion = MonocularDepthHybridLoss(
     silog_on_aligned=silog_on_aligned,
     det_threshold=getattr(args, "loss_det_threshold", 1e-6),
     min_valid_pixels=getattr(args, "min_valid_pixels", 0),
+    align_mode=getattr(args, "align_mode", "scale_shift"),
     debug=getattr(args, "debug_loss_stats", False),
 )
 

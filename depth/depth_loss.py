@@ -14,6 +14,13 @@ def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
 def _default_mask(gt: torch.Tensor, eps: float) -> torch.Tensor:
     return (torch.isfinite(gt) & (gt > eps)).float()
 
+def _masked_mean_std(x: torch.Tensor, mask: torch.Tensor, eps: float):
+    denom = mask.sum(dim=(1, 2)).clamp_min(1.0)
+    mean = (x * mask).sum(dim=(1, 2)) / denom
+    var = ((x - mean[:, None, None]) ** 2 * mask).sum(dim=(1, 2)) / denom
+    std = torch.sqrt(var.clamp_min(eps))
+    return mean, std, denom
+
 
 def compute_scale_and_shift(
     prediction: torch.Tensor,
@@ -147,6 +154,7 @@ class MonocularDepthHybridLoss(nn.Module):
         silog_on_aligned: bool = False,
         det_threshold: float = 1e-6,
         min_valid_pixels: int = 0,
+        align_mode: str = "scale_shift",
         debug: bool = False,
         debug_max: int = 5,
     ):
@@ -159,6 +167,10 @@ class MonocularDepthHybridLoss(nn.Module):
         self.silog_on_aligned = bool(silog_on_aligned)
         self.det_threshold = float(det_threshold)
         self.min_valid_pixels = int(min_valid_pixels)
+        align_mode = str(align_mode)
+        if align_mode not in ("scale_shift", "mean_std"):
+            raise ValueError(f"Unsupported align_mode='{align_mode}'. Use 'scale_shift' or 'mean_std'.")
+        self.align_mode = align_mode
         self.debug = bool(debug)
         self._debug_max = int(max(0, debug_max))
         self._debug_count = 0
@@ -197,40 +209,69 @@ class MonocularDepthHybridLoss(nn.Module):
                 m_hw = m_hw * keep_f[:, None, None]
                 mask = mask * keep_f[:, None, None, None]
 
-        if self.debug:
-            scale, shift, det, det_valid = compute_scale_and_shift(
-                pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=True
-            )
-        else:
-            scale, shift = compute_scale_and_shift(
-                pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=False
-            )
-        pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
+        if self.align_mode == "mean_std":
+            pred_mean, pred_std, denom = _masked_mean_std(pred_hw, m_hw, self.eps)
+            tgt_mean, tgt_std, _ = _masked_mean_std(tgt_hw, m_hw, self.eps)
+            pred_aligned = (prediction - pred_mean.view(-1, 1, 1, 1)) / pred_std.view(-1, 1, 1, 1)
+            target_aligned = (target - tgt_mean.view(-1, 1, 1, 1)) / tgt_std.view(-1, 1, 1, 1)
 
-        if self.debug and self._debug_count < self._debug_max:
-            det_min = float(det.min().item()) if self.debug else 0.0
-            det_max = float(det.max().item()) if self.debug else 0.0
-            scale_min = float(scale.min().item())
-            scale_max = float(scale.max().item())
-            shift_min = float(shift.min().item())
-            shift_max = float(shift.max().item())
-            if valid_count is None:
-                valid_count = m_hw.sum(dim=(1, 2))
-            vc_min = float(valid_count.min().item())
-            vc_max = float(valid_count.max().item())
-            dv_min = float(det_valid.float().min().item()) if self.debug else 0.0
-            dv_max = float(det_valid.float().max().item()) if self.debug else 0.0
-            print(
-                "[depth_loss] det[min,max]=%.3g,%.3g det_valid[min,max]=%.0f,%.0f "
-                "valid_pix[min,max]=%.0f,%.0f scale[min,max]=%.3g,%.3g shift[min,max]=%.3g,%.3g"
-                % (det_min, det_max, dv_min, dv_max, vc_min, vc_max, scale_min, scale_max, shift_min, shift_max),
-                flush=True,
-            )
-            self._debug_count += 1
+            if self.debug and self._debug_count < self._debug_max:
+                if valid_count is None:
+                    valid_count = denom
+                vc_min = float(valid_count.min().item())
+                vc_max = float(valid_count.max().item())
+                pm_min = float(pred_mean.min().item())
+                pm_max = float(pred_mean.max().item())
+                ps_min = float(pred_std.min().item())
+                ps_max = float(pred_std.max().item())
+                tm_min = float(tgt_mean.min().item())
+                tm_max = float(tgt_mean.max().item())
+                ts_min = float(tgt_std.min().item())
+                ts_max = float(tgt_std.max().item())
+                print(
+                    "[depth_loss] mode=mean_std valid_pix[min,max]=%.0f,%.0f "
+                    "pred_mean[min,max]=%.3g,%.3g pred_std[min,max]=%.3g,%.3g "
+                    "gt_mean[min,max]=%.3g,%.3g gt_std[min,max]=%.3g,%.3g"
+                    % (vc_min, vc_max, pm_min, pm_max, ps_min, ps_max, tm_min, tm_max, ts_min, ts_max),
+                    flush=True,
+                )
+                self._debug_count += 1
+        else:
+            if self.debug:
+                scale, shift, det, det_valid = compute_scale_and_shift(
+                    pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=True
+                )
+            else:
+                scale, shift = compute_scale_and_shift(
+                    pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=False
+                )
+            pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
+            target_aligned = target
+
+            if self.debug and self._debug_count < self._debug_max:
+                det_min = float(det.min().item()) if self.debug else 0.0
+                det_max = float(det.max().item()) if self.debug else 0.0
+                scale_min = float(scale.min().item())
+                scale_max = float(scale.max().item())
+                shift_min = float(shift.min().item())
+                shift_max = float(shift.max().item())
+                if valid_count is None:
+                    valid_count = m_hw.sum(dim=(1, 2))
+                vc_min = float(valid_count.min().item())
+                vc_max = float(valid_count.max().item())
+                dv_min = float(det_valid.float().min().item()) if self.debug else 0.0
+                dv_max = float(det_valid.float().max().item()) if self.debug else 0.0
+                print(
+                    "[depth_loss] det[min,max]=%.3g,%.3g det_valid[min,max]=%.0f,%.0f "
+                    "valid_pix[min,max]=%.0f,%.0f scale[min,max]=%.3g,%.3g shift[min,max]=%.3g,%.3g"
+                    % (det_min, det_max, dv_min, dv_max, vc_min, vc_max, scale_min, scale_max, shift_min, shift_max),
+                    flush=True,
+                )
+                self._debug_count += 1
 
         total = pred_aligned.new_zeros(())
         if self.l1_w > 0:
-            total = total + self.l1_w * _l1_loss(pred_aligned[:, 0], target[:, 0], m_hw, self._reduction)
+            total = total + self.l1_w * _l1_loss(pred_aligned[:, 0], target_aligned[:, 0], m_hw, self._reduction)
 
         if self.grad_w > 0:
             grad_total = pred_aligned.new_zeros(())
@@ -238,7 +279,7 @@ class MonocularDepthHybridLoss(nn.Module):
                 step = 2 ** scale_i
                 grad_total = grad_total + _gradient_loss(
                     pred_aligned[:, 0, ::step, ::step],
-                    target[:, 0, ::step, ::step],
+                    target_aligned[:, 0, ::step, ::step],
                     m_hw[:, ::step, ::step],
                     reduction=self._reduction,
                 )

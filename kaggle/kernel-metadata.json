@@ -1,6 +1,6 @@
 {
-  "id": "permanentlove/depth-base-colrow-rc200-553",
-  "title": "depth base colrow rc200 553",
+  "id": "roseqw/depth-small-none-gpu-50",
+  "title": "depth small none gpu 50",
   "code_file": "../depth/dinov3_depth_kaggle.py",
   "language": "python",
   "kernel_type": "script",
@@ -18,8 +18,6 @@
     "liucong12601/hsm-test-val"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "yccwff/depth-base-colrow-rc200-453"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }
