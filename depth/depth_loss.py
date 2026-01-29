@@ -15,7 +15,13 @@ def _default_mask(gt: torch.Tensor, eps: float) -> torch.Tensor:
     return (torch.isfinite(gt) & (gt > eps)).float()
 
 
-def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
+def compute_scale_and_shift(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+    det_threshold: float = 1e-6,
+    return_stats: bool = False,
+):
     # Solves least-squares for s,t in s*pred + t against target
     a_00 = torch.sum(mask * prediction * prediction, (1, 2))
     a_01 = torch.sum(mask * prediction, (1, 2))
@@ -28,7 +34,7 @@ def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask
     x_1 = torch.zeros_like(b_1)
 
     det = a_00 * a_11 - a_01 * a_01
-    valid = det > 0
+    valid = det > float(det_threshold)
 
     x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
     x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
@@ -37,6 +43,8 @@ def compute_scale_and_shift(prediction: torch.Tensor, target: torch.Tensor, mask
     x_0[~valid] = 1.0
     x_1[~valid] = 0.0
 
+    if return_stats:
+        return x_0, x_1, det, valid
     return x_0, x_1
 
 
@@ -137,6 +145,10 @@ class MonocularDepthHybridLoss(nn.Module):
         reduction: str = "batch-based",
         eps: float = 1e-8,
         silog_on_aligned: bool = False,
+        det_threshold: float = 1e-6,
+        min_valid_pixels: int = 0,
+        debug: bool = False,
+        debug_max: int = 5,
     ):
         super().__init__()
         self.l1_w = float(l1_w)
@@ -145,6 +157,11 @@ class MonocularDepthHybridLoss(nn.Module):
         self.scales = int(scales)
         self.eps = float(eps)
         self.silog_on_aligned = bool(silog_on_aligned)
+        self.det_threshold = float(det_threshold)
+        self.min_valid_pixels = int(min_valid_pixels)
+        self.debug = bool(debug)
+        self._debug_max = int(max(0, debug_max))
+        self._debug_count = 0
 
         if reduction == "batch-based":
             self._reduction = _reduction_batch
@@ -171,8 +188,45 @@ class MonocularDepthHybridLoss(nn.Module):
         tgt_hw = target[:, 0]
         m_hw = mask[:, 0]
 
-        scale, shift = compute_scale_and_shift(pred_hw, tgt_hw, m_hw)
+        valid_count = None
+        if self.min_valid_pixels > 0:
+            valid_count = m_hw.sum(dim=(1, 2))
+            keep = valid_count >= float(self.min_valid_pixels)
+            if not torch.all(keep):
+                keep_f = keep.to(dtype=m_hw.dtype)
+                m_hw = m_hw * keep_f[:, None, None]
+                mask = mask * keep_f[:, None, None, None]
+
+        if self.debug:
+            scale, shift, det, det_valid = compute_scale_and_shift(
+                pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=True
+            )
+        else:
+            scale, shift = compute_scale_and_shift(
+                pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=False
+            )
         pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
+
+        if self.debug and self._debug_count < self._debug_max:
+            det_min = float(det.min().item()) if self.debug else 0.0
+            det_max = float(det.max().item()) if self.debug else 0.0
+            scale_min = float(scale.min().item())
+            scale_max = float(scale.max().item())
+            shift_min = float(shift.min().item())
+            shift_max = float(shift.max().item())
+            if valid_count is None:
+                valid_count = m_hw.sum(dim=(1, 2))
+            vc_min = float(valid_count.min().item())
+            vc_max = float(valid_count.max().item())
+            dv_min = float(det_valid.float().min().item()) if self.debug else 0.0
+            dv_max = float(det_valid.float().max().item()) if self.debug else 0.0
+            print(
+                "[depth_loss] det[min,max]=%.3g,%.3g det_valid[min,max]=%.0f,%.0f "
+                "valid_pix[min,max]=%.0f,%.0f scale[min,max]=%.3g,%.3g shift[min,max]=%.3g,%.3g"
+                % (det_min, det_max, dv_min, dv_max, vc_min, vc_max, scale_min, scale_max, shift_min, shift_max),
+                flush=True,
+            )
+            self._debug_count += 1
 
         total = pred_aligned.new_zeros(())
         if self.l1_w > 0:

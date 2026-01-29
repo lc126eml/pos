@@ -244,12 +244,12 @@ def main():
         dynamic_img_size=False,
         model_type= "dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=False,
+        use_rot_pos_emb=True,
         model_size='base',
         num_classes=100,
         patch_size = 16,
         batch_size=64,
-        img_sizes=[224, 192, 288],
+        img_sizes=[224],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
         lr=7e-05,
         lr_aux=1e-5,
@@ -258,14 +258,14 @@ def main():
         epochs=130,
         overlap=0,
         pretrained=None,
-        seed=50,
+        seed=53,
         use_patch_position_loss=False,
-        use_rc_loss=True,
-        rc_alpha=600.0,
+        use_rc_loss=False,
+        rc_alpha=400,
         warmup_steps_for_aux=1,
         workers=5,
         re_prob=0.0,
-        train=True,
+        train=False,
         val=True,
         tpu_size_schedule="epoch",
         tpu_size_hold_batches=0,
@@ -273,11 +273,11 @@ def main():
         tpu_threads=1,
         ckpt_path=None,
         lock=False,
-        save_full_ckpt=True,
-        resume_full_ckpt=False,
-        resume_ckpt_path=None,
-        resume_scheduler=True,
-        resume_optimizer=True,
+        save_full_ckpt=False,
+        resume_full_ckpt=True,
+        resume_ckpt_path='/kaggle/input/cls-base-rope-tpu-53/ckpt/last.pth',
+        resume_scheduler=False,
+        resume_optimizer=False,
         resume_bs=True,
         composite_lr=True,
         warmup_steps=3000,
@@ -315,6 +315,8 @@ def main():
             "resume_optimizer",
             "total_run_time_hr",
             "grad_accum_steps",
+            "train",
+            "val",
         ]
         if not args.resume_scheduler:
             skip_keys.extend([
@@ -386,10 +388,6 @@ def main():
         args.overlap = 0
         args.use_patch_position_loss=False
         args.use_rc_loss = False
-    if args.model_size == "base":
-        args.rc_alpha = 600.0
-    else:
-        args.rc_alpha = 300.0
     if args.val and isinstance(args.val_img_sizes, (list, tuple)) and len(set(args.val_img_sizes)) > 1:
         args.dynamic_img_size = True
     
@@ -1180,15 +1178,19 @@ def main():
                 best_acc = epoch_val_acc
                 is_best = True
     
+            _xla_sync()
             epoch_train_acc  = (train_correct_t / train_total).item()
             epoch_train_loss = (running_loss_t / train_total).item()
+            epoch_aux_loss = None
+            epoch_base_loss = None
+            if aux_loss is not None:
+                epoch_aux_loss   = (aux_loss_sum_t / train_total).item()
+                epoch_base_loss  = (base_loss_t / train_total).item()
             if IS_MASTER:
                 logger.info(f"\nEpoch {epoch+1}/{args.epochs} Summary:")
                 logger.info(f"\nStep {step} Summary:")
-    
-                if aux_loss is not None:
-                    epoch_aux_loss   = (aux_loss_sum_t / train_total).item()
-                    epoch_base_loss  = (base_loss_t / train_total).item()
+
+                if epoch_aux_loss is not None:
                     training_history['aux_loss'].append(epoch_aux_loss)
                     training_history['base_loss'].append(epoch_base_loss)
                     logger.info(

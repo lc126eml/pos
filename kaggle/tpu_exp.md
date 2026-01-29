@@ -15,6 +15,15 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 ### du55148/cls-base-none-tpu-50
 0.611393154	0.830973685	0.604399979	97.64794803	4.122288227	130
 
+### asdsad0000/cls-base-none-tpu-51
+0.617178142	0.829483747	0.604399979	94.89224839	4.034758329	130
+
+### ohyeah00/cls-base-none-tpu-52
+0.612664878	0.830973685	0.600799978	92.84575415	4.199072123	130
+
+### cdong121/cls-base-none-tpu-53
+0.611410677	0.832440436	0.609399974	93.63991523	4.16623354	130
+
 ### liucong12601/cls-base-rope-d-50
 0.684410036	0.808547437	0.645799994	94.76681852	4.197659016	130
 
@@ -24,9 +33,25 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 ### liucong12601/cls-base-rope-tpu-52
 0.671781898	0.811751187	0.637199998	103.1516693	4.426205635	130
 
+### zjl001/cls-base-rope-tpu-53 no eval
+0.703108132	0.803498685	0.637799978	100.8530593	4.391128778	130
+
+
 
 ### sinayliu/cls-base-abs-d-50
 0.539301336	0.850435436	0.625400007	93.97559118	4.103694439	130
+
+### wenyangtang/cls-base-abs-tpu-51
+0.586816013	0.836423874	0.618399978	97.15248823	4.129728317	130
+
+
+### xulijuan/cls-base-abs-tpu-52
+0.599412441	0.833783686	0.625199974	116.3930092	4.555068493	130
+
+
+### jacksisi/cls-base-abs-tpu-53
+0.537404418	0.850057185	0.63440001	99.09350777	4.262759686	130
+
 
 ### yuanhahah/cls-base-relpos-d-50
 0.522795796	0.855515122	0.638599992	98.03561115	4.177647114	130
@@ -48,3 +73,24 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 
 ### liucong126/cls-base-abs-mres-50
 0.763247907	0.784706771	0.619599998	91.4333396	4.219184637	130
+
+## rc alpha ablation
+### xulijuan/cls-base-colrow-ra200-50
+Train Loss: 5.6337 | Aux Loss: 0.0221 | Base Loss: 1.2189 | Train Acc: 0.6670 | Valid Acc: 0.6198 | train_time: 91.1s | val_time: 4.0s
+Best Accuracy: 0.6214
+empty csv
+
+### jacksisi/cls-base-colrow-tpu-50 bad
+lr=0.00028, lr_aux=4e-05, eta_min=0.0 use_rc_loss=True, rc_alpha=600.0
+
+### ### sinayliu/cls-base-colrow-ra300-50
+lr=0.00028, lr_aux=4e-05, eta_min=0.0
+Train Loss: 7.8943 | Aux Loss: 0.0212 | Base Loss: 1.5333 | Train Acc: 0.5891 | Valid Acc: 0.5678 | train_time: 94.3s | val_time: 4.1s
+epoch_val_acc=0.5679999589920044
+
+###  kernel_id: liucong126/cls-base-colrow-ra100-50
+Train Loss: 3.3367 | Aux Loss: 0.0257 | Base Loss: 0.7626 | Train Acc: 0.7856 | Valid Acc: 0.6472 | train_time: 95.6s | val_time: 4.2s
+
+###  kernel_id: zjl001/cls-base-colrow-mres-50 bad
+img_sizes=[224, 192, 288], lr=0.00028, lr_aux=4e-05, eta_min=0.0 use_rc_loss=True, rc_alpha=600.0
+###  kernel_id: ampere888/cls-base-colrow-ra400-50 bad

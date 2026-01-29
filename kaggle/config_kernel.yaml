@@ -1,17 +1,4 @@
 available_ids:
-- dddd110
-- xx03071425
-- uamadeus
-- jufuchao
-- fzzy123
-- keyongkk
-- ycy1n66
-- jokerking1
-- jiangshuai0210
-- xwj66666
-- xiaoluoalice
-- permanentlove
-- rmoope
 - maoshuwen0415
 - eastwangwei
 - jiangshuai0210
@@ -85,435 +72,220 @@ exhausted_ids:
 - rushly
 - cfy002
 - rqmiraitowa
+- yccwff
+- asssmer
+- huoqiuxia
+- hysz0821
+- kanwenbin
+- robinrainy
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: yccwff
+- id: permanentlove
+  left_time: 23.79391279805555
+  notebooks:
+  - kernel_id: permanentlove/depth-base-colrow-rc200-550
+    total_runs: 7
+    start_time: '2026-01-29 15:11:20'
+    history_ids: []
+    run_id: 5
+    resumed_from: yccwff/depth-base-colrow-rc200-450
+  - kernel_id: permanentlove/depth-base-colrow-rc200-553
+    total_runs: 7
+    start_time: '2026-01-29 15:11:20'
+    history_ids: []
+    run_id: 5
+    resumed_from: yccwff/depth-base-colrow-rc200-453
+- id: rmoope
+  left_time: 23.876550724999994
+  notebooks:
+  - kernel_id: rmoope/depth-base-colrow-rc200-551
+    total_runs: 7
+    start_time: '2026-01-29 15:08:44'
+    history_ids: []
+    run_id: 5
+    resumed_from: asssmer/depth-base-colrow-rc200-451
+  - kernel_id: rmoope/depth-base-colrow-rc200-552
+    total_runs: 7
+    start_time: '2026-01-29 15:08:44'
+    history_ids: []
+    run_id: 5
+    resumed_from: asssmer/depth-base-colrow-rc200-452
+- id: xwj66666
+  left_time: 21.498388819444443
   notebooks: []
-  left_time: -16.611818542222224
-- id: asssmer
+- id: jiangshuai0210
+  left_time: 21.099672472222224
   notebooks: []
-  left_time: -16.583665258611113
-- id: huoqiuxia
-  notebooks: []
-  left_time: -1.75390559888889
-- id: hysz0821
-  notebooks: []
-  left_time: -1.5957773738888825
-- id: kanwenbin
-  notebooks: []
-  left_time: -1.9876992194444405
-- id: zht121233
-  notebooks: []
-  left_time: 27.90811298
+- id: jokerking1
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: jokerking1/cls-base-rope-d-517
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: srmmmm/cls-base-rope-d-417
+  - kernel_id: jokerking1/cls-base-rope-d-515
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: rqmiraitowa/cls-base-rope-d-415
+- id: ycy1n66
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: ycy1n66/cls-base-rope-d-518
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: srmmmm/cls-base-rope-d-418
+  - kernel_id: ycy1n66/cls-base-rope-d-516
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: houwen/cls-base-rope-d-416
+- id: keyongkk
+  left_time: 28.137433010555558
+  notebooks:
+  - kernel_id: keyongkk/cls-base-none-d-518
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: houwen/cls-base-none-d-418
+- id: fzzy123
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: fzzy123/cls-base-colrow-d-516
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: yangyangchengcheng/cls-base-colrow-d-416
+  - kernel_id: fzzy123/cls-base-colrow-d-417
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 4
+    resumed_from: ttzyty/cls-base-colrow-d-317
+- id: jufuchao
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: jufuchao/cls-base-abs-d-515
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: yangyangchengcheng/cls-base-abs-d-415
+  - kernel_id: jufuchao/cls-base-colrow-d-518
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: ttzyty/cls-base-colrow-d-418
+- id: uamadeus
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: uamadeus/cls-base-abs-d-516
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: kanwenbin/cls-base-abs-d-416
+  - kernel_id: uamadeus/cls-base-abs-d-517
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: kanwenbin/cls-base-abs-d-417
+- id: xx03071425
+  left_time: 29.60128365277778
+  notebooks:
+  - kernel_id: xx03071425/cls-base-none-d-515
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: hysz0821/cls-base-none-d-415
+  - kernel_id: xx03071425/cls-base-colrow-d-515
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: top1pcl/cls-base-colrow-d-415
+- id: dddd110
+  left_time: 29.20317224138889
+  notebooks:
+  - kernel_id: dddd110/cls-base-none-d-517
+    total_runs: 8
+    start_time: '2026-01-29 10:48:57'
+    history_ids: []
+    run_id: 5
+    resumed_from: huoqiuxia/cls-base-none-d-417
+  - kernel_id: dddd110/cls-base-none-d-516
+    total_runs: 8
+    start_time: '2026-01-29 10:59:21'
+    history_ids: []
+    run_id: 5
+    resumed_from: hysz0821/cls-base-none-d-416
+- id: xiaoluoalice
+  notebooks:
+  - kernel_id: xiaoluoalice/seg-base-none-d-450
+    total_runs: 6
+    start_time: '2026-01-29 11:17:32'
+    history_ids:
+    - cycyxcy/seg-base-none-d-50
+    run_id: 4
+    resumed_from: lemonlaila/seg-base-none-d-350
+  - kernel_id: xiaoluoalice/seg-base-none-d-351
+    total_runs: 5
+    start_time: '2026-01-29 11:17:32'
+    history_ids: []
+    run_id: 3
+    resumed_from: lemonlaila/seg-base-none-d-251
+  left_time: 29.536796879999997
 - id: yinmengmeng
   notebooks:
-  - kernel_id: yinmengmeng/cls-base-abs-d-518
-    run_id: 5
+  - kernel_id: yinmengmeng/cls-base-abs-d-718
+    run_id: 7
     total_runs: 8
-    start_time: '2026-01-28 09:48:48'
-    resumed_from: top1pcl/cls-base-abs-d-418
+    start_time: '2026-01-29 12:05:35'
+    resumed_from: yinmengmeng/cls-base-abs-d-618
     history_ids:
-    - cshlhs/cls-base-abs-d-18
-    - cshlhs/cls-base-abs-d-118
-    - chengchi1007/cls-base-abs-d-218
-    - chengchi1007/cls-base-abs-d-318
-  left_time: 30
+    - yinmengmeng/cls-base-abs-d-518
+  left_time: 1.8563596466666692
 finished_notebooks:
-- kernel_id: huoqiuxia/depth-base-none-lr7e-5-950
-  total_runs: 10
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - yangjiamin/depth-base-none-lr7e-5-650
-  - zhoujiahui0199/depth-base-none-lr7e-5-750
-  - zhoujiahui0199/depth-base-none-lr7e-5-850
-- kernel_id: huoqiuxia/depth-base-none-d-751
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - zjl001/depth-base-none-d-451
-  - luanjing/depth-base-none-d-551
-  - luanjing/depth-base-none-d-651
-- kernel_id: hysz0821/depth-base-none-d-753
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - smartchaochao/depth-base-none-d-453
-  - zongjiaxin/depth-base-none-d-553
-  - zongjiaxin/depth-base-none-d-653
-- kernel_id: hysz0821/depth-base-colrow-d-752
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - zzr123123/depth-base-colrow-d-452
-  - zzr123123/depth-base-colrow-d-552
-  - zzr123123/depth-base-colrow-d-652
-- kernel_id: kanwenbin/depth-base-abs-d-750
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - denghaimeng/depth-base-abs-d-450
-  - zjl001/depth-base-abs-d-550
-  - zjl001/depth-base-abs-d-650
-- kernel_id: kanwenbin/depth-base-abs-d-753
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - cycyxcy/depth-base-abs-d-453
-  - smartchaochao/depth-base-abs-d-553
-  - smartchaochao/depth-base-abs-d-653
-- kernel_id: yangyangchengcheng/depth-base-none-d-752
-  total_runs: 8
-  start_time: '2026-01-27 12:19:43'
-  history_ids:
-  - zjl001/depth-base-none-d-452
-  - zongjiaxin/depth-base-none-d-552
-  - zongjiaxin/depth-base-none-d-652
-- kernel_id: houwen/depth-base-abs-d-752
-  total_runs: 8
-  start_time: '2026-01-27 12:19:43'
-  history_ids:
-  - zhoujiahui0199/depth-base-abs-d-452
-  - smartchaochao/depth-base-abs-d-552
-  - smartchaochao/depth-base-abs-d-652
-- kernel_id: ttzyty/depth-base-colrow-d-750
-  total_runs: 8
-  start_time: '2026-01-27 12:19:43'
-  history_ids:
-  - zongjiaxin/depth-base-colrow-d-450
-  - yangjiamin/depth-base-colrow-d-550
-  - yangjiamin/depth-base-colrow-d-650
-- kernel_id: ttzyty/depth-base-abs-d-751
-  total_runs: 8
-  start_time: '2026-01-27 12:19:43'
-  history_ids:
-  - jjjerry12138/depth-base-abs-d-451
-  - zjl001/depth-base-abs-d-551
-  - zjl001/depth-base-abs-d-651
-- kernel_id: houwen/depth-base-colrow-d-751
-  total_runs: 8
-  start_time: '2026-01-27 12:32:07'
-  history_ids:
-  - denghaimeng/depth-base-colrow-d-451
-  - yangjiamin/depth-base-colrow-d-551
-  - yangjiamin/depth-base-colrow-d-651
-- kernel_id: srmmmm/depth-base-colrow-d-753
-  total_runs: 8
-  start_time: '2026-01-27 12:32:07'
-  history_ids:
-  - smartchaochao/depth-base-colrow-d-453
-  - zzr123123/depth-base-colrow-d-553
-  - zzr123123/depth-base-colrow-d-653
-- kernel_id: srmmmm/depth-base-rope-d-750
-  total_runs: 8
-  start_time: '2026-01-27 12:32:07'
-  history_ids:
-  - zzr123123/depth-base-rope-d-450
-  - denghaimeng/depth-base-rope-d-550
-  - denghaimeng/depth-base-rope-d-650
-- kernel_id: top1pcl/depth-base-rope-d-751
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - zongjiaxin/depth-base-rope-d-451
-  - denghaimeng/depth-base-rope-d-551
-  - denghaimeng/depth-base-rope-d-651
-- kernel_id: top1pcl/depth-base-rope-d-752
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - yangjiamin/depth-base-rope-d-452
-  - jjjerry12138/depth-base-rope-d-552
-  - jjjerry12138/depth-base-rope-d-652
-- kernel_id: yangyangchengcheng/depth-base-rope-d-753
-  total_runs: 8
-  start_time: '2026-01-27 12:04:28'
-  history_ids:
-  - yangjiamin/depth-base-rope-d-453
-  - jjjerry12138/depth-base-rope-d-553
-  - jjjerry12138/depth-base-rope-d-653
-- kernel_id: yccwff/depth-base-colrow-rc200-450
+- kernel_id: keyongkk/seg-base-abs-d-451
   total_runs: 5
-  start_time: '2026-01-27 22:21:12'
+  start_time: '2026-01-29 12:05:35'
   history_ids:
-  - jcy666/depth-base-colrow-rc200-50
-  - luanjing/depth-base-colrow-rc200-150
-  - luanjing/depth-base-colrow-rc200-250
-  - yccwff/depth-base-colrow-rc200-350
-- kernel_id: yccwff/depth-base-colrow-rc200-453
+  - huoqiuxia/seg-base-abs-d-351
+- kernel_id: yinmengmeng/seg-base-abs-d-450
   total_runs: 5
-  start_time: '2026-01-27 22:21:12'
+  start_time: '2026-01-29 12:16:46'
   history_ids:
-  - starysinger/depth-base-colrow-rc200-53
-  - ssss7777/depth-base-colrow-rc200-153
-  - ssss7777/depth-base-colrow-rc200-253
-  - yccwff/depth-base-colrow-rc200-353
-- kernel_id: asssmer/depth-base-colrow-rc200-451
+  - rqmiraitowa/seg-base-abs-d-350
+- kernel_id: xwj66666/seg-base-rope-d-450
   total_runs: 5
-  start_time: '2026-01-27 22:33:31'
+  start_time: '2026-01-29 14:57:16'
   history_ids:
-  - jcy666/depth-base-colrow-rc200-51
-  - zhoujiahui0199/depth-base-colrow-rc200-151
-  - zhoujiahui0199/depth-base-colrow-rc200-251
-  - asssmer/depth-base-colrow-rc200-351
-- kernel_id: asssmer/depth-base-colrow-rc200-452
+  - cfy002/seg-base-rope-d-350
+- kernel_id: xwj66666/seg-base-rope-d-451
   total_runs: 5
-  start_time: '2026-01-27 22:45:04'
+  start_time: '2026-01-29 14:57:16'
   history_ids:
-  - starysinger/depth-base-colrow-rc200-52
-  - ssss7777/depth-base-colrow-rc200-152
-  - ssss7777/depth-base-colrow-rc200-252
-  - asssmer/depth-base-colrow-rc200-352
-error_notebooks:
-- kernel_id: zht121233/seg-base-none-d-351
-  total_runs: 8
-  start_time: '2026-01-28 06:19:09'
+  - cfy002/seg-base-rope-d-351
+- kernel_id: jiangshuai0210/seg-base-colrow-d-450
+  total_runs: 5
+  start_time: '2026-01-29 14:57:16'
   history_ids:
-  - cycyxcy/seg-base-none-d-51
-  - lemonlaila/seg-base-none-d-151
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-none-d-517
-  total_runs: 8
-  start_time: '2026-01-28 09:13:49'
+  - rushly/seg-base-colrow-d-350
+- kernel_id: jiangshuai0210/seg-base-colrow-d-451
+  total_runs: 5
+  start_time: '2026-01-29 14:57:16'
   history_ids:
-  - elong1202/cls-base-none-d-17
-  - elong1202/cls-base-none-d-117
-  - zhikaiwang/cls-base-none-d-217
-  - zhikaiwang/cls-base-none-d-317
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-none-d-516
-  total_runs: 8
-  start_time: '2026-01-28 09:13:49'
-  history_ids:
-  - cheaterchow/cls-base-none-d-16
-  - cheaterchow/cls-base-none-d-116
-  - chenhao1213/cls-base-none-d-216
-  - chenhao1213/cls-base-none-d-316
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: hysz0821/cls-base-none-d-515
-  total_runs: 8
-  start_time: '2026-01-28 09:13:49'
-  history_ids:
-  - cheaterchow/cls-base-none-d-15
-  - cheaterchow/cls-base-none-d-115
-  - zhikaiwang/cls-base-none-d-215
-  - zhikaiwang/cls-base-none-d-315
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: top1pcl/cls-base-colrow-d-515
-  total_runs: 8
-  start_time: '2026-01-28 09:37:14'
-  history_ids:
-  - tangjudge/cls-base-colrow-d-15
-  - tangjudge/cls-base-colrow-d-115
-  - ywhicher/cls-base-colrow-d-215
-  - ywhicher/cls-base-colrow-d-315
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/seg-base-none-d-450
-  total_runs: 6
-  start_time: '2026-01-28 09:48:48'
-  history_ids:
-  - cycyxcy/seg-base-none-d-50
-  - lemonlaila/seg-base-none-d-250
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-abs-d-516
-  total_runs: 8
-  start_time: '2026-01-28 09:48:48'
-  history_ids:
-  - cq1234/cls-base-abs-d-16
-  - cq1234/cls-base-abs-d-116
-  - ywhicher/cls-base-abs-d-216
-  - ywhicher/cls-base-abs-d-316
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: kanwenbin/cls-base-abs-d-517
-  total_runs: 8
-  start_time: '2026-01-28 09:48:48'
-  history_ids:
-  - cshlhs/cls-base-abs-d-17
-  - cshlhs/cls-base-abs-d-117
-  - chenhao1213/cls-base-abs-d-217
-  - chenhao1213/cls-base-abs-d-317
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: yangyangchengcheng/cls-base-abs-d-515
-  total_runs: 8
-  start_time: '2026-01-28 09:48:48'
-  history_ids:
-  - cq1234/cls-base-abs-d-15
-  - cq1234/cls-base-abs-d-115
-  - chengchi1007/cls-base-abs-d-215
-  - chengchi1007/cls-base-abs-d-315
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: ttzyty/cls-base-colrow-d-518
-  total_runs: 8
-  start_time: '2026-01-28 09:48:48'
-  history_ids:
-  - b201xiaoli/cls-base-colrow-d-18
-  - b201xiaoli/cls-base-colrow-d-118
-  - yyyyjay/cls-base-colrow-d-218
-  - yyyyjay/cls-base-colrow-d-318
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-colrow-d-516
-  total_runs: 8
-  start_time: '2026-01-28 10:00:51'
-  history_ids:
-  - tangjudge/cls-base-colrow-d-16
-  - tangjudge/cls-base-colrow-d-116
-  - yyyyjay/cls-base-colrow-d-216
-  - yyyyjay/cls-base-colrow-d-316
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-colrow-d-417
-  total_runs: 8
-  start_time: '2026-01-28 10:00:51'
-  history_ids:
-  - b201xiaoli/cls-base-colrow-d-17
-  - b201xiaoli/cls-base-colrow-d-117
-  - qinghui9527/cls-base-colrow-d-217
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: huoqiuxia/seg-base-abs-d-351
-  total_runs: 8
-  start_time: '2026-01-28 04:02:27'
-  history_ids:
-  - xuwenhui123/seg-base-abs-d-51
-  - xuwenhui123/seg-base-abs-d-151
-  error_detail: 'Traceback (most recent call last): File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connectionpool.py",
-    line 773, in urlopen self._prepare_proxy(conn) File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connectionpool.py",
-    line 1042, in _prepare_proxy conn.connect() File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connection.py",
-    line 790, in connect sock_and_verified = _ssl_wrap_socket_and_match_hostname(
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connection.py",
-    line 969, in _ssl_wrap_socket_and_match_hostname ssl_sock = ssl_wrap_socket( ^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/ssl_.py",
-    line 480, in ssl_wrap_socket ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls,
-    server_hostname) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/ssl_.py",
-    line 524, in _ssl_wrap_socket_impl return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py",
-    line 455, in wrap_socket return self.sslsocket_class._create( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py", line 1041, in
-    _create self.do_handshake() File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py",
-    line 1319, in do_handshake self._sslobj.do_handshake() ConnectionResetError: [Errno
-    104] Connection reset by peer During handling of the above exception, another
-    exception occurred: Traceback (most recent call last): File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/requests/adapters.py",
-    line 667, in send resp = conn.urlopen( ^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connectionpool.py",
-    line 841, in urlopen retries = retries.increment( ^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/retry.py",
-    line 474, in increment raise reraise(type(error), error, _stacktrace) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/util.py",
-    line 38, in reraise raise value.with_traceback(tb) File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connectionpool.py",
-    line 773, in urlopen self._prepare_proxy(conn) File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connectionpool.py",
-    line 1042, in _prepare_proxy conn.connect() File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connection.py",
-    line 790, in connect sock_and_verified = _ssl_wrap_socket_and_match_hostname(
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/connection.py",
-    line 969, in _ssl_wrap_socket_and_match_hostname ssl_sock = ssl_wrap_socket( ^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/ssl_.py",
-    line 480, in ssl_wrap_socket ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls,
-    server_hostname) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/urllib3/util/ssl_.py",
-    line 524, in _ssl_wrap_socket_impl return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py",
-    line 455, in wrap_socket return self.sslsocket_class._create( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py", line 1041, in
-    _create self.do_handshake() File "/home/liucong/micromamba/envs/vggt/lib/python3.12/ssl.py",
-    line 1319, in do_handshake self._sslobj.do_handshake() urllib3.exceptions.ProtocolError:
-    (''Connection aborted.'', ConnectionResetError(104, ''Connection reset by peer''))
-    During handling of the above exception, another exception occurred: Traceback
-    (most recent call last): File "/home/liucong/micromamba/envs/vggt/bin/kaggle",
-    line 5, in <module> from kaggle.cli import main File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kaggle/__init__.py",
-    line 10, in <module> api.authenticate() File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kaggle/api/kaggle_api_extended.py",
-    line 672, in authenticate if self._authenticate_with_access_token(): ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kaggle/api/kaggle_api_extended.py",
-    line 732, in _authenticate_with_access_token username = self._introspect_token(access_token)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kaggle/api/kaggle_api_extended.py",
-    line 773, in _introspect_token response = kaggle.security.oauth_client.introspect_token(request)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kagglesdk/security/services/oauth_service.py",
-    line 44, in introspect_token return self._client.call("security.OAuthService",
-    "IntrospectToken", request, IntrospectTokenResponse) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/kagglesdk/kaggle_http_client.py",
-    line 96, in call http_response = self._session.send(http_request, **settings)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/requests/sessions.py",
-    line 703, in send r = adapter.send(request, **kwargs) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/liucong/micromamba/envs/vggt/lib/python3.12/site-packages/requests/adapters.py",
-    line 682, in send raise ConnectionError(err, request=request) requests.exceptions.ConnectionError:
-    (''Connection aborted.'', ConnectionResetError(104, ''Connection reset by peer''))'
-- kernel_id: houwen/cls-base-none-d-518
-  total_runs: 8
-  start_time: '2026-01-28 10:34:37'
-  history_ids:
-  - elong1202/cls-base-none-d-18
-  - elong1202/cls-base-none-d-118
-  - qinghui9527/cls-base-none-d-218
-  - qinghui9527/cls-base-none-d-318
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: srmmmm/cls-base-rope-d-518
-  total_runs: 8
-  start_time: '2026-01-28 11:06:33'
-  history_ids:
-  - zhuangminghui/cls-base-rope-d-18
-  - zhuangminghui/cls-base-rope-d-118
-  - quepimao/cls-base-rope-d-218
-  - quepimao/cls-base-rope-d-318
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-rope-d-516
-  total_runs: 8
-  start_time: '2026-01-28 11:17:11'
-  history_ids:
-  - autune/cls-base-rope-d-16
-  - autune/cls-base-rope-d-116
-  - quepimao/cls-base-rope-d-216
-  - quepimao/cls-base-rope-d-316
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/cls-base-rope-d-517
-  total_runs: 8
-  start_time: '2026-01-28 11:48:43'
-  history_ids:
-  - zhuangminghui/cls-base-rope-d-17
-  - zhuangminghui/cls-base-rope-d-117
-  - wzywzy1227/cls-base-rope-d-217
-  - wzywzy1227/cls-base-rope-d-317
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: rqmiraitowa/cls-base-rope-d-515
-  total_runs: 8
-  start_time: '2026-01-28 11:48:43'
-  history_ids:
-  - autune/cls-base-rope-d-15
-  - autune/cls-base-rope-d-115
-  - wzywzy1227/cls-base-rope-d-215
-  - wzywzy1227/cls-base-rope-d-315
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: rqmiraitowa/seg-base-colrow-d-450
-  total_runs: 8
-  start_time: '2026-01-28 14:58:53'
-  history_ids:
-  - jinzhanbo/seg-base-colrow-d-50
-  - jinzhanbo/seg-base-colrow-d-150
-  - rushly/seg-base-colrow-d-250
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/seg-base-colrow-d-451
-  total_runs: 8
-  start_time: '2026-01-28 14:58:53'
-  history_ids:
-  - jinzhanbo/seg-base-colrow-d-51
-  - jinzhanbo/seg-base-colrow-d-151
-  - rushly/seg-base-colrow-d-251
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: rqmiraitowa/seg-base-rope-d-450
-  total_runs: 8
-  start_time: '2026-01-28 15:40:12'
-  history_ids:
-  - geminiyy/seg-base-rope-d-50
-  - geminiyy/seg-base-rope-d-150
-  - cfy002/seg-base-rope-d-250
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: rqmiraitowa/seg-base-rope-d-451
-  total_runs: 8
-  start_time: '2026-01-28 15:50:34'
-  history_ids:
-  - geminiyy/seg-base-rope-d-51
-  - geminiyy/seg-base-rope-d-151
-  - cfy002/seg-base-rope-d-251
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
-- kernel_id: zht121233/seg-base-abs-d-450
-  total_runs: 8
-  start_time: '2026-01-28 16:11:00'
-  history_ids:
-  - xuwenhui123/seg-base-abs-d-50
-  - xuwenhui123/seg-base-abs-d-150
-  - rqmiraitowa/seg-base-abs-d-250
-  error_detail: '404 Client Error: Not Found for url: https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus'
+  - rushly/seg-base-colrow-d-351
+error_notebooks: []

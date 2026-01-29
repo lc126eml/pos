@@ -25,7 +25,8 @@ import logging
 from typing import List, Tuple, Union
 
 from depth.depth_loss import compute_scale_and_shift
-from depth.depth_anything.dpt import DPTHead as DepthAnythingDPTHead
+from depth.depth_head import DPTHead as DepthAnythingDPTHead
+# from depth.depth_anything.dpt import DPTHead as DepthAnythingDPTHead
 
 LOCAL_TIMM = os.environ.get("LOCAL_TIMM_DIR", "/home/liucong/codes/pos/timm/pytorch-image-models-main")
 if os.path.isdir(LOCAL_TIMM):
@@ -49,7 +50,7 @@ data_root_default = BASE_PATH
 
 # from utils import wait_for_python_gpu_processes
 
-from depth.hypersim_simple_dataset import HyperSim_Simple
+from depth.hypersim_simple_dataset import HyperSimSimple
 from depth.aug import TrainDepthAug, EvalDepthPreprocess, EvalDepthPreprocessNoResize
 
 from core.priority_lock import PriorityLock
@@ -65,7 +66,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
@@ -87,7 +88,7 @@ args = SimpleNamespace(
     overlap=0,
     seed=60,
     val_steps=None,
-    use_rc_loss=True,
+    use_rc_loss=False,
     loss_type="smooth_l1",
     rc_alpha=100.0,
     # warmup_steps_for_aux=100,
@@ -114,6 +115,8 @@ args = SimpleNamespace(
     eval_prescale=1.07,
     train_depth_valid_thresh=0.1,
     eval_depth_valid_thresh=0.01,
+    min_valid_pixels=0,
+    loss_det_threshold=1e-6,
     use_sliding_window=False,
     sw_window_size=None,
     sw_overlap=0.25,
@@ -302,9 +305,9 @@ logger.info(output_dir)
 # =================================================================================
 logger.info("Creating datasets...")
 try:
-    train_dataset = HyperSim_Simple(
+    train_dataset = HyperSimSimple(
         split='train',
-        ROOT=f'{args.data_root}/hypersim_processed/train',
+        roots=f'{args.data_root}/hypersim_processed/train',
         resolution=(TRAIN_SIZE[1], TRAIN_SIZE[0]),
         num_views=1,
         pair_transform=TrainDepthAug(
@@ -315,9 +318,9 @@ try:
             depth_valid_thresh=args.train_depth_valid_thresh,
         ),
     )
-    valid_dataset = HyperSim_Simple(
+    valid_dataset = HyperSimSimple(
         split='test',
-        ROOT=f'{args.data_root}/hypersim_processed/test',
+        roots=f'{args.data_root}/hypersim_processed/test',
         resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
         num_views=1,
         seed=777,
@@ -700,6 +703,9 @@ criterion = MonocularDepthHybridLoss(
     reduction="batch-based",
     eps=1e-8,
     silog_on_aligned=silog_on_aligned,
+    det_threshold=getattr(args, "loss_det_threshold", 1e-6),
+    min_valid_pixels=getattr(args, "min_valid_pixels", 0),
+    debug=getattr(args, "debug_loss_stats", False),
 )
 
 
@@ -1335,7 +1341,7 @@ if args.val:
     #         args.final_sw_overlap,
     #         args.patch_size,
     #     )
-    # final_valid_dataset = HyperSim_Simple(
+    # final_valid_dataset = HyperSimSimple(
     #     split='test',
     #     ROOT=f'{args.data_root}/hypersim_processed/test',
     #     resolution=(args.final_eval_size[1], args.final_eval_size[0]),

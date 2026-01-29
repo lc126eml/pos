@@ -1,20 +1,20 @@
-task: seg
-id: zht121233
+task: depth
+id: permanentlove
 pos_type: null
-method: abs
+method: colrow
 model_size: base
-run_id: 4
-desc: d
+run_id: 5
+desc: rc200
 is_private: false
 dataset_sources: null
-kernel_sources: rqmiraitowa/seg-base-abs-d-350
+kernel_sources: yccwff/depth-base-colrow-rc200-453
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 50
+seed: 53
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

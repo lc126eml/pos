@@ -41,7 +41,7 @@ available_ids:
 - rushly
 - cfy002
 - rqmiraitowa
-- zht121233
+- robinrainy
 - yinmengmeng
 - dddd110
 - xx03071425
@@ -66,56 +66,38 @@ exhausted_ids:
 - sinayliu
 running_nodes:
 - id: jacksisi
-  left_time: 12
-  notebooks:
-  - kernel_id: jacksisi/depth-base-none-tpu-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-28 16:12:20'
-    resumed_from: null
-    history_ids: []
+  left_time: 3.570831259166667
+  notebooks: null
 - id: wenyangtang
   left_time: 12
-  notebooks:
-  - kernel_id: wenyangtang/depth-base-none-tpu-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-28 16:08:06'
-    resumed_from: null
-    history_ids: []
+  notebooks: null
 - id: cycyxcy
-  left_time: 10
-  notebooks:
-  - kernel_id: cycyxcy/cls-base-colrow-tpu-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-28 13:31:36'
-    resumed_from: null
-    history_ids: []
+  left_time: 2.3091645925
+  notebooks: []
 - id: jjjerry12138
-  left_time: 12
+  left_time: 4.549442370277778
   notebooks: []
 - id: sinayliu
-  left_time: 9.125966971666667
-  notebooks: []
-- id: zjl001
-  left_time: 2.8219920372222216
+  left_time: 1.7059648975000004
   notebooks: []
 - id: xulijuan
   left_time: 10.86338092611111
   notebooks: []
 - id: liucong126
-  left_time: 5.12171597111111
+  left_time: -2.2913416586111124
+  notebooks: []
+- id: zjl001
+  left_time: 6
   notebooks: null
 - id: ampere888
-  left_time: 11
-  notebooks: null
+  left_time: 3.594442370277778
+  notebooks: []
 - id: pycjn666
   left_time: 12
-  notebooks: null
+  notebooks: []
 - id: xulin5522
-  left_time: 20
-  notebooks: null
+  left_time: 12.904442370277778
+  notebooks: []
 - id: cdong121
   left_time: 10.889214259444444
   notebooks: []
@@ -130,10 +112,10 @@ running_nodes:
   notebooks: []
 - id: sollasi
   left_time: 20
-  notebooks: null
+  notebooks: []
 - id: qqmail4092
   left_time: 20
-  notebooks: null
+  notebooks: []
 - id: cheaterchow
   left_time: 20
   notebooks: []
@@ -143,33 +125,14 @@ running_nodes:
 - id: cshlhs
   left_time: 12.007825370555555
   notebooks: []
-finished_notebooks:
-- kernel_id: zjl001/cls-base-rope-tpu-53
-  total_runs: 1
-  start_time: '2026-01-27 22:04:40'
-  history_ids: []
-- kernel_id: jacksisi/cls-base-abs-tpu-53
-  total_runs: 1
-  start_time: '2026-01-27 22:06:59'
-  history_ids: []
-- kernel_id: xulijuan/cls-base-abs-tpu-52
-  total_runs: 1
-  start_time: '2026-01-27 22:07:09'
-  history_ids: []
-- kernel_id: wenyangtang/cls-base-abs-tpu-51
-  total_runs: 1
-  start_time: '2026-01-27 22:07:30'
-  history_ids: []
-- kernel_id: cdong121/cls-base-none-tpu-53
-  total_runs: 1
-  start_time: '2026-01-27 22:08:42'
-  history_ids: []
-- kernel_id: ohyeah00/cls-base-none-tpu-52
-  total_runs: 1
-  start_time: '2026-01-27 22:08:48'
-  history_ids: []
-- kernel_id: asdsad0000/cls-base-none-tpu-51
-  total_runs: 1
-  start_time: '2026-01-27 22:08:54'
-  history_ids: []
+- id: robinrainy
+  left_time: 20
+  notebooks:
+  - kernel_id: robinrainy/depth-small-none-tpu8c-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-29 14:56:07'
+    resumed_from: null
+    history_ids: []
+finished_notebooks: null
 error_notebooks: null

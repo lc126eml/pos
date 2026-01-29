@@ -177,9 +177,31 @@ def _move_error(notebook, error_notebooks, detail=None):
     if detail:
         cleaned = re.sub(r"\s+", " ", str(detail)).strip()
         errored["error_detail"] = cleaned
-    for key in ("run_id", "resumed_from"):
-        errored.pop(key, None)
     error_notebooks.append(errored)
+
+
+def _update_left_time(node, notebook, now, is_tpu, verbose):
+    start_time = _parse_time(notebook.get("start_time"))
+    before_left = float(node.get("left_time", 20 if is_tpu else 30))
+    if start_time is None:
+        if verbose:
+            logging.warning(
+                "Missing start_time for %s; skipping left_time update",
+                notebook.get("kernel_id"),
+            )
+        return before_left, before_left, 0.0
+    elapsed_hr = (now - start_time).total_seconds() / 3600
+    left_time = before_left - elapsed_hr
+    node["left_time"] = left_time
+    if verbose:
+        logging.info(
+            "Updated left_time for %s: %.2f -> %.2f (elapsed %.2f h)",
+            node.get("id"),
+            before_left,
+            left_time,
+            elapsed_hr,
+        )
+    return before_left, left_time, elapsed_hr
 
 
 def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids, is_tpu):
@@ -196,7 +218,7 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
             if notebook in node_notebooks:
                 node_notebooks.remove(notebook)
                 node["notebooks"] = node_notebooks
-            if not node_notebooks:
+            if not node_notebooks and float(node.get("left_time", 0)) <= 0:
                 running_nodes.remove(node)
                 exhausted_ids.append(node.get("id"))
             return candidate
@@ -212,7 +234,7 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
     if notebook in node_notebooks:
         node_notebooks.remove(notebook)
         node["notebooks"] = node_notebooks
-    if not node_notebooks:
+    if not node_notebooks and float(node.get("left_time", 0)) <= 0:
         running_nodes.remove(node)
         exhausted_ids.append(node.get("id"))
     return target_node
@@ -307,9 +329,13 @@ def main():
                             continue
                         if status == "error":
                             logging.error(detail)
-                            _move_error(notebook, error_notebooks, detail=detail)
-                            notebooks.remove(notebook)
-                            changed = True
+                            # _, left_time, _ = _update_left_time(node, notebook, now, is_tpu, verbose)
+                            # _move_error(notebook, error_notebooks, detail=detail)
+                            # notebooks.remove(notebook)
+                            # if not notebooks and left_time <= 0:
+                            #     nodes.remove(node)
+                            #     exhausted.append(node.get("id"))
+                            # changed = True
                             continue
 
                         if status == "finished":
@@ -326,27 +352,7 @@ def main():
                             notebook["history_ids"] = history_ids
                             notebook["resumed_from"] = kernel_id
 
-                            start_time = _parse_time(notebook.get("start_time"))
-                            before_left = float(node.get("left_time", 20 if is_tpu else 30))
-                            if start_time is None:
-                                if verbose:
-                                    logging.warning(
-                                        "Missing start_time for %s; skipping left_time update",
-                                        notebook.get("kernel_id"),
-                                    )
-                                left_time = before_left
-                            else:
-                                elapsed_hr = (now - start_time).total_seconds() / 3600
-                                left_time = before_left - elapsed_hr
-                                node["left_time"] = left_time
-                                if verbose:
-                                    logging.info(
-                                        "Updated left_time for %s: %.2f -> %.2f (elapsed %.2f h)",
-                                        node.get("id"),
-                                        before_left,
-                                        left_time,
-                                        elapsed_hr,
-                                    )
+                            _, left_time, _ = _update_left_time(node, notebook, now, is_tpu, verbose)
 
                             total_runs = int(notebook.get("total_runs", 0))
                             if notebook["run_id"] >= total_runs:

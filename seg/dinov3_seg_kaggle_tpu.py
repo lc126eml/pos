@@ -1093,15 +1093,16 @@ def main():
                 running_loss_t += loss.detach() * valid_pixels
                 if args.use_rc_loss:
                     base_loss_t += base_loss.detach() * valid_pixels
-
+                train_total_t = train_total_t.clamp_min(1)
+                train_samples_t = train_samples_t.clamp_min(1)
                 if step % log_interval == 0:
                     _xla_sync()
                     if IS_MASTER:
-                        avg_loss = (running_loss_t / train_total_t.clamp_min(1)).float().item()
-                        avg_acc = (train_correct_t / train_total_t.clamp_min(1)).float().item()
+                        avg_loss = (running_loss_t / train_total_t).float().item()
+                        avg_acc = (train_correct_t / train_total_t).float().item()
                         msg = f"Epoch {epoch+1}/{args.epochs} step {step}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
                         if aux_loss is not None:
-                            avg_aux = (aux_loss_sum_t / train_samples_t.clamp_min(1)).float().item()
+                            avg_aux = (aux_loss_sum_t / train_samples_t).float().item()
                             msg += f" aux={avg_aux:.4f}"
                         if args.show_peak_gpu_mem:
                             info = _tpu_info_mem()
@@ -1184,8 +1185,8 @@ def main():
             epoch_val_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
 
             epoch_val_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
-            epoch_train_acc = (train_correct_t / train_total_t.clamp_min(1)).float().item()
-            epoch_train_loss = (running_loss_t / train_total_t.clamp_min(1)).float().item()
+            epoch_train_acc = (train_correct_t / train_total_t).float().item()
+            epoch_train_loss = (running_loss_t / train_total_t).float().item()
 
             improved_miou = epoch_val_miou > best_miou
             if improved_miou:
@@ -1198,8 +1199,8 @@ def main():
                 logger.info("Step %s Summary:", step)
 
                 if args.use_rc_loss:
-                    epoch_aux_loss = (aux_loss_sum_t / train_samples_t.clamp_min(1)).float().item()
-                    epoch_base_loss = (base_loss_t / train_total_t.clamp_min(1)).float().item()
+                    epoch_aux_loss = (aux_loss_sum_t / train_samples_t).float().item()
+                    epoch_base_loss = (base_loss_t / train_total_t).float().item()
                     logger.info(
                         "  Train Loss: %.4f | Aux Loss: %.4f | Base Loss: %.4f | Train Acc: %.4f | "
                         "Valid Acc: %.4f | Valid mIoU: %.4f | train_time: %.1fs | val_time: %.1fs",

@@ -1,10 +1,10 @@
 task: depth
-id:   
+id: robinrainy
 pos_type: null # alibi relpos
 method: none # colrow, rope, abs, none
-model_size: base
+model_size: small
 run_id: 0
-desc: tpu
+desc: tpu8c
 # desc_keys: ["img_sizes"]
 is_private: false
 dataset_sources: null
@@ -19,6 +19,9 @@ seed: 50
 simple:
 - resume_bs: true
 - total_run_time_hr: 9.0
+- train: true
+- val: true
+# - rc_alpha: 300
 # - img_sizes: [224, 192, 288]
 # - show_peak_gpu_mem: True
 # - val: false

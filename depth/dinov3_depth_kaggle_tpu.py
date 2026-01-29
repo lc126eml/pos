@@ -16,6 +16,7 @@ import shutil
 import resource
 import urllib.request
 import zipfile
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -299,7 +300,7 @@ def main():
         model_type="dinov3",
         use_abs_pos_emb=False,
         use_rot_pos_emb=False,
-        model_size='base',
+        model_size='small',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
         final_eval_size=(224, 224),
@@ -307,9 +308,9 @@ def main():
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
         batch_size=16,
-        patch_size=16,
-        lr=5e-05,
-        lr_aux=1e-5,
+        patch_size=24,
+        lr=7e-05,
+        lr_aux=1e-6,
         eta_min=1e-7,
         epochs=130,
         break_at_epoch=1,
@@ -328,17 +329,19 @@ def main():
         warmup_steps=3000,
         warmup_ratio=None,
         clip_value=1.0,
-        debug_loss_stats=False,
+        debug_loss_stats=True,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=10,
+        log_interval=100,
         show_peak_gpu_mem=True,
         log_all_ranks=False,
         debug_xla=False,
         debug_val_interval=50,
         debug_val_empty_limit=5,
+        use_bf16=False,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         silog_w=0.0,
+        grad_w=0.5, #0.5
         depth_norm="median",
         ssim_norm_mode="per_image",
         ssim_percentiles=(5.0, 95.0),
@@ -349,6 +352,8 @@ def main():
         eval_prescale=1.07,
         train_depth_valid_thresh=0.1,
         eval_depth_valid_thresh=0.01,
+        min_valid_pixels=100,
+        loss_det_threshold=1e-6,
         use_sliding_window=False,
         sw_window_size=None,
         sw_overlap=0.25,
@@ -369,7 +374,7 @@ def main():
         resume_img_size=False,
         total_run_time_hr=9.0,
         train=True,
-        val=False,
+        val=True,
         final_use_sliding_window=True,
         final_sw_window_size=None,
         final_sw_overlap=0.25,
@@ -430,7 +435,7 @@ def main():
     # =============================================================================
     # Depth losses (from depth/depth_loss.py)
     # =============================================================================
-    from depth.depth_loss import MonocularDepthHybridLoss
+    from depth.depth_loss import MonocularDepthHybridLoss, compute_scale_and_shift
 
     # =============================================================================
     # Depth heads (from depth/depth_head.py)
@@ -472,14 +477,14 @@ def main():
 
     print(f"✅ Success! TPU Rank {RANK} initialized. World size: {WORLD_SIZE}", flush=True)
     
-    use_bf16 = True
-    autocast_dtype = torch.bfloat16
+    use_bf16 = bool(getattr(args, "use_bf16", True))
+    autocast_dtype = torch.bfloat16 if use_bf16 else torch.float32
 
     base_global_batch = 24
     global_batch = args.batch_size * WORLD_SIZE
     lr_scale = min(global_batch / base_global_batch, 16.0)
     args.lr *= lr_scale
-    args.lr_aux *= lr_scale
+    # args.lr_aux *= lr_scale
     
     tpu_workers = getattr(args, "tpu_workers", 0)
     if tpu_workers is None:
@@ -556,15 +561,13 @@ def main():
     
     logger.info("Arguments: %s", args)
     logger.info("Using device: %s", DEVICE)
-    logger.info("Using mixed precision: bfloat16")
     logger.info(
-        "Global batch=%s (per-core=%s, world=%s), lr_scale=%.3f, lr=%.6f, lr_aux=%.6f",
+        "Global batch=%s (per-core=%s, world=%s), lr_scale=%.3f, lr=%.6f",
         global_batch,
         args.batch_size,
         WORLD_SIZE,
         lr_scale,
         args.lr,
-        args.lr_aux,
     )
     # logger.info("Output dir: %s", output_dir)
     logger.info("Subdir: %s", subdir_name)
@@ -584,7 +587,9 @@ def main():
             logger.info("XLA devices: %s", _xla_devices)
 
     def _autocast():
-        return torch.autocast("xla", dtype=autocast_dtype)
+        if use_bf16:
+            return torch.autocast("xla", dtype=autocast_dtype)
+        return nullcontext()
 
     def _master_print(msg):
         try:
@@ -893,6 +898,8 @@ def main():
             with torch.autocast("xla", enabled=False):
                 dpt_feats_fp32 = [f.float() for f in features]
                 pred_depths = decoder(dpt_feats_fp32, patch_h=patch_h, patch_w=patch_w)
+                if IS_MASTER:
+                    print("decoder features", int(torch.isnan(pred_depths).sum().item()))
             if pred_depths.dim() == 3:
                 pred_depths = pred_depths.unsqueeze(1)
         else:
@@ -981,7 +988,7 @@ def main():
         raise ValueError(f"Unsupported depth_eval_mode='{args.depth_eval_mode}'.")
     
     l1_w = 1.0
-    grad_w = 0.5
+    grad_w = args.grad_w #0.5
     silog_w = args.silog_w
     silog_on_aligned = False
     criterion = MonocularDepthHybridLoss(
@@ -993,6 +1000,9 @@ def main():
         reduction="batch-based",
         eps=1e-8,
         silog_on_aligned=silog_on_aligned,
+        det_threshold=getattr(args, "loss_det_threshold", 1e-6),
+        min_valid_pixels=getattr(args, "min_valid_pixels", 0),
+        debug=getattr(args, "debug_loss_stats", False),
     )
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1270,6 +1280,8 @@ def main():
                 pred_depths, features = predict_depth(model, decoder, inputs, feature_layers)
                 if getattr(args, "debug_xla", False):
                     _master_print(f"[rank {RANK}] step{step}: forward done")
+
+                nan_count = int(torch.isnan(pred_depths).sum().item())
                 pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
                 valid = (gt_depths > 0)
                 base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
@@ -1288,8 +1300,24 @@ def main():
             loss.backward()
             if getattr(args, "debug_xla", False):
                 _master_print(f"[rank {RANK}] step{step}: backward done")
+            max_grad_raw = None
+            # if step % log_interval == 0 and IS_MASTER:
+            #     try:
+            #         max_grad = 0.0
+            #         for p in training_parameters:
+            #             if p.grad is None:
+            #                 continue
+            #             g = p.grad
+            #             if torch.is_tensor(g):
+            #                 val = g.abs().max()
+            #                 if torch.isfinite(val):
+            #                     max_grad = max(max_grad, float(val.item()))
+            #         max_grad_raw = max_grad
+            #     except Exception:
+            #         max_grad_raw = "ERR"
+            grad_norm = None
             if args.clip_value is not None:
-                torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                grad_norm = torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
             xm.optimizer_step(optimizer, barrier=True)
             if getattr(args, "debug_xla", False):
                 _master_print(f"[rank {RANK}] step{step}: optimizer step done")
@@ -1311,13 +1339,23 @@ def main():
                     )
                 else:
                     msg = f"Epoch {epoch + 1}/{total_epochs} step {step}: loss={avg_loss:.4f}"
-                if getattr(args, "debug_xla", False):
+                try:
+                    msg += f" pred_nan={nan_count}/{pred_depths.numel()}"
+                except Exception as exc:
+                    msg += f" pred_nan=ERR({exc})"
+                try:
+                    lr_val = optimizer.param_groups[0].get("lr", None)
+                    if lr_val is not None:
+                        msg += f" lr={lr_val:.6g}"
+                except Exception:
+                    msg += " lr=ERR"
+                if max_grad_raw is not None:
+                    msg += f" max_grad={max_grad_raw:.4g}"
+                if grad_norm is not None:
                     try:
-                        nan_count = int(torch.isnan(pred_depths).sum().item())
-                        if nan_count > 0:
-                            msg += f" pred_nan={nan_count}/{pred_depths.numel()}"
-                    except Exception as exc:
-                        msg += f" pred_nan=ERR({exc})"
+                        msg += f" grad_norm={float(grad_norm):.4g}"
+                    except Exception:
+                        msg += " grad_norm=ERR"
                 if args.show_peak_gpu_mem:
                     info = _tpu_info_mem()
                     if info is not None:
@@ -1419,7 +1457,8 @@ def main():
                         )
                     else:
                         val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
-    
+                if IS_MASTER:
+                    _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_pre")
                 can_batch = (
                     (not use_sw)
                     and (args.eval_crop_mode is None)
@@ -1443,8 +1482,6 @@ def main():
                             for k in val_metrics:
                                 val_metrics[k] += batch_metrics.get(k, 0) * count
                             steps += count
-                        elif (debug_interval and batch_count % debug_interval == 0) or debug_empty_left > 0:
-                            _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_empty")
                     else:
                         can_batch = False
                 if not can_batch:
@@ -1455,8 +1492,6 @@ def main():
                         )
                         batch_metrics = compute_depth_metrics(pred_b, gt_b, mask=mask_b, mode=args.depth_eval_mode)
                         if not batch_metrics:
-                            if (debug_interval and batch_count % debug_interval == 0) or debug_empty_left > 0:
-                                _log_val_debug(pred_b, gt_b, mask_b, meta_b, note=f"sample{b}_empty")
                             continue
                         for k in val_metrics:
                             val_metrics[k] += batch_metrics.get(k, 0)

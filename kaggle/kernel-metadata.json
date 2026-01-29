@@ -1,12 +1,12 @@
 {
-  "id": "jacksisi/depth-base-none-tpu-50",
-  "title": "depth base none tpu 50",
-  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
+  "id": "permanentlove/depth-base-colrow-rc200-553",
+  "title": "depth base colrow rc200 553",
+  "code_file": "../depth/dinov3_depth_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
@@ -18,6 +18,8 @@
     "liucong12601/hsm-test-val"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "yccwff/depth-base-colrow-rc200-453"
+  ],
   "model_sources": []
 }

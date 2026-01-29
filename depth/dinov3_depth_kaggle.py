@@ -237,7 +237,7 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=52,
+    seed=53,
     val_steps=None,
     use_rc_loss=True,
     loss_type="smooth_l1",
@@ -274,10 +274,10 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/depth-base-colrow-rc200-352/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/depth-base-colrow-rc200-453/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
-    resume_optimizer=True,
+    resume_optimizer=False,
     resume_bs=True,
     resume_img_size=False,
     total_run_time_hr=12.0,
@@ -346,7 +346,7 @@ from depth.hypersim_simple_dataset import HyperSimSimple
 # =============================================================================
 # Depth losses (from depth/depth_loss.py)
 # =============================================================================
-from depth.depth_loss import MonocularDepthHybridLoss
+from depth.depth_loss import MonocularDepthHybridLoss, compute_scale_and_shift
 
 # =============================================================================
 # Depth heads (from depth/depth_head.py)
@@ -547,18 +547,18 @@ if decoder_type == "lite4":
     decoder = Lite4LayerDepthHead(embed_dim=model.embed_dim).to(DEVICE)
 elif decoder_type == "simple":
     decoder = SimpleDepthDecoderV2(embed_dim=model.embed_dim).to(DEVICE)
-    elif decoder_type == "dpt":
-        patch_size = model.patch_embed.patch_size
-        if isinstance(patch_size, tuple):
-            patch_size = patch_size[0]
-        decoder = DPTHead(
-            in_channels=model.embed_dim,
-            features=256,
-            out_channels=[256, 512, 1024, 1024],
-            use_bn=False,
-            use_clstoken=False,
-            patch_size=int(patch_size),
-        ).to(DEVICE)
+elif decoder_type == "dpt":
+    patch_size = model.patch_embed.patch_size
+    if isinstance(patch_size, tuple):
+        patch_size = patch_size[0]
+    decoder = DPTHead(
+        in_channels=model.embed_dim,
+        features=256,
+        out_channels=[256, 512, 1024, 1024],
+        use_bn=False,
+        use_clstoken=False,
+        patch_size=int(patch_size),
+    ).to(DEVICE)
 else:
     raise ValueError(f"Unsupported depth_decoder='{decoder_type}'. Use 'simple', 'lite4', or 'dpt'.")
 

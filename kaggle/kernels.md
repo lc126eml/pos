@@ -10,7 +10,11 @@ kaggle kernels delete -y
 
 # liucong12601
 liucong12601@126.com
-$env:KAGGLE_API_TOKEN = "KGAT_93e2e36b8482a16c3a6220f22a155b25"
+
+
+## robinrainy 
+google
+
 #  0
 ## sinayliu
 liucongy@sina.com
