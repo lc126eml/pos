@@ -836,9 +836,12 @@ if args.train:
         if batch_sampler is not None:
             batch_sampler.set_epoch(epoch)
         
+        total_batches = len(train_loader)
         # FP16: Use autocast for the forward pass
         optimizer.zero_grad(set_to_none=True)
         for step_in_epoch, (inputs, labels) in enumerate(train_pbar):
+            if (step_in_epoch % accum_steps) == 0 and (total_batches - step_in_epoch) < accum_steps:
+                break
             inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
             if args.show_peak_gpu_mem and torch.cuda.is_available():

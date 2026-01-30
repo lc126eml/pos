@@ -1,12 +1,12 @@
 {
-  "id": "roseqw/depth-small-none-gpu-50",
-  "title": "depth small none gpu 50",
-  "code_file": "../depth/dinov3_depth_kaggle.py",
+  "id": "robinrainy/depth-small-none-tpu8c-50",
+  "title": "depth small none tpu8c 50",
+  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
+  "enable_gpu": "false",
+  "enable_tpu": "true",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",

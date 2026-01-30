@@ -833,7 +833,10 @@ if args.train:
         
         # FP16: Use autocast for the forward pass
         optimizer.zero_grad(set_to_none=True)
+        total_batches = len(train_loader)
         for batch_idx, (inputs, labels) in enumerate(train_pbar):
+            if (batch_idx % accum_steps) == 0 and (total_batches - batch_idx) < accum_steps:
+                break
             inputs = inputs.to(DEVICE, non_blocking=True)
             labels = labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)

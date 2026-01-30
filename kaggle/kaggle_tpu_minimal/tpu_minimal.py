@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import time
 import torch
 from torch.utils.data import DataLoader, TensorDataset, DistributedSampler
@@ -81,11 +83,18 @@ def tpu_worker(index):
 def main():
     print(f"SCRIPT_REV={SCRIPT_REV}", flush=True)
     
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
+        os.environ["TPU_UNINSTALL_TIMM_DONE"] = "1"
+    except Exception as exc:
+        print(f"WARNING: timm uninstall failed ({exc}); continuing.")
     # 1. GPU Fallback
     if torch.cuda.is_available():
         print("CUDA detected.")
         return
-
+    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    if os.path.isdir(LOCAL_TIMM):
+        sys.path.insert(0, LOCAL_TIMM)
     # 2. CRITICAL: Clean Kaggle Environment
     # We remove 'local' addresses to let PJRT auto-configure the 8-core topology
     os.environ["PJRT_DEVICE"] = "TPU"

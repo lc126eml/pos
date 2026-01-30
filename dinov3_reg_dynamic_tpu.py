@@ -1112,8 +1112,7 @@ def main():
                 xm.optimizer_step(optimizer, barrier=True)
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
-                if step % log_interval == 0:
-                    _xla_sync()
+                # xm.optimizer_step(..., barrier=True) already marks the step; no extra sync needed here.
     
                 running_loss_t += loss.detach() * bs
                 train_total += bs
@@ -1178,7 +1177,6 @@ def main():
                 best_acc = epoch_val_acc
                 is_best = True
     
-            _xla_sync()
             epoch_train_acc  = (train_correct_t / train_total).item()
             epoch_train_loss = (running_loss_t / train_total).item()
             epoch_aux_loss = None
@@ -1206,7 +1204,6 @@ def main():
     
     
     
-            master_history = None
             if IS_MASTER:
                 training_history['train_loss'].append(epoch_train_loss)
                 training_history['train_acc'].append(epoch_train_acc)
@@ -1217,7 +1214,6 @@ def main():
                 training_history['step'].append(step+1)
                 if (epoch + 1) % csv_interval == 0:
                     pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-                master_history = training_history
             if args.save_full_ckpt:
                 ckpt = {}
                 if IS_MASTER:
@@ -1229,7 +1225,7 @@ def main():
                         "scheduler": scheduler.state_dict() if scheduler is not None else None,
                         "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                         "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
-                        "training_history": master_history,
+                        "training_history": training_history,
                         "args": args,
                         "best_acc": best_acc,
                     }
@@ -1253,11 +1249,7 @@ def main():
             logger.info("Training complete.")
             logger.info(f"Best Accuracy: {best_acc:.4f}")
             logger.info(output_dir)
-    
-    
-    
-    
-        pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
+            pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     
     if args.val:    
         val_results = {

@@ -63,10 +63,11 @@ def _abbr_value(value):
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.6g}"
-    text = str(value)
-    if re.search(r"[_-]+", text):
-        return _abbr_token(text)
+        return f"{value*100000:g}".replace(".", "")
+    else:
+        text = str(value)
+        if re.search(r"[_-]+", text):
+            text = _abbr_token(text)
     return re.sub(r"[^A-Za-z0-9]+", "", text)
 
 
@@ -182,8 +183,7 @@ def _resolve_resume_source(cfg):
 def _add_running_node(cfg, kernel_id, total_runs, consume_available=False, use_lock=True):
     is_tpu = bool(cfg.get("tpu", False))
     config_kernel_path = _config_kernel_path(is_tpu)
-    lock_path = config_kernel_path.with_suffix(config_kernel_path.suffix + ".lock")
-    lock_ctx = file_lock(lock_path, timeout_sec=600, poll_interval=3.) if use_lock else nullcontext()
+    lock_ctx = file_lock(config_kernel_path, timeout_sec=600, poll_interval=3.) if use_lock else nullcontext()
     with lock_ctx:
         kcfg = _load_yaml(config_kernel_path)
         node_id = cfg["id"]

@@ -207,7 +207,7 @@ args = SimpleNamespace(
     overlap=0,
     start_epoch=0,
     seed=51,
-    use_rc_loss=True,
+    use_rc_loss=False,
     use_patch_position_loss=False,
     huber_beta=0.1,
     rc_alpha=70.0,
@@ -228,7 +228,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-colrow-d-451/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_ckpt_path='/kaggle/input/seg-base-none-d-351/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -337,6 +337,23 @@ def _seed_worker(worker_id):
 
 data_rng = torch.Generator()
 data_rng.manual_seed(args.seed)
+if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+    rng_state = ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if "data_rng" in rng_state and rng_state["data_rng"] is not None:
+                data_rng.set_state(rng_state["data_rng"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 run_tag = time.strftime("%Y%m%d_%H%M%S")
 
 subdir_name = (
@@ -815,7 +832,10 @@ if args.train:
         train_samples_t = torch.zeros((), device=DEVICE)
         optimizer.zero_grad(set_to_none=True)
 
+        total_batches = len(train_loader)
         for batch_idx, (inputs, labels) in enumerate(train_loader):
+            if (batch_idx % accum_steps) == 0 and (total_batches - batch_idx) < accum_steps:
+                break
             inputs = inputs.to(DEVICE, non_blocking=True)
             labels = labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
@@ -994,6 +1014,13 @@ if args.train:
                 "scaler": None,
                 "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": data_rng.get_state(),
+                },
                 "args": args,
             }
             torch.save(ckpt, last_ckpt_path)

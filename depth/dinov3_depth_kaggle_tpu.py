@@ -272,10 +272,10 @@ def main():
     if _IS_KAGGLE:
         train_roots_default = [
             "/kaggle/input/hsm-train-part01",
-            # "/kaggle/input/hsm-train-part02",
-            # "/kaggle/input/hsm-train-part03",
-            # "/kaggle/input/hsm-train-part04",
-            # "/kaggle/input/hsm-train-part05",
+            "/kaggle/input/hsm-train-part02",
+            "/kaggle/input/hsm-train-part03",
+            "/kaggle/input/hsm-train-part04",
+            "/kaggle/input/hsm-train-part05",
         ]
         eval_root_default = "/kaggle/input/hsm-test-val"
         output_root_default = "/kaggle/working"
@@ -300,20 +300,21 @@ def main():
         model_type="dinov3",
         use_abs_pos_emb=False,
         use_rot_pos_emb=False,
-        model_size='small',
+        model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
         final_eval_size=(224, 224),
         color_jitter_prob=0.5,
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
-        batch_size=16,
-        patch_size=24,
+        batch_size=24,
+        val_batch_size=16,
+        patch_size=16,
         lr=7e-05,
         lr_aux=1e-6,
         eta_min=1e-7,
         epochs=130,
-        break_at_epoch=1,
+        break_at_epoch=100,
         has_pos=False,
         weight_decay=0.05,
         overlap=0,
@@ -329,7 +330,7 @@ def main():
         warmup_steps=3000,
         warmup_ratio=None,
         clip_value=1.0,
-        debug_loss_stats=True,
+        debug_loss_stats=False,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
         log_interval=100,
@@ -337,8 +338,9 @@ def main():
         log_all_ranks=False,
         debug_xla=False,
         debug_val_interval=50,
-        debug_val_empty_limit=5,
-        use_bf16=False,
+        debug_val_empty_limit=50,
+        val_mark_step_interval=5,
+        use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         align_mode="mean_std",
         silog_w=0.0,
@@ -362,6 +364,9 @@ def main():
         output_dir=output_root_default,
         csv_interval=5,
         prefetch_factor=2,
+        val_workers=None,
+        val_prefetch_factor=1,
+        val_persistent_workers=False,
         compile_model=False,
         save_full_ckpt=False,
         save_full_ckpt_interval=10,
@@ -483,7 +488,7 @@ def main():
 
     base_global_batch = 24
     global_batch = args.batch_size * WORLD_SIZE
-    lr_scale = min(global_batch / base_global_batch, 16.0)
+    lr_scale = min(global_batch / base_global_batch, 10.0)
     args.lr *= lr_scale
     # args.lr_aux *= lr_scale
     
@@ -771,18 +776,22 @@ def main():
             sampler=train_sampler,
             **loader_kwargs,
         )
+        eval_workers = args.workers if getattr(args, "val_workers", None) is None else int(args.val_workers)
+        eval_persistent_workers = bool(getattr(args, "val_persistent_workers", False))
+        eval_prefetch_factor = int(getattr(args, "val_prefetch_factor", 1) or 1)
+        eval_batch_size = args.batch_size if getattr(args, "val_batch_size", None) is None else int(args.val_batch_size)
         valid_kwargs = dict(
-            batch_size=args.batch_size,
+            batch_size=eval_batch_size,
             shuffle=False,
             drop_last=False,
-            persistent_workers=(args.workers > 0),
-            num_workers=args.workers,
+            persistent_workers=(eval_persistent_workers and eval_workers > 0),
+            num_workers=eval_workers,
             pin_memory=False,
             worker_init_fn=_seed_worker,
             generator=data_rng,
         )
-        if args.workers > 0:
-            valid_kwargs["prefetch_factor"] = args.prefetch_factor
+        if eval_workers > 0:
+            valid_kwargs["prefetch_factor"] = eval_prefetch_factor
         valid_sampler = (
             DistributedSampler(
                 valid_dataset,
@@ -803,6 +812,13 @@ def main():
         optimizer_steps_per_epoch = steps_per_epoch
 
         logger.info("DataLoaders created: train=%s, val=%s", len(train_dataset), len(valid_dataset))
+        logger.info(
+            "Eval loader: workers=%s prefetch_factor=%s persistent_workers=%s",
+            eval_workers,
+            eval_prefetch_factor if eval_workers > 0 else 0,
+            (eval_persistent_workers and eval_workers > 0),
+        )
+        logger.info("Eval batch_size=%s", eval_batch_size)
         _debug(f"dataloaders ready steps_per_epoch={steps_per_epoch} rank={RANK}")
     except Exception as e:
         logger.error("Error creating datasets: %s", e)
@@ -1390,6 +1406,7 @@ def main():
         batch_count = 0
         debug_interval = int(getattr(args, "debug_val_interval", 0) or 0)
         debug_empty_left = int(getattr(args, "debug_val_empty_limit", 0) or 0)
+        val_mark_step_interval = int(getattr(args, "val_mark_step_interval", 0) or 0)
 
         def _log_val_debug(pred, target, mask, metas, note):
             nonlocal debug_empty_left
@@ -1457,33 +1474,35 @@ def main():
                         )
                     else:
                         val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
-                if IS_MASTER:
-                    _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_pre")
+                # if IS_MASTER:
+                #     cpu_peak = _cpu_peak_mb()
+                #     _master_print(f"val step {cpu_peak}")
+                    # _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_pre")
                 can_batch = (
                     (not use_sw)
-                    and (args.eval_crop_mode is None)
+                    and (args.eval_crop_mode != "nyu")
                     and isinstance(metas, dict)
                     and ("pad_h" in metas) and ("pad_w" in metas)
                 )
                 if can_batch:
-                    pad_h = metas["pad_h"]
-                    pad_w = metas["pad_w"]
-                    if torch.is_tensor(pad_h):
-                        pad_h_ok = bool((pad_h == 0).all())
-                        pad_w_ok = bool((pad_w == 0).all())
-                    else:
-                        pad_h_ok = all(v == 0 for v in pad_h)
-                        pad_w_ok = all(v == 0 for v in pad_w)
-                    if pad_h_ok and pad_w_ok:
-                        batch_metrics, count = compute_depth_metrics(
-                            val_pred_depths, gt_depths, return_count=True, mode=args.depth_eval_mode
-                        )
-                        if batch_metrics:
-                            for k in val_metrics:
-                                val_metrics[k] += batch_metrics.get(k, 0) * count
-                            steps += count
-                    else:
-                        can_batch = False
+                    # pad_h = metas["pad_h"]
+                    # pad_w = metas["pad_w"]
+                    # if torch.is_tensor(pad_h):
+                    #     pad_h_ok = bool((pad_h == 0).all())
+                    #     pad_w_ok = bool((pad_w == 0).all())
+                    # else:
+                    #     pad_h_ok = all(v == 0 for v in pad_h)
+                    #     pad_w_ok = all(v == 0 for v in pad_w)
+                    # if pad_h_ok and pad_w_ok:
+                    batch_metrics, count = compute_depth_metrics(
+                        val_pred_depths, gt_depths, return_count=True, mode=args.depth_eval_mode
+                    )
+                    if batch_metrics:
+                        for k in val_metrics:
+                            val_metrics[k] += batch_metrics.get(k, 0) * count
+                        steps += count
+                    # else:
+                    #     can_batch = False
                 if not can_batch:
                     for b in range(val_inputs.size(0)):
                         meta_b = _extract_meta(metas, b)
@@ -1497,6 +1516,8 @@ def main():
                             val_metrics[k] += batch_metrics.get(k, 0)
                         steps += 1
                 batch_count += 1
+                if val_mark_step_interval > 0 and (batch_count % val_mark_step_interval == 0):
+                    _xla_sync()
                 if max_steps and batch_count >= max_steps:
                     break
     
@@ -1532,37 +1553,38 @@ def main():
             )
             val_time = time.time() - val_start
     
-            logger.info("\n--- Epoch %s Validation Summary ---", epoch + 1)
-            if args.use_rc_loss:
+            if IS_MASTER:
+                logger.info("\n--- Epoch %s Validation Summary ---", epoch + 1)
+                if args.use_rc_loss:
+                    logger.info(
+                        "  Train Loss: %.4f | aux_loss: %.4f | base_loss: %.4f | train_time: %.1fs | val_time: %.1fs",
+                        avg_train_loss, avg_aux_loss, base_loss, train_time, val_time,
+                    )
+                else:
+                    logger.info(
+                        "  Train Loss: %.4f | train_time: %.1fs | val_time: %.1fs",
+                        avg_train_loss, train_time, val_time,
+                    )
                 logger.info(
-                    "  Train Loss: %.4f | aux_loss: %.4f | base_loss: %.4f | train_time: %.1fs | val_time: %.1fs",
-                    avg_train_loss, avg_aux_loss, base_loss, train_time, val_time,
+                    " Valid AbsRel: %.4f | Valid L1: %.4f | Valid RMSE: %.4f | Valid a1: %.4f\n",
+                    avg_val_metrics["abs_rel"], avg_val_metrics["l1"], avg_val_metrics["rmse"], avg_val_metrics["a1"],
                 )
-            else:
-                logger.info(
-                    "  Train Loss: %.4f | train_time: %.1fs | val_time: %.1fs",
-                    avg_train_loss, train_time, val_time,
-                )
-            logger.info(
-                " Valid AbsRel: %.4f | Valid L1: %.4f | Valid RMSE: %.4f | Valid a1: %.4f\n",
-                avg_val_metrics["abs_rel"], avg_val_metrics["l1"], avg_val_metrics["rmse"], avg_val_metrics["a1"],
-            )
-    
-            training_history["train_loss"].append(avg_train_loss)
-            if args.use_rc_loss:
-                training_history["base_loss"].append(base_loss)
-                training_history["aux_loss"].append(avg_aux_loss)
-            training_history["valid_abs_rel"].append(avg_val_metrics["abs_rel"])
-            training_history["valid_l1"].append(avg_val_metrics["l1"])
-            training_history["valid_rmse"].append(avg_val_metrics["rmse"])
-            training_history["valid_a1"].append(avg_val_metrics["a1"])
-            training_history["train_time"].append(train_time)
-            training_history["val_time"].append(val_time)
-            training_history["epoch"].append(epoch + 1)
-    
-            if args.csv_interval and (epoch + 1) % args.csv_interval == 0 and IS_MASTER:
-                history_df = _history_to_frame(training_history)
-                history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
+
+                training_history["train_loss"].append(avg_train_loss)
+                if args.use_rc_loss:
+                    training_history["base_loss"].append(base_loss)
+                    training_history["aux_loss"].append(avg_aux_loss)
+                training_history["valid_abs_rel"].append(avg_val_metrics["abs_rel"])
+                training_history["valid_l1"].append(avg_val_metrics["l1"])
+                training_history["valid_rmse"].append(avg_val_metrics["rmse"])
+                training_history["valid_a1"].append(avg_val_metrics["a1"])
+                training_history["train_time"].append(train_time)
+                training_history["val_time"].append(val_time)
+                training_history["epoch"].append(epoch + 1)
+
+                if args.csv_interval and (epoch + 1) % args.csv_interval == 0:
+                    history_df = _history_to_frame(training_history)
+                    history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
             if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
                 logger.info("Prepare to save full checkpoint ...")
@@ -1619,39 +1641,37 @@ def main():
         if not (args.resume_full_ckpt and args.resume_ckpt_path):
             logger.warning("No checkpoint specified; evaluation will use randomly initialized weights.")
     
-    history_df = _history_to_frame(training_history)
-    if args.train and IS_MASTER:
-        history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
-    if (not history_df.empty) and history_df["valid_a1"].notna().any():
-        best_a1 = history_df["valid_a1"].max()
-        best_epoch = history_df.loc[history_df["valid_a1"].idxmax(), "epoch"]
-        logger.info("Best a1: %.4f at epoch %s", best_a1, best_epoch)
-    
-    if (not history_df.empty) and history_df["valid_abs_rel"].notna().any():
-        best_a1_row = history_df.loc[history_df["valid_a1"].idxmax()]
-        best_a1_epoch = int(best_a1_row["epoch"])
-        best_a1_val = best_a1_row["valid_a1"]
-    
-        best_abs_rel_row = history_df.loc[history_df["valid_abs_rel"].idxmin()]
-        best_abs_rel_epoch = int(best_abs_rel_row["epoch"])
-        best_abs_rel_val = best_abs_rel_row["valid_abs_rel"]
-    
-        best_rmse_row = history_df.loc[history_df["valid_rmse"].idxmin()]
-        best_rmse_epoch = int(best_rmse_row["epoch"])
-        best_rmse_val = best_rmse_row["valid_rmse"]
-    
-        logger.info("\n--- Best Validation Metrics from History ---")
-        logger.info("  Best a1:      %.4f (Epoch %s)", best_a1_val, best_a1_epoch)
-        logger.info("  Best AbsRel:  %.4f (Epoch %s)", best_abs_rel_val, best_abs_rel_epoch)
-        logger.info("  Best RMSE:    %.4f (Epoch %s)", best_rmse_val, best_rmse_epoch)
-        logger.info("------------------------------------------")
+    if IS_MASTER:
+        history_df = _history_to_frame(training_history)
+        if args.train:
+            history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
+        if (not history_df.empty) and history_df["valid_a1"].notna().any():
+            best_a1 = history_df["valid_a1"].max()
+            best_epoch = history_df.loc[history_df["valid_a1"].idxmax(), "epoch"]
+            logger.info("Best a1: %.4f at epoch %s", best_a1, best_epoch)
+
+        if (not history_df.empty) and history_df["valid_abs_rel"].notna().any():
+            best_a1_row = history_df.loc[history_df["valid_a1"].idxmax()]
+            best_a1_epoch = int(best_a1_row["epoch"])
+            best_a1_val = best_a1_row["valid_a1"]
+
+            best_abs_rel_row = history_df.loc[history_df["valid_abs_rel"].idxmin()]
+            best_abs_rel_epoch = int(best_abs_rel_row["epoch"])
+            best_abs_rel_val = best_abs_rel_row["valid_abs_rel"]
+
+            best_rmse_row = history_df.loc[history_df["valid_rmse"].idxmin()]
+            best_rmse_epoch = int(best_rmse_row["epoch"])
+            best_rmse_val = best_rmse_row["valid_rmse"]
+
+            logger.info("\n--- Best Validation Metrics from History ---")
+            logger.info("  Best a1:      %.4f (Epoch %s)", best_a1_val, best_a1_epoch)
+            logger.info("  Best AbsRel:  %.4f (Epoch %s)", best_abs_rel_val, best_abs_rel_epoch)
+            logger.info("  Best RMSE:    %.4f (Epoch %s)", best_rmse_val, best_rmse_epoch)
+            logger.info("------------------------------------------")
     
     logger.info("Output dir: %s", output_dir)
     logger.info("Subdir: %s", subdir_name)
-    
-    del model, decoder
-    gc.collect()
 
 
 if __name__ == "__main__":

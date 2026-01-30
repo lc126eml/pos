@@ -18,7 +18,7 @@ def _masked_mean_std(x: torch.Tensor, mask: torch.Tensor, eps: float):
     denom = mask.sum(dim=(1, 2)).clamp_min(1.0)
     mean = (x * mask).sum(dim=(1, 2)) / denom
     var = ((x - mean[:, None, None]) ** 2 * mask).sum(dim=(1, 2)) / denom
-    std = torch.sqrt(var.clamp_min(eps))
+    std = torch.sqrt(var.clamp_min(0.5))
     return mean, std, denom
 
 

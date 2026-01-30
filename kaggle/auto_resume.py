@@ -234,11 +234,13 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
     if notebook in node_notebooks:
         node_notebooks.remove(notebook)
         node["notebooks"] = node_notebooks
+    return target_node
+
+def _remove_exhausted(node, running_nodes, exhausted_ids):
+    node_notebooks = node.get("notebooks") or []
     if not node_notebooks and float(node.get("left_time", 0)) <= 0:
         running_nodes.remove(node)
         exhausted_ids.append(node.get("id"))
-    return target_node
-
 
 def main():
     parser = argparse.ArgumentParser(description="Auto resume Kaggle kernels.", epilog=USAGE)
@@ -290,9 +292,8 @@ def main():
     if sleep_time_hr > 0:
         time.sleep(sleep_time_hr * 3600)
 
-    lock_path = config_path.with_suffix(config_path.suffix + ".lock")
     while True:
-        lock_ctx = file_lock(lock_path) if args.lock else nullcontext()
+        lock_ctx = file_lock(config_path) if args.lock else nullcontext()
         with lock_ctx:
             kcfg = _load_yaml(config_path)
             tokens = _load_yaml(BASE_DIR / "tokens.yaml")
@@ -358,6 +359,7 @@ def main():
                             if notebook["run_id"] >= total_runs:
                                 _move_finished(notebook, finished_notebooks)
                                 notebooks.remove(notebook)
+                                _remove_exhausted(node, nodes, exhausted)
                                 changed = True
                                 continue
 
@@ -371,6 +373,7 @@ def main():
                                     exhausted,
                                     is_tpu,
                                 )
+                                _remove_exhausted(node, nodes, exhausted)
                                 if target_node is None:
                                     continue
                                 if verbose:

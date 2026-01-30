@@ -74,11 +74,11 @@ args = SimpleNamespace(
     color_jitter_prob=0.5,
     scale_jitter=(1.0, 1.2),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=24,
-    grad_accum_steps=1,
+    batch_size=48,
+    grad_accum_steps=2,
     # batch_size=6,
     patch_size=16,
-    lr=7e-5,
+    lr=2.8e-4,
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
@@ -104,7 +104,7 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
-    align_mode="scale_shift",
+    align_mode="mean_std",
     silog_w=0.0,
     depth_norm="median",  # kept for logging/compat
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
@@ -871,8 +871,11 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
     pbar = tqdm(loader, desc=f"Epoch {epoch+1}/{total_epochs} [Train]")
 
     accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    total_batches = len(loader)
     optimizer.zero_grad(set_to_none=True)
     for i, (inputs, gt_depths, metas) in enumerate(pbar):
+        if (i % accum_steps) == 0 and (total_batches - i) < accum_steps:
+            break
         inputs = inputs.to(DEVICE, non_blocking=True)
         gt_depths = gt_depths.to(DEVICE, non_blocking=True)
         bs = inputs.size(0)

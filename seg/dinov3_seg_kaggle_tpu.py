@@ -991,6 +991,15 @@ def main():
                 }
         training_history.setdefault("train_time", [])
         training_history.setdefault("val_time", [])
+        training_history.setdefault("train_loss", [])
+        training_history.setdefault("train_acc", [])
+        training_history.setdefault("valid_acc", [])
+        training_history.setdefault("valid_miou", [])
+        training_history.setdefault("epoch", [])
+        training_history.setdefault("step", [])
+        if args.use_rc_loss:
+            training_history.setdefault("base_loss", [])
+            training_history.setdefault("aux_loss", [])
 
         def _pad_history(hist, fill_value=None):
             keys = [k for k, v in hist.items() if isinstance(v, list)]

@@ -117,8 +117,8 @@ args = SimpleNamespace(
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=True,
     model_type= "dinov3",
-    use_abs_pos_emb=True,
-    use_rot_pos_emb=False,
+    use_abs_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -142,7 +142,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=18,
+    seed=16,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -150,6 +150,7 @@ args = SimpleNamespace(
     # rc_alpha=300.0,
     rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
+    alpha_min=10,
     workers=5,
     randaugment=False,
     randaugment_n=2,
@@ -162,7 +163,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-rope-d-516/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -1069,6 +1070,25 @@ batch_sampler = None
 prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
 train_generator = torch.Generator()
 train_generator.manual_seed(args.seed)
+if args.resume_full_ckpt and args.resume_ckpt_path and resume_ckpt is not None:
+    rng_state = resume_ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if rng_state.get("data_rng") is not None:
+                train_generator.set_state(rng_state["data_rng"])
+            elif rng_state.get("train_generator") is not None:
+                train_generator.set_state(rng_state["train_generator"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 if len(args.img_sizes) == 1:
     train_dataset = CustomImageDataset(train_samples, transform=size_to_transform[args.img_sizes[0]])
     train_loader = DataLoader(
@@ -1510,9 +1530,12 @@ if args.train:
         if batch_sampler is not None:
             batch_sampler.set_epoch(epoch)
         
+        total_batches = len(train_loader)
         # FP16: Use autocast for the forward pass
         optimizer.zero_grad(set_to_none=True)
         for step_in_epoch, (inputs, labels) in enumerate(train_loader):
+            if (step_in_epoch % accum_steps) == 0 and (total_batches - step_in_epoch) < accum_steps:
+                break
             inputs, labels = inputs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
             bs = inputs.size(0)
             if args.show_peak_gpu_mem and torch.cuda.is_available():
@@ -1537,9 +1560,9 @@ if args.train:
                     # logger.info(f"feats={feats.shape}, patch_tokens={feats[:, model.num_prefix_tokens:, :].shape[1]}")
 
                     aux_loss_sum_t += aux_loss.detach() * bs
-                    # warmup_steps_for_aux = 100
-                    # alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
-                    loss = loss + args.rc_alpha * aux_loss
+                    t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                    loss = loss + alpha_t * aux_loss
                 
                 if args.use_patch_position_loss:
                     base_loss_t += loss.detach() * bs
@@ -1661,6 +1684,13 @@ if args.train:
                 "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                 "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": train_generator.get_state(),
+                },
                 "args": args,
                 "best_acc": best_acc,
             }

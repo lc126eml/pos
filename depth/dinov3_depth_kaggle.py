@@ -215,11 +215,11 @@ args = SimpleNamespace(
     # Data
     train_roots=train_roots_default,
     eval_root=eval_root_default,
-    eval_split="val",  # "val" or "test" when eval_root has subdirs
+    eval_split="test",  # "val" or "test" when eval_root has subdirs
     model_type="dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
-    model_size='small',
+    model_size='base',
     train_sizes=[(224, 224)],
     eval_size=(224, 224),
     final_eval_size=(224, 224),
@@ -227,9 +227,9 @@ args = SimpleNamespace(
     scale_jitter=(1.0, 1.2),
     scale_jitter_sw=(1.0, 1.01),
     batch_size=24,
-    grad_accum_steps=1,
+    grad_accum_steps=4,
     patch_size=16,
-    lr=7e-5, #7e-5
+    lr=0.00032, #7e-5
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
@@ -237,9 +237,9 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=50,
+    seed=51,
     val_steps=None,
-    use_rc_loss=False,
+    use_rc_loss=True,
     loss_type="smooth_l1",
     rc_alpha=200.0,
     workers=2 if _IS_KAGGLE else 8,
@@ -274,8 +274,8 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/depth-base-colrow-rc200-551/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
@@ -444,6 +444,23 @@ logger.info("Using device: %s", DEVICE)
 logger.info("Using mixed precision: %s", "disabled" if not use_amp else ("bfloat16" if use_bf16 else "float16"))
 # logger.info("Output dir: %s", output_dir)
 logger.info("Subdir: %s", subdir_name)
+if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+    rng_state = ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if rng_state.get("data_rng") is not None:
+                data_rng.set_state(rng_state["data_rng"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 
 # =============================================================================
 # Dataset and DataLoader
@@ -986,8 +1003,11 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
     total_samples = 0
     log_interval = getattr(args, "log_interval", 50)
     accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    total_batches = len(loader)
     optimizer.zero_grad(set_to_none=True)
     for i, (inputs, gt_depths, metas) in enumerate(loader):
+        if (i % accum_steps) == 0 and (total_batches - i) < accum_steps:
+            break
         inputs = inputs.to(DEVICE, non_blocking=True)
         gt_depths = gt_depths.to(DEVICE, non_blocking=True)
         bs = inputs.size(0)
@@ -1212,6 +1232,13 @@ if args.train:
                 "scaler": scaler.state_dict() if scaler is not None else None,
                 "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": data_rng.get_state(),
+                },
                 "args": args,
             }
             torch.save(ckpt, last_ckpt_path)
