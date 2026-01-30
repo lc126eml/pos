@@ -249,6 +249,8 @@ def main():
         num_classes=100,
         patch_size = 16,
         batch_size=64,
+        val_drop_last=False,
+        val_pad_to_full_batch=False,
         img_sizes=[224],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
         lr=7e-05,
@@ -741,6 +743,11 @@ def main():
     
     logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_dataset)}")
     
+    if getattr(args, "val_drop_last", False) and getattr(args, "val_pad_to_full_batch", False):
+        if IS_MASTER:
+            logger.warning("val_drop_last and val_pad_to_full_batch are both True; disabling val_pad_to_full_batch.")
+        args.val_pad_to_full_batch = False
+
     batch_sampler = None
     train_sampler = None
     valid_sampler = None
@@ -811,13 +818,14 @@ def main():
             **prefetch_kwargs,
         )
     logger.info(f"Total training images ({args.num_classes} classes): {len(train_dataset)}")
+    eval_drop_last = bool(getattr(args, "val_drop_last", False))
     if WORLD_SIZE > 1:
         valid_sampler = DistributedSampler(
             valid_dataset,
             num_replicas=WORLD_SIZE,
             rank=RANK,
             shuffle=False,
-            drop_last=False,
+            drop_last=eval_drop_last,
         )
     valid_loader = DataLoader(
         dataset=valid_dataset,
@@ -826,6 +834,7 @@ def main():
         sampler=valid_sampler,
         num_workers=args.workers,
         pin_memory=pin_memory,
+        drop_last=eval_drop_last,
         persistent_workers=(args.workers > 0),
         **prefetch_kwargs,
     )
@@ -1146,11 +1155,25 @@ def main():
 
             with torch.no_grad():
                 for inputs, labels in valid_loader:
+                    real_bs = labels.shape[0]
+                    valid_mask = None
+                    if args.val_pad_to_full_batch and real_bs < args.batch_size:
+                        pad_n = args.batch_size - real_bs
+                        pad_inputs = torch.zeros((pad_n,) + inputs.shape[1:], device=inputs.device, dtype=inputs.dtype)
+                        pad_labels = torch.zeros((pad_n,), device=labels.device, dtype=labels.dtype)
+                        inputs = torch.cat([inputs, pad_inputs], dim=0)
+                        labels = torch.cat([labels, pad_labels], dim=0)
+                        valid_mask = torch.zeros((args.batch_size,), device=labels.device, dtype=torch.bool)
+                        valid_mask[:real_bs] = True
                     with _autocast():
                         outputs = model(inputs)
                     pred = outputs.argmax(dim=1)
-                    val_correct_t += (pred == labels).sum()
-                    val_total_t += labels.shape[0]
+                    if valid_mask is not None:
+                        val_correct_t += ((pred == labels) & valid_mask).sum()
+                        val_total_t += valid_mask.sum()
+                    else:
+                        val_correct_t += (pred == labels).sum()
+                        val_total_t += labels.shape[0]
             val_time = time.time() - val_start
             if WORLD_SIZE > 1:
                 train_total_t = torch.tensor(train_total, device=DEVICE)
@@ -1283,7 +1306,7 @@ def main():
                 num_replicas=WORLD_SIZE,
                 rank=RANK,
                 shuffle=False,
-                drop_last=False,
+                drop_last=eval_drop_last,
             ) if WORLD_SIZE > 1 else None
             valid_loader = DataLoader(
                 dataset=valid_dataset,
@@ -1292,6 +1315,7 @@ def main():
                 shuffle=False if valid_sampler is None else False,
                 num_workers=args.workers,
                 pin_memory=pin_memory,
+                drop_last=eval_drop_last,
                 persistent_workers=False,
                 **prefetch_kwargs,
             )
@@ -1300,11 +1324,25 @@ def main():
             val_total_t = torch.zeros((), device=DEVICE)
             with torch.no_grad():
                 for inputs, labels in valid_loader:
+                    real_bs = labels.shape[0]
+                    valid_mask = None
+                    if args.val_pad_to_full_batch and real_bs < batch_size:
+                        pad_n = batch_size - real_bs
+                        pad_inputs = torch.zeros((pad_n,) + inputs.shape[1:], device=inputs.device, dtype=inputs.dtype)
+                        pad_labels = torch.zeros((pad_n,), device=labels.device, dtype=labels.dtype)
+                        inputs = torch.cat([inputs, pad_inputs], dim=0)
+                        labels = torch.cat([labels, pad_labels], dim=0)
+                        valid_mask = torch.zeros((batch_size,), device=labels.device, dtype=torch.bool)
+                        valid_mask[:real_bs] = True
                     with _autocast():
                         outputs = model(inputs)
                     predicted = outputs.argmax(dim=1)
-                    val_total_t += labels.shape[0]
-                    val_correct_t += (predicted == labels).sum()
+                    if valid_mask is not None:
+                        val_total_t += valid_mask.sum()
+                        val_correct_t += ((predicted == labels) & valid_mask).sum()
+                    else:
+                        val_total_t += labels.shape[0]
+                        val_correct_t += (predicted == labels).sum()
 
             if WORLD_SIZE > 1:
                 xm.all_reduce(xm.REDUCE_SUM, [val_correct_t, val_total_t])

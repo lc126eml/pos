@@ -296,10 +296,10 @@ def main():
         # Data
         train_roots=train_roots_default,
         eval_root=eval_root_default,
-        eval_split="val",  # "val" or "test" when eval_root has subdirs
+        eval_split="test",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=False,
+        use_rot_pos_emb=True,
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
@@ -309,8 +309,10 @@ def main():
         scale_jitter_sw=(1.0, 1.01),
         batch_size=24,
         val_batch_size=16,
+        val_drop_last=True,
+        val_pad_to_full_batch=False,
         patch_size=16,
-        lr=7e-05,
+        lr=5e-05,
         lr_aux=1e-6,
         eta_min=1e-7,
         epochs=130,
@@ -747,6 +749,11 @@ def main():
             ),
         )
     
+        if getattr(args, "val_drop_last", False) and getattr(args, "val_pad_to_full_batch", False):
+            if IS_MASTER:
+                logger.warning("val_drop_last and val_pad_to_full_batch are both True; disabling val_pad_to_full_batch.")
+            args.val_pad_to_full_batch = False
+
         loader_kwargs = dict(
             num_workers=args.workers,
             pin_memory=False,
@@ -780,10 +787,11 @@ def main():
         eval_persistent_workers = bool(getattr(args, "val_persistent_workers", False))
         eval_prefetch_factor = int(getattr(args, "val_prefetch_factor", 1) or 1)
         eval_batch_size = args.batch_size if getattr(args, "val_batch_size", None) is None else int(args.val_batch_size)
+        eval_drop_last = bool(getattr(args, "val_drop_last", False))
         valid_kwargs = dict(
             batch_size=eval_batch_size,
             shuffle=False,
-            drop_last=False,
+            drop_last=eval_drop_last,
             persistent_workers=(eval_persistent_workers and eval_workers > 0),
             num_workers=eval_workers,
             pin_memory=False,
@@ -798,7 +806,7 @@ def main():
                 num_replicas=WORLD_SIZE,
                 rank=RANK,
                 shuffle=False,
-                drop_last=False,
+                drop_last=eval_drop_last,
             )
             if WORLD_SIZE > 1
             else None
@@ -818,7 +826,7 @@ def main():
             eval_prefetch_factor if eval_workers > 0 else 0,
             (eval_persistent_workers and eval_workers > 0),
         )
-        logger.info("Eval batch_size=%s", eval_batch_size)
+        logger.info("Eval batch_size=%s drop_last=%s pad_to_full_batch=%s", eval_batch_size, eval_drop_last, args.val_pad_to_full_batch)
         _debug(f"dataloaders ready steps_per_epoch={steps_per_epoch} rank={RANK}")
     except Exception as e:
         logger.error("Error creating datasets: %s", e)
@@ -1406,6 +1414,7 @@ def main():
         batch_count = 0
         debug_interval = int(getattr(args, "debug_val_interval", 0) or 0)
         debug_empty_left = int(getattr(args, "debug_val_empty_limit", 0) or 0)
+        val_pad_to_full_batch = bool(getattr(args, "val_pad_to_full_batch", False))
         val_mark_step_interval = int(getattr(args, "val_mark_step_interval", 0) or 0)
 
         def _log_val_debug(pred, target, mask, metas, note):
@@ -1461,6 +1470,18 @@ def main():
 
         with torch.no_grad():
             for val_inputs, gt_depths, metas in loader:
+                real_bs = val_inputs.size(0)
+                valid_mask = None
+                if val_pad_to_full_batch and real_bs < eval_batch_size:
+                    pad_n = eval_batch_size - real_bs
+                    pad_inputs = torch.zeros((pad_n,) + val_inputs.shape[1:], device=val_inputs.device, dtype=val_inputs.dtype)
+                    pad_depths = torch.zeros((pad_n,) + gt_depths.shape[1:], device=gt_depths.device, dtype=gt_depths.dtype)
+                    val_inputs = torch.cat([val_inputs, pad_inputs], dim=0)
+                    gt_depths = torch.cat([gt_depths, pad_depths], dim=0)
+                    valid_mask = torch.zeros_like(gt_depths, dtype=torch.bool)
+                    valid_mask[:real_bs] = True
+                # if IS_MASTER:
+                #     _master_print(f"val step {batch_count} started")
                 with _autocast():
                     if use_sw:
                         window_size = window_size or EVAL_SIZE
@@ -1475,8 +1496,7 @@ def main():
                     else:
                         val_pred_depths, _ = predict_depth(model, decoder, val_inputs, feature_layers)
                 # if IS_MASTER:
-                #     cpu_peak = _cpu_peak_mb()
-                #     _master_print(f"val step {cpu_peak}")
+                #     _master_print(f"val step {batch_count}")
                     # _log_val_debug(val_pred_depths, gt_depths, None, metas, note="batch_pre")
                 can_batch = (
                     (not use_sw)
@@ -1495,7 +1515,11 @@ def main():
                     #     pad_w_ok = all(v == 0 for v in pad_w)
                     # if pad_h_ok and pad_w_ok:
                     batch_metrics, count = compute_depth_metrics(
-                        val_pred_depths, gt_depths, return_count=True, mode=args.depth_eval_mode
+                        val_pred_depths,
+                        gt_depths,
+                        mask=valid_mask,
+                        return_count=True,
+                        mode=args.depth_eval_mode,
                     )
                     if batch_metrics:
                         for k in val_metrics:
@@ -1504,7 +1528,8 @@ def main():
                     # else:
                     #     can_batch = False
                 if not can_batch:
-                    for b in range(val_inputs.size(0)):
+                    max_b = real_bs if valid_mask is not None else val_inputs.size(0)
+                    for b in range(max_b):
                         meta_b = _extract_meta(metas, b)
                         pred_b, gt_b, mask_b = _crop_to_valid_region(
                             val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
@@ -1521,6 +1546,9 @@ def main():
                 if max_steps and batch_count >= max_steps:
                     break
     
+        if IS_MASTER:
+            cpu_peak = _cpu_peak_mb()
+            _master_print(f"eval cpu peak: {cpu_peak}")
         metrics_keys = ["abs_rel", "l1", "rmse", "a1", "a2", "a3"]
         metrics_t = torch.tensor([val_metrics[k] for k in metrics_keys], device=DEVICE)
         steps_t = torch.tensor(steps, device=DEVICE)

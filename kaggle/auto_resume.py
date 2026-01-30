@@ -218,9 +218,6 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
             if notebook in node_notebooks:
                 node_notebooks.remove(notebook)
                 node["notebooks"] = node_notebooks
-            if not node_notebooks and float(node.get("left_time", 0)) <= 0:
-                running_nodes.remove(node)
-                exhausted_ids.append(node.get("id"))
             return candidate
 
     if not available_ids:
@@ -239,7 +236,8 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
 def _remove_exhausted(node, running_nodes, exhausted_ids):
     node_notebooks = node.get("notebooks") or []
     if not node_notebooks and float(node.get("left_time", 0)) <= 0:
-        running_nodes.remove(node)
+        if node in running_nodes:
+            running_nodes.remove(node)
         exhausted_ids.append(node.get("id"))
 
 def main():

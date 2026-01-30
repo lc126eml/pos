@@ -1,6 +1,6 @@
 {
-  "id": "robinrainy/depth-small-none-tpu8c-50",
-  "title": "depth small none tpu8c 50",
+  "id": "robinrainy/depth-base-rope-tpu8c-50",
+  "title": "depth base rope tpu8c 50",
   "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",

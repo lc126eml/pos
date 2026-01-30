@@ -387,6 +387,8 @@ def main():
         model_size='base',
         num_classes=150,
         batch_size=16,
+        val_drop_last=False,
+        val_pad_to_full_batch=False,
         train_img_size=336,
         eval_img_size=368,
         use_ms_flip_eval=False,
@@ -595,6 +597,11 @@ def main():
         ),
     )
 
+    if getattr(args, "val_drop_last", False) and getattr(args, "val_pad_to_full_batch", False):
+        if IS_MASTER:
+            logger.warning("val_drop_last and val_pad_to_full_batch are both True; disabling val_pad_to_full_batch.")
+        args.val_pad_to_full_batch = False
+
     pin_memory = False
     loader_kwargs = dict(
         num_workers=args.workers,
@@ -613,12 +620,13 @@ def main():
         shuffle=True,
         drop_last=True,
     )
+    eval_drop_last = bool(getattr(args, "val_drop_last", False))
     valid_sampler = DistributedSampler(
         valid_dataset,
         num_replicas=WORLD_SIZE,
         rank=RANK,
         shuffle=False,
-        drop_last=False,
+        drop_last=eval_drop_last,
     )
 
     train_loader = DataLoader(
@@ -634,7 +642,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         sampler=valid_sampler,
-        drop_last=False,
+        drop_last=eval_drop_last,
         **loader_kwargs,
     )
 
@@ -1141,6 +1149,15 @@ def main():
                 for inputs, labels in valid_loader:
                     inputs = inputs.to(DEVICE, non_blocking=True)
                     labels = labels.to(DEVICE, non_blocking=True)
+                    real_bs = labels.shape[0]
+                    if args.val_pad_to_full_batch and real_bs < args.batch_size:
+                        pad_n = args.batch_size - real_bs
+                        pad_inputs = torch.zeros((pad_n,) + inputs.shape[1:], device=inputs.device, dtype=inputs.dtype)
+                        pad_labels = torch.full(
+                            (pad_n,) + labels.shape[1:], -1, device=labels.device, dtype=labels.dtype
+                        )
+                        inputs = torch.cat([inputs, pad_inputs], dim=0)
+                        labels = torch.cat([labels, pad_labels], dim=0)
                     with _autocast():
                         if args.use_ms_flip_eval:
                             outputs = _ms_flip_predict(
@@ -1166,6 +1183,8 @@ def main():
                                 )
                     pred = outputs.argmax(dim=1)
                     mask = labels >= 0
+                    if args.val_pad_to_full_batch and real_bs < args.batch_size:
+                        mask[real_bs:] = False
                     val_correct_t += ((pred == labels) & mask).sum()
                     val_total_t += mask.sum()
                     confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
@@ -1317,6 +1336,15 @@ def main():
                     for inputs, labels in valid_loader:
                         inputs = inputs.to(DEVICE, non_blocking=True)
                         labels = labels.to(DEVICE, non_blocking=True)
+                        real_bs = labels.shape[0]
+                        if args.val_pad_to_full_batch and real_bs < args.batch_size:
+                            pad_n = args.batch_size - real_bs
+                            pad_inputs = torch.zeros((pad_n,) + inputs.shape[1:], device=inputs.device, dtype=inputs.dtype)
+                            pad_labels = torch.full(
+                                (pad_n,) + labels.shape[1:], -1, device=labels.device, dtype=labels.dtype
+                            )
+                            inputs = torch.cat([inputs, pad_inputs], dim=0)
+                            labels = torch.cat([labels, pad_labels], dim=0)
                         with _autocast():
                             outputs = _ms_flip_predict(
                                 model,
@@ -1330,6 +1358,8 @@ def main():
                             )
                         pred = outputs.argmax(dim=1)
                         mask = labels >= 0
+                        if args.val_pad_to_full_batch and real_bs < args.batch_size:
+                            mask[real_bs:] = False
                         val_correct_t += ((pred == labels) & mask).sum()
                         val_total_t += mask.sum()
                         confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)

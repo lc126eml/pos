@@ -1,20 +1,20 @@
-task: depth
-id: rmoope
+task: cls
+id: tianxianglii
 pos_type: null
-method: colrow
+method: rope
 model_size: base
-run_id: 6
-desc: rc200
+run_id: 7
+desc: d
 is_private: false
 dataset_sources: null
-kernel_sources: rmoope/depth-base-colrow-rc200-551
+kernel_sources: jokerking1/cls-base-rope-d-615
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 51
+seed: 15
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

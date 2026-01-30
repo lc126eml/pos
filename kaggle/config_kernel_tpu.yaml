@@ -61,6 +61,13 @@ available_ids:
 - jiangshuai0210
 - roseqw
 - yuanhahah
+- jiangshuai0210
+- roseqw
+- robinrainy
+- gloden613
+- chencaihonga
+- tianxianglii
+- chuasiliu
 exhausted_ids:
 - liucong12601
 - sinayliu
@@ -132,6 +139,12 @@ running_nodes:
     run_id: 0
     total_runs: 1
     start_time: '2026-01-30 08:37:29'
+    resumed_from: null
+    history_ids: []
+  - kernel_id: robinrainy/depth-base-rope-tpu8c-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-30 09:11:35'
     resumed_from: null
     history_ids: []
 finished_notebooks: null
