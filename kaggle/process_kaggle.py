@@ -63,7 +63,7 @@ def _abbr_value(value):
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value*100000:g}".replace(".", "")
+        return f"{value*100000:g}".replace(".", "").replace("+", "")
     else:
         text = str(value)
         if re.search(r"[_-]+", text):

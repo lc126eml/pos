@@ -1,20 +1,20 @@
 task: cls
-id: tianxianglii
+id: chencaihonga
 pos_type: null
-method: rope
+method: colrow
 model_size: base
-run_id: 7
-desc: d
+run_id: 1
+desc: ra220
 is_private: false
 dataset_sources: null
-kernel_sources: jokerking1/cls-base-rope-d-615
+kernel_sources: chencaihonga/cls-base-colrow-ra220-16
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 15
+seed: 16
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

@@ -1,151 +1,23 @@
 sleep_time_hr: 0
 poll_interval_minutes: 10
 available_ids:
-- cq1234
-- tangjudge
-- b201xiaoli
-- zhuangminghui
-- autune
-- yangjiamin
-- zzr123123
-- smartchaochao
-- denghaimeng
-- zongjiaxin
-- jjjerry12138
-- zhoujiahui0199
-- cycyxcy
-- luanjing
-- ssss7777
-- xuwenhui123
-- jinzhanbo
-- geminiyy
-- zhikaiwang
-- chenhao1213
-- ywhicher
-- qinghui9527
-- chengchi1007
-- yyyyjay
-- quepimao
-- wzywzy1227
-- lemonlaila
-- yccwff
-- asssmer
-- huoqiuxia
-- hysz0821
-- kanwenbin
-- top1pcl
-- yangyangchengcheng
-- ttzyty
-- houwen
-- srmmmm
-- rushly
-- cfy002
-- rqmiraitowa
+- xulijuan
 - robinrainy
-- yinmengmeng
-- dddd110
-- xx03071425
-- uamadeus
-- jufuchao
-- fzzy123
-- keyongkk
-- ycy1n66
-- jokerking1
-- jiangshuai0210
-- xwj66666
-- xiaoluoalice
-- permanentlove
-- rmoope
-- maoshuwen0415
-- eastwangwei
-- jiangshuai0210
-- roseqw
-- yuanhahah
-- jiangshuai0210
-- roseqw
-- robinrainy
-- gloden613
-- chencaihonga
-- tianxianglii
-- chuasiliu
+- guyuefangyuan6666
+- zhoushuqing
+- dingziheng11
 exhausted_ids:
-- liucong12601
-- sinayliu
+- liucong126 13
+- sinayliu 0
 running_nodes:
-- id: jacksisi
-  left_time: 3.570831259166667
-  notebooks: null
-- id: wenyangtang
-  left_time: 12
-  notebooks: null
-- id: cycyxcy
-  left_time: 2.3091645925
-  notebooks: []
-- id: jjjerry12138
-  left_time: 4.549442370277778
-  notebooks: []
-- id: sinayliu
-  left_time: 1.7059648975000004
-  notebooks: []
-- id: xulijuan
-  left_time: 10.86338092611111
-  notebooks: []
-- id: liucong126
-  left_time: -2.2913416586111124
-  notebooks: []
-- id: zjl001
-  left_time: 6
-  notebooks: null
-- id: ampere888
-  left_time: 3.594442370277778
-  notebooks: []
-- id: pycjn666
-  left_time: 12
-  notebooks: []
-- id: xulin5522
-  left_time: 12.904442370277778
-  notebooks: []
-- id: cdong121
-  left_time: 10.889214259444444
-  notebooks: []
-- id: ohyeah00
-  left_time: 10.89088092611111
-  notebooks: []
-- id: asdsad0000
-  left_time: 10.892547592777778
-  notebooks: []
-- id: du55148
-  left_time: 10.894492037222221
-  notebooks: []
-- id: sollasi
-  left_time: 20
-  notebooks: []
-- id: qqmail4092
-  left_time: 20
-  notebooks: []
-- id: cheaterchow
-  left_time: 20
-  notebooks: []
-- id: elong1202
-  left_time: 20
-  notebooks: []
-- id: cshlhs
-  left_time: 12.007825370555555
-  notebooks: []
 - id: robinrainy
   left_time: 20
   notebooks:
-  - kernel_id: robinrainy/depth-small-none-tpu8c-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-30 08:37:29'
-    resumed_from: null
-    history_ids: []
-  - kernel_id: robinrainy/depth-base-rope-tpu8c-50
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-30 09:11:35'
-    resumed_from: null
-    history_ids: []
+- id: xulijuan
+  left_time: 20
+  notebooks:
+- id: guyuefangyuan6666
+  left_time: 20
+  notebooks:
 finished_notebooks: null
 error_notebooks: null

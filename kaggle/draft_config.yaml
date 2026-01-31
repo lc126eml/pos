@@ -1,11 +1,11 @@
-task: depth
+task: cls
 id: 
 pos_type: null # alibi relpos
-method: rope # colrow, rope, abs, none
+method: colrow # colrow, rope, abs, none
 model_size: base
 run_id: 0
-desc: gpu
-desc_keys: ["lr"]
+desc: mres
+desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -15,8 +15,9 @@ resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 50
+seed: 16
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
-- lr: 3.2e-4
+- rc_alpha: 800
+- warmup_steps_for_aux: 1000

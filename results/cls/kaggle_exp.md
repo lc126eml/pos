@@ -36,6 +36,8 @@
     - [xulijuan/cls-base-patch129](#xulijuancls-base-patch129)
     - [sollasi/cls-base-alibi-desc-626](#sollasicls-base-alibi-desc-626)
     - [sollasi/cls-base-relpos-desc-626](#sollasicls-base-relpos-desc-626)
+  - [20260130](#20260130)
+    - [yinmengmeng/cls-base-abs-d-718](#yinmengmengcls-base-abs-d-718)
   - [lr ablation](#lr-ablation)
     - [jacksisi/cls-base-none-lr5e-5-53](#jacksisicls-base-none-lr5e-5-53)
     - [jacksisi/cls-base-none-lr2e-4-53](#jacksisicls-base-none-lr2e-4-53)
@@ -116,7 +118,7 @@ Best Accuracy: 0.7202
 
 # base
 ## AbsPE
-
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.0003,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=51, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=1, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs51/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=100, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12, root_dir='/kaggle/working')
 ### sinayliu/cls-base-abs50
 0.237841651	0.936076939	0.579599977	2371.856316	27.13275433
 
@@ -166,6 +168,10 @@ Best Accuracy: 0.5864
 0.052876361	0.987784624	0.613399982	2417.187462	27.6414361
 Best Accuracy: 0.6168
 
+## 20260130
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=18, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=1, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
+### yinmengmeng/cls-base-abs-d-718
+0.02142968	0.995469272	0.658399999	2378.702361	27.58827186	130
 
 ## lr ablation
 <!-- grad_accum_steps=2, batch_size=64 -->

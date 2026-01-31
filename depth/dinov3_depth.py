@@ -78,11 +78,11 @@ args = SimpleNamespace(
     grad_accum_steps=2,
     # batch_size=6,
     patch_size=16,
-    lr=2.8e-4,
+    lr=2.0e-4,
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=120,
-    break_at_epoch=80,
+    break_at_epoch=None,
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
@@ -91,6 +91,8 @@ args = SimpleNamespace(
     use_rc_loss=False,
     loss_type="smooth_l1",
     rc_alpha=100.0,
+    warmup_steps_for_aux=1,
+    alpha_min=10,
     # warmup_steps_for_aux=100,
     workers=8,
     composite_lr=True,
@@ -857,7 +859,19 @@ def _resolve_final_sw_params(window_size, overlap, patch_size):
     overlap = min(max(overlap, 0.0), 0.99)
     return (win_h, win_w), overlap
 
-def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, total_epochs):
+def train_one_epoch(
+    model,
+    decoder,
+    loader,
+    criterion,
+    optimizer,
+    scheduler,
+    scaler,
+    feature_layers,
+    epoch,
+    total_epochs,
+    global_step,
+):
     """Trains the model for one epoch."""
     model.train()
     decoder.train()
@@ -909,10 +923,9 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
                 aux_loss = rowcol_loss(last_feat)
             else:
                 aux_loss = rowcol_loss(last_feat[:, model.num_prefix_tokens:, :])
-            # alpha_t = args.rc_alpha
-            # if epoch == 0:
-            #     alpha_t = args.rc_alpha * min(1.0, (i + 1) / args.warmup_steps_for_aux)
-            loss = base_loss + args.rc_alpha * aux_loss
+            t = min(1.0, (global_step + 1) / args.warmup_steps_for_aux)
+            alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+            loss = base_loss + alpha_t * aux_loss
             aux_loss_sum_t += aux_loss.detach() * bs
         base_loss_t += base_loss.detach() * bs
 
@@ -988,12 +1001,13 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
                 pbar.set_postfix_str(f"loss={avg_loss:.4f} aux={avg_aux:.4f}{peak_str}")
             else:
                 pbar.set_postfix_str(f"loss={avg_loss:.4f}{peak_str}")
+        global_step += 1
     
     denom = max(total_samples, 1)
     avg_loss = (running_loss_t / denom).float().item()
     avg_aux = (aux_loss_sum_t / denom).float().item()
     avg_base = (base_loss_t / denom).float().item()
-    return avg_loss, avg_aux, avg_base
+    return avg_loss, avg_aux, avg_base, global_step
 # {k: v / len(loader) for k, v in train_metrics.items()}
 
 def validate(
@@ -1094,6 +1108,7 @@ scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
 logger.info(f"\n🚀 Starting training for {MODEL_NAME}...")
 train_start_time = time.time()
 start_epoch = 0
+global_step = 0
 if args.resume_full_ckpt and args.resume_ckpt_path:
     if ckpt is not None:
         model.load_state_dict(ckpt.get("model", {}), strict=False)
@@ -1109,6 +1124,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
                 scheduler.load_state_dict(ckpt["scheduler"])
         else:
             logger.info("Skipping scheduler state load (resume_scheduler=False).")
+        global_step = int(ckpt.get("step", 0))
         if "scaler" in ckpt and ckpt["scaler"] is not None:
             scaler.load_state_dict(ckpt["scaler"])
         if Use_Row_Col_Loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
@@ -1116,7 +1132,9 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
                 if k in ckpt["rowcol_loss"]:
                     ckpt["rowcol_loss"].pop(k)
             rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
-        logger.info(f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}")
+        logger.info(
+            f"Resumed full checkpoint from '{args.resume_ckpt_path}' at epoch {start_epoch}, step {global_step}"
+        )
         training_history = ckpt.get("training_history", None)
 # 'valid_loss': [], 
 if not isinstance(locals().get("training_history", None), dict):
@@ -1183,8 +1201,18 @@ if args.train:
     logger.info("Starting training...")
     for epoch in range(start_epoch, EPOCHS):
         train_start = time.time()
-        avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
-            model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
+        avg_train_loss, avg_aux_loss, base_loss, global_step = train_one_epoch(
+            model,
+            decoder,
+            train_loader,
+            criterion,
+            optimizer,
+            scheduler,
+            scaler,
+            feature_layers,
+            epoch,
+            EPOCHS,
+            global_step,
         )
         train_time = time.time() - train_start
         val_start = time.time()
@@ -1236,6 +1264,7 @@ if args.train:
         if args.save_full_ckpt:
             ckpt = {
                 "epoch": epoch + 1,
+                "step": int(global_step),
                 "model": model.state_dict(),
                 "decoder": decoder.state_dict(),
                 "optimizer": optimizer.state_dict(),

@@ -263,8 +263,9 @@ def main():
         seed=53,
         use_patch_position_loss=False,
         use_rc_loss=False,
-        rc_alpha=400,
-        warmup_steps_for_aux=1,
+        rc_alpha=100,
+        warmup_steps_for_aux=100,
+        alpha_min=10,
         workers=5,
         re_prob=0.0,
         train=False,
@@ -1106,13 +1107,17 @@ def main():
     
     
                         aux_loss_sum_t += aux_loss.detach() * bs
-                        loss = loss + args.rc_alpha * aux_loss
+                        t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                        alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                        loss = loss + alpha_t * aux_loss
     
                     if args.use_patch_position_loss:
                         base_loss_t += loss.detach() * bs
                         aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
                         aux_loss_sum_t += aux_loss.detach() * bs
-                        loss = loss + args.rc_alpha * aux_loss
+                        t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                        alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                        loss = loss + alpha_t * aux_loss
     
                 loss.backward()
     

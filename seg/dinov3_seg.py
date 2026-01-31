@@ -98,8 +98,9 @@ args = SimpleNamespace(
     seed=55,
     use_rc_loss=False,
     # loss_type="l1",
-    huber_beta=0.1,
     rc_alpha=30.0,
+    warmup_steps_for_aux=1,
+    alpha_min=10,
     seg_head="ppmlite",  # "ppmlite", "upernet", "fcn", "linear"
     feature_layers=[2, 5, 8, 11],
     # dice_weight=0.0,
@@ -863,8 +864,10 @@ if args.train:
                 if args.use_rc_loss:
                     aux_loss = rowcol_loss(last_tokens)
                     aux_loss_sum_t += aux_loss.detach() * bs
+                    t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
                     # logger.info(loss, aux_loss)
-                    loss = base_loss + args.rc_alpha * aux_loss
+                    loss = base_loss + alpha_t * aux_loss
             
             # FP16: Scale, backward, and step (with grad accumulation)
             loss_scaled = loss / accum_steps

@@ -118,7 +118,7 @@ args = SimpleNamespace(
     dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -134,7 +134,7 @@ args = SimpleNamespace(
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
-    lr=3e-05, #base
+    lr=5e-05, #base
     lr_aux=1e-5,
     eta_min=0.0,
     weight_decay=0.01,
@@ -142,13 +142,13 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=15,
+    seed=16,
     use_patch_position_loss=False,
-    use_rc_loss=False,
+    use_rc_loss=True,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
-    rc_alpha=600.0, # base
+    rc_alpha=800, # base
     warmup_steps_for_aux=1,
     alpha_min=10,
     workers=5,
@@ -163,7 +163,7 @@ args = SimpleNamespace(
     lock=True,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-rope-d-615/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/cls-base-colrow-ra220-16/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -1564,11 +1564,13 @@ if args.train:
                     alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
                     loss = loss + alpha_t * aux_loss
                 
-                if args.use_patch_position_loss:
+                elif args.use_patch_position_loss:
                     base_loss_t += loss.detach() * bs
                     aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
                     aux_loss_sum_t += aux_loss.detach() * bs
-                    loss = loss + args.rc_alpha * aux_loss
+                    t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                    loss = loss + alpha_t * aux_loss
             
             # FP16: Scale, backward, and step (with grad accumulation)
             loss_scaled = loss / accum_steps

@@ -299,7 +299,7 @@ def main():
         eval_split="test",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=True,
+        use_rot_pos_emb=False,
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
@@ -316,15 +316,17 @@ def main():
         lr_aux=1e-6,
         eta_min=1e-7,
         epochs=130,
-        break_at_epoch=100,
+        break_at_epoch=None,
         has_pos=False,
         weight_decay=0.05,
         overlap=0,
         seed=50,
         val_steps=None,
-        use_rc_loss=False,
+        use_rc_loss=True,
         loss_type="smooth_l1",
-        rc_alpha=200.0,
+        rc_alpha=200.0, #200
+        warmup_steps_for_aux=1,
+        alpha_min=10,
         workers=2 if _IS_KAGGLE else 8,
         tpu_workers=0,
         tpu_threads=1,
@@ -335,8 +337,8 @@ def main():
         debug_loss_stats=False,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=100,
-        show_peak_gpu_mem=True,
+        log_interval=300,
+        show_peak_gpu_mem=False,
         log_all_ranks=False,
         debug_xla=False,
         debug_val_interval=50,
@@ -380,7 +382,7 @@ def main():
         resume_optimizer=False,
         resume_bs=True,
         resume_img_size=False,
-        total_run_time_hr=9.0,
+        total_run_time_hr=1.0,
         train=True,
         val=True,
         final_use_sliding_window=True,
@@ -1202,6 +1204,7 @@ def main():
     logger.info("Starting training for %s", MODEL_NAME)
     train_start_time = time.time()
     start_epoch = 0
+    global_step = 0
     
     if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
         model.load_state_dict(ckpt.get("model", {}), strict=False)
@@ -1217,12 +1220,18 @@ def main():
                 scheduler.load_state_dict(ckpt["scheduler"])
         else:
             logger.info("Skipping scheduler state load (resume_scheduler=False).")
+        global_step = int(ckpt.get("step", 0))
         if args.use_rc_loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
             for k in ["row_targets", "col_targets", "row_index_full", "col_index_full"]:
                 if k in ckpt["rowcol_loss"]:
                     ckpt["rowcol_loss"].pop(k)
             rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
-        logger.info("Resumed full checkpoint from '%s' at epoch %s", args.resume_ckpt_path, start_epoch)
+        logger.info(
+            "Resumed full checkpoint from '%s' at epoch %s, step %s",
+            args.resume_ckpt_path,
+            start_epoch,
+            global_step,
+        )
         training_history = ckpt.get("training_history", None)
     
     if not isinstance(locals().get("training_history", None), dict):
@@ -1282,7 +1291,18 @@ def main():
         _pad_history(training_history)
     
     
-    def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, feature_layers, epoch, total_epochs):
+    def train_one_epoch(
+        model,
+        decoder,
+        loader,
+        criterion,
+        optimizer,
+        scheduler,
+        feature_layers,
+        epoch,
+        total_epochs,
+        global_step,
+    ):
         model.train()
         decoder.train()
         running_loss_t = torch.zeros((), device=DEVICE)
@@ -1294,6 +1314,7 @@ def main():
         step = 0
         for inputs, gt_depths, metas in loader:
             step += 1
+            global_step += 1
             bs = inputs.size(0)
             aux_loss = None
             if getattr(args, "debug_xla", False):
@@ -1305,7 +1326,7 @@ def main():
                 if getattr(args, "debug_xla", False):
                     _master_print(f"[rank {RANK}] step{step}: forward done")
 
-                nan_count = int(torch.isnan(pred_depths).sum().item())
+                # nan_count = int(torch.isnan(pred_depths).sum().item())
                 pred_depths = torch.nan_to_num(pred_depths, nan=0.0, posinf=0.0, neginf=0.0)
                 valid = (gt_depths > 0)
                 base_loss = criterion(pred_depths, gt_depths, mask=valid.float())
@@ -1317,7 +1338,9 @@ def main():
                     aux_loss = rowcol_loss(last_feat)
                 else:
                     aux_loss = rowcol_loss(last_feat[:, model.num_prefix_tokens:, :])
-                loss = base_loss + args.rc_alpha * aux_loss
+                t = min(1.0, (global_step + 1) / args.warmup_steps_for_aux)
+                alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                loss = base_loss + alpha_t * aux_loss
                 aux_loss_sum_t += aux_loss.detach() * bs
             base_loss_t += base_loss.detach() * bs
 
@@ -1363,10 +1386,10 @@ def main():
                     )
                 else:
                     msg = f"Epoch {epoch + 1}/{total_epochs} step {step}: loss={avg_loss:.4f}"
-                try:
-                    msg += f" pred_nan={nan_count}/{pred_depths.numel()}"
-                except Exception as exc:
-                    msg += f" pred_nan=ERR({exc})"
+                # try:
+                #     msg += f" pred_nan={nan_count}/{pred_depths.numel()}"
+                # except Exception as exc:
+                #     msg += f" pred_nan=ERR({exc})"
                 try:
                     lr_val = optimizer.param_groups[0].get("lr", None)
                     if lr_val is not None:
@@ -1400,7 +1423,7 @@ def main():
         avg_loss = (running_loss_t / denom).float().item()
         avg_aux = (aux_loss_sum_t / denom).float().item()
         avg_base = (base_loss_t / denom).float().item()
-        return avg_loss, avg_aux, avg_base
+        return avg_loss, avg_aux, avg_base, global_step
     
     
     def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, *, use_sliding_window=None, sw_window_size=None, sw_overlap=None):
@@ -1571,8 +1594,17 @@ def main():
             train_start = time.time()
             if train_sampler is not None:
                 train_sampler.set_epoch(epoch)
-            avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
-                model, decoder, train_loader, criterion, optimizer, scheduler, feature_layers, epoch, EPOCHS
+            avg_train_loss, avg_aux_loss, base_loss, global_step = train_one_epoch(
+                model,
+                decoder,
+                train_loader,
+                criterion,
+                optimizer,
+                scheduler,
+                feature_layers,
+                epoch,
+                EPOCHS,
+                global_step,
             )
             train_time = time.time() - train_start
             val_start = time.time()
@@ -1620,6 +1652,7 @@ def main():
                     gc.collect()
                     ckpt = {
                         "epoch": epoch + 1,
+                        "step": int(global_step),
                         "model": model.state_dict(),
                         "decoder": decoder.state_dict(),
                         "optimizer": optimizer.state_dict(),

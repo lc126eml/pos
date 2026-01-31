@@ -22,9 +22,10 @@ class MMSegCrossEntropyLoss(nn.Module):
         loss = F.cross_entropy(
             logits, target, ignore_index=self.ignore_index, reduction='none'
         )  # (N, H, W)
-        valid = (target != self.ignore_index)
-        denom = valid.sum().clamp_min(1).to(loss.dtype)
-        return self.loss_weight * (loss[valid].sum() / denom)
+        # Avoid boolean indexing (dynamic shapes on XLA); keep static shape.
+        valid = (target != self.ignore_index).to(loss.dtype)
+        denom = valid.sum().clamp_min(1)
+        return self.loss_weight * ((loss * valid).sum() / denom)
         
 class MMSegDiceLoss(nn.Module):
     def __init__(self, num_classes, ignore_index=-1, smooth=1.0, loss_weight=1.0):

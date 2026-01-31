@@ -97,6 +97,7 @@ args = SimpleNamespace(
     # rc_alpha=300.0,
     rc_alpha=600.0, # base
     warmup_steps_for_aux=1,
+    alpha_min=10,
     workers=5,
     randaugment=False,
     randaugment_n=2,
@@ -866,15 +867,17 @@ if args.train:
                     # logger.info(f"feats={feats.shape}, patch_tokens={feats[:, model.num_prefix_tokens:, :].shape[1]}")
 
                     aux_loss_sum_t += aux_loss.detach() * bs
-                    # warmup_steps_for_aux = 100
-                    # alpha_t = args.rc_alpha * min(1.0, (step + 1) / args.warmup_steps_for_aux)
-                    loss = loss + args.rc_alpha * aux_loss
+                    t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                    loss = loss + alpha_t * aux_loss
                 
                 if args.use_patch_position_loss:
                     base_loss_t += loss.detach() * bs
                     aux_loss = position_loss(feats[:, model.num_prefix_tokens:, :])
                     aux_loss_sum_t += aux_loss.detach() * bs
-                    loss = loss + args.rc_alpha * aux_loss
+                    t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                    alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                    loss = loss + alpha_t * aux_loss
             
             # FP16: Scale, backward, and step (with grad accumulation)
             loss_scaled = loss / accum_steps

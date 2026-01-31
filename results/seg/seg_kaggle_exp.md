@@ -145,7 +145,7 @@ scale_jitter=(1.0, 1.3) ms_scales=(0.9, 1.0, 1.15) good
 
 
 ## 20260126
-
+namespace(model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=150, batch_size=16, grad_accum_steps=1, train_img_size=336, eval_img_size=368, use_ms_flip_eval=False, scale_jitter=(1.0, 1.3), use_cat_max_ratio=True, cat_max_ratio=0.7, cat_max_ratio_tries=10, ms_scales=(0.9, 1.0, 1.15), eval_crop_mode='crop_or_pad', final_ms_flip_eval=True, lr=7e-05, lr_aux=1e-05, eta_min=1e-07, composite_lr=True, warmup_steps=500, weight_decay=0.01, epochs=130, overlap=0, start_epoch=0, seed=63, use_rc_loss=False, use_patch_position_loss=False, huber_beta=0.1, rc_alpha=70.0, seg_head='upernet', feature_layers=[2, 5, 8, 11], workers=2, color_jitter={'brightness': 0.2, 'contrast': 0.2, 'saturation': 0.2, 'hue': 0.05}, color_jitter_prob=0.1, train=True, val=False, ckpt_path=None, lock=False, clip_value=1.0, output_dir='/kaggle/working', log_interval=300, csv_interval=3, show_peak_gpu_mem=True, compile_model=False, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/seg-base-abs-d-363/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, total_run_time_hr=12.0, base_path='/kaggle/input/ade20k-dataset/ADEChallengeData2016', pos_type=None)
 ### ssss7777/seg-base-none-d-462
 0.641675651	0.173174977	1270.080759	36.24966121	130
 final_ms_flip_acc	final_ms_flip_miou
@@ -156,6 +156,26 @@ final_ms_flip_acc	final_ms_flip_miou
 final_ms_flip_acc	final_ms_flip_miou
 0.651744783	0.176925763
 
+### xiaoluoalice/seg-base-none-d-550
+0.719658196	0.790784121	0.642343462	0.169350088	1282.999801	37.3023417	130
+final_ms_flip_acc	final_ms_flip_miou
+0.651828766	0.173966348
+
+### xiaoluoalice/seg-base-none-d-451
+0.729467809	0.788225591	0.640669882	0.173220024	1275.896572	36.60493588	130
+final_ms_flip_acc	final_ms_flip_miou
+0.648902297	0.177117139
+
+### keyongkk/seg-base-abs-d-451
+0.71209991	0.792659581	0.647576809	0.172597885	1274.921215	36.49651408	130
+final_ms_flip_acc	final_ms_flip_miou
+0.655475378	0.176562101
+
+### yinmengmeng/seg-base-abs-d-450
+0.697800815	0.7961905	0.649634123	0.176099405	1296.798713	38.16317749	130
+final_ms_flip_acc	final_ms_flip_miou
+0.65649116	0.179158658
+
 ### ssss7777/seg-base-abs-d-462
 0.647718072	0.173013985	1278.032331	37.059834	130
 final_ms_flip_acc	final_ms_flip_miou
@@ -165,6 +185,16 @@ final_ms_flip_acc	final_ms_flip_miou
 0.646909654	0.1753553	1269.545855	36.35778284	130
 final_ms_flip_acc	final_ms_flip_miou
 0.654545426	0.178035215
+
+### xwj66666/seg-base-rope-d-450
+0.634670198	0.812929571	0.646383822	0.167940184	1348.56264	39.84228659	130
+final_ms_flip_acc	final_ms_flip_miou
+0.656020105	0.173187241
+
+### xwj66666/seg-base-rope-d-451
+0.65290451	0.80789274	0.645679593	0.174261853	1350.596756	39.61256456	130
+final_ms_flip_acc	final_ms_flip_miou
+0.654930234	0.179377243
 
 ### cycyxcy/seg-base-rope-d-462
 0.645766675	0.174602062	1345.539452	39.54678535	130
@@ -188,4 +218,15 @@ final_ms_flip_acc	final_ms_flip_miou
 final_ms_flip_acc	final_ms_flip_miou
 0.669000089	0.193113744
 
-## 20260130
+### jiangshuai0210/seg-base-colrow-d-450
+1.151812553	0.781348646	0.661500692	0.187490165	1284.145727	36.51757836	130
+final_ms_flip_acc	final_ms_flip_miou	best_ms_flip_acc	best_ms_flip_miou
+0.668168783	0.189385042	0.668168783	0.189385042
+
+### jiangshuai0210/seg-base-colrow-d-451
+1.876859665	0.777040005	0.654198825	0.179953218	1286.630517	36.68391681	130
+final_ms_flip_acc	final_ms_flip_miou
+0.662066877	0.184522912
+
+
+

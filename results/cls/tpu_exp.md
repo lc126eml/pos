@@ -75,6 +75,7 @@ Train Loss: 1.4000 | Train Acc: 0.6213 | Valid Acc: 0.5474 | train_time: 95.6s |
 0.763247907	0.784706771	0.619599998	91.4333396	4.219184637	130
 
 ## rc alpha ablation
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=False, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **batch_size=64**, img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00028,** lr_aux=4e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=50, use_patch_position_loss=False, use_rc_loss=True, rc_alpha=200, warmup_steps_for_aux=1, workers=0, re_prob=0.0, train=True, val=True, tpu_size_schedule='epoch', tpu_size_hold_batches=0, tpu_workers=0, tpu_threads=1, ckpt_path=None, lock=False, save_full_ckpt=False, resume_full_ckpt=False, resume_ckpt_path=None, resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=100, csv_interval=1, show_peak_gpu_mem=False, compile_model=False, debug_xla=True, log_all_ranks=False, total_run_time_hr=9.0, root_dir='/kaggle/working')
 ### xulijuan/cls-base-colrow-ra200-50
 Train Loss: 5.6337 | Aux Loss: 0.0221 | Base Loss: 1.2189 | Train Acc: 0.6670 | Valid Acc: 0.6198 | train_time: 91.1s | val_time: 4.0s
 Best Accuracy: 0.6214

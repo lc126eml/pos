@@ -1,12 +1,13 @@
 task: depth
-id: robinrainy
+id: guyuefangyuan6666
 pos_type: null # alibi relpos
-method: rope # colrow, rope, abs, none
+method: colrow # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu8c
 # desc_keys: ["img_sizes"]
-is_private: false
+desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
+is_private: true
 dataset_sources: null
 kernel_sources: null
 resume_full_ckpt: false
@@ -21,6 +22,7 @@ simple:
 - total_run_time_hr: 9.0
 - train: true
 - val: true
+- warmup_steps_for_aux: 500
 # - rc_alpha: 300
 # - img_sizes: [224, 192, 288]
 # - show_peak_gpu_mem: True

@@ -223,7 +223,10 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
     if not available_ids:
         logging.warning("No available ids left to resume.")
         return None
-    new_id = available_ids.pop(0)
+    if isinstance(available_ids, set):
+        new_id = available_ids.pop()
+    else:
+        new_id = available_ids.pop(0)
     target_node = {"id": new_id, "notebooks": []}
     target_node["left_time"] = 20 if is_tpu else 30
     target_node["notebooks"].append(notebook)
@@ -301,7 +304,7 @@ def main():
             now = _now_naive()
             changed = False
             running_nodes = kcfg.get("running_nodes") or []
-            available_ids = kcfg.get("available_ids") or []
+            available_ids = set(kcfg.get("available_ids") or [])
             exhausted_ids = kcfg.get("exhausted_ids") or []
             finished_notebooks = kcfg.get("finished_notebooks") or []
             error_notebooks = kcfg.get("error_notebooks") or []
@@ -461,10 +464,12 @@ def main():
 
                     node["notebooks"] = notebooks
 
-            _process_nodes(running_nodes, is_tpu, available_ids, exhausted_ids)
-
+            try:
+                _process_nodes(running_nodes, is_tpu, available_ids, exhausted_ids)
+            except Exception as e:
+                logging.error(e)
             kcfg["running_nodes"] = running_nodes
-            kcfg["available_ids"] = available_ids
+            kcfg["available_ids"] = sorted(available_ids)
             kcfg["exhausted_ids"] = exhausted_ids
             kcfg["finished_notebooks"] = finished_notebooks
             kcfg["error_notebooks"] = error_notebooks

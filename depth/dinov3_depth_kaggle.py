@@ -218,7 +218,7 @@ args = SimpleNamespace(
     eval_split="test",  # "val" or "test" when eval_root has subdirs
     model_type="dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],
     eval_size=(224, 224),
@@ -227,21 +227,23 @@ args = SimpleNamespace(
     scale_jitter=(1.0, 1.2),
     scale_jitter_sw=(1.0, 1.01),
     batch_size=24,
-    grad_accum_steps=4,
+    grad_accum_steps=1,
     patch_size=16,
-    lr=2.0e-4, #7e-5
+    lr=5.0e-5, #7e-5
     lr_aux=1e-5,
     eta_min=1e-7,
-    epochs=120,
+    epochs=130,
     break_at_epoch=None,
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=50,
+    seed=16,
     val_steps=None,
     use_rc_loss=False,
     loss_type="smooth_l1",
     rc_alpha=200.0,
+    warmup_steps_for_aux=1,
+    alpha_min=10,
     workers=2 if _IS_KAGGLE else 8,
     composite_lr=True,
     warmup_steps=3000,
@@ -275,7 +277,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/depth-base-rope-lr30-50/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/depth-base-none-gpu-16/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
@@ -910,6 +912,7 @@ scaler = torch.amp.GradScaler(DEVICE.type, enabled=use_scaler)
 logger.info("Starting training for %s", MODEL_NAME)
 train_start_time = time.time()
 start_epoch = 0
+global_step = 0
 
 if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
     model.load_state_dict(ckpt.get("model", {}), strict=False)
@@ -925,6 +928,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
             scheduler.load_state_dict(ckpt["scheduler"])
     else:
         logger.info("Skipping scheduler state load (resume_scheduler=False).")
+    global_step = int(ckpt.get("step", 0))
     if "scaler" in ckpt and ckpt["scaler"] is not None:
         scaler.load_state_dict(ckpt["scaler"])
     if args.use_rc_loss and "rowcol_loss" in ckpt and ckpt["rowcol_loss"] is not None:
@@ -932,7 +936,12 @@ if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
             if k in ckpt["rowcol_loss"]:
                 ckpt["rowcol_loss"].pop(k)
         rowcol_loss.load_state_dict(ckpt["rowcol_loss"])
-    logger.info("Resumed full checkpoint from '%s' at epoch %s", args.resume_ckpt_path, start_epoch)
+    logger.info(
+        "Resumed full checkpoint from '%s' at epoch %s, step %s",
+        args.resume_ckpt_path,
+        start_epoch,
+        global_step,
+    )
     training_history = ckpt.get("training_history", None)
 
 if not isinstance(locals().get("training_history", None), dict):
@@ -992,7 +1001,19 @@ if args.resume_full_ckpt:
     _pad_history(training_history)
 
 
-def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, total_epochs):
+def train_one_epoch(
+    model,
+    decoder,
+    loader,
+    criterion,
+    optimizer,
+    scheduler,
+    scaler,
+    feature_layers,
+    epoch,
+    total_epochs,
+    global_step,
+):
     model.train()
     decoder.train()
     if torch.cuda.is_available():
@@ -1036,7 +1057,9 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
                 aux_loss = rowcol_loss(last_feat)
             else:
                 aux_loss = rowcol_loss(last_feat[:, model.num_prefix_tokens:, :])
-            loss = base_loss + args.rc_alpha * aux_loss
+            t = min(1.0, (global_step + 1) / args.warmup_steps_for_aux)
+            alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+            loss = base_loss + alpha_t * aux_loss
             aux_loss_sum_t += aux_loss.detach() * bs
         base_loss_t += base_loss.detach() * bs
 
@@ -1090,12 +1113,13 @@ def train_one_epoch(model, decoder, loader, criterion, optimizer, scheduler, sca
                     avg_loss,
                     peak_str,
                 )
+        global_step += 1
 
     denom = max(total_samples, 1)
     avg_loss = (running_loss_t / denom).float().item()
     avg_aux = (aux_loss_sum_t / denom).float().item()
     avg_base = (base_loss_t / denom).float().item()
-    return avg_loss, avg_aux, avg_base
+    return avg_loss, avg_aux, avg_base, global_step
 
 
 def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, *, use_sliding_window=None, sw_window_size=None, sw_overlap=None):
@@ -1180,8 +1204,18 @@ if args.train:
     logger.info("Starting training...")
     for epoch in range(start_epoch, EPOCHS):
         train_start = time.time()
-        avg_train_loss, avg_aux_loss, base_loss = train_one_epoch(
-            model, decoder, train_loader, criterion, optimizer, scheduler, scaler, feature_layers, epoch, EPOCHS
+        avg_train_loss, avg_aux_loss, base_loss, global_step = train_one_epoch(
+            model,
+            decoder,
+            train_loader,
+            criterion,
+            optimizer,
+            scheduler,
+            scaler,
+            feature_layers,
+            epoch,
+            EPOCHS,
+            global_step,
         )
         train_time = time.time() - train_start
         val_start = time.time()
@@ -1225,6 +1259,7 @@ if args.train:
         if args.save_full_ckpt:
             ckpt = {
                 "epoch": epoch + 1,
+                "step": int(global_step),
                 "model": model.state_dict(),
                 "decoder": decoder.state_dict(),
                 "optimizer": optimizer.state_dict(),

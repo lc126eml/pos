@@ -325,13 +325,12 @@ def main():
                 timeout=5,
             )
         except Exception:
-            return None
+            return tpu_info_last_vals
         output = (proc.stdout or "") + "\n" + (proc.stderr or "")
         pattern = re.compile(r"([0-9.]+)\s*([KMGTP]i?B)\s*/\s*([0-9.]+)\s*([KMGTP]i?B)")
         matches = pattern.findall(output)
         if not matches:
-            return None
-
+            return tpu_info_last_vals
         def _to_mb(val, unit):
             val = float(val)
             unit = unit.upper()
@@ -344,7 +343,6 @@ def main():
             if unit in ("TIB", "TB"):
                 return val * 1024.0 * 1024.0
             return val
-
         used_mbs = []
         total_mbs = []
         for used_val, used_unit, total_val, total_unit in matches:
@@ -382,11 +380,11 @@ def main():
     base_path_default = "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
     args = SimpleNamespace(
         model_type="dinov3",
-        use_abs_pos_emb=False,
+        use_abs_pos_emb=True,
         use_rot_pos_emb=False,
         model_size='base',
         num_classes=150,
-        batch_size=16,
+        batch_size=8,
         val_drop_last=False,
         val_pad_to_full_batch=False,
         train_img_size=336,
@@ -410,6 +408,8 @@ def main():
         start_epoch=0,
         seed=50,
         use_rc_loss=False,
+        warmup_steps_for_aux=1,
+        alpha_min=10,
         huber_beta=0.1,
         rc_alpha=70.0,
         seg_head="upernet",
@@ -420,12 +420,12 @@ def main():
         color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
         color_jitter_prob=0.1,
         train=True,
-        val=False,
+        val=True,
         ckpt_path=None,
         lock=False if _IS_KAGGLE else True,
         clip_value=1.0,
         output_dir=root_dir,
-        log_interval=100,
+        log_interval=10,
         csv_interval=3,
         show_peak_gpu_mem=True,
         compile_model=False,
@@ -436,14 +436,14 @@ def main():
         resume_scheduler=True,
         resume_optimizer=True,
         resume_bs=True,
-        total_run_time_hr=9.0,
+        total_run_time_hr=1.0,
         base_path=base_path_default,
         pos_type=None,
         log_all_ranks=False,
-        debug_xla=False,
+        debug_xla=True,
     )
 
-    base_global_batch = 128
+    base_global_batch = 16
     global_batch = args.batch_size * WORLD_SIZE
     lr_scale = min(global_batch / base_global_batch, 4.0)
     args.lr *= lr_scale
@@ -1084,20 +1084,30 @@ def main():
                     if args.use_rc_loss:
                         aux_loss = rowcol_loss(last_tokens)
                         aux_loss_sum_t += aux_loss.detach() * bs
-                        loss = base_loss + args.rc_alpha * aux_loss
-                    if getattr(args, "debug_xla", False):
-                        _master_print(f"[rank {RANK}] step{step}: forward done")
+                        t = min(1.0, (step + 1) / args.warmup_steps_for_aux)
+                        alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
+                        loss = base_loss + alpha_t * aux_loss
 
+                xm.mark_step()
+                if getattr(args, "debug_xla", False):
+                    _master_print(f"[rank {RANK}] step{step}: forward done")
                 loss.backward()
+                xm.mark_step()
                 if getattr(args, "debug_xla", False):
                     _master_print(f"[rank {RANK}] step{step}: backward done")
+                grad_norm = None
                 if args.clip_value is not None:
-                    torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
+                if getattr(args, "debug_xla", False):
+                    _master_print(f"[rank {RANK}] step{step}: clipped")
                 xm.optimizer_step(optimizer, barrier=True)
                 if getattr(args, "debug_xla", False):
                     _master_print(f"[rank {RANK}] step{step}: optimizer step done")
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
+                if step % log_interval == 0:
+                    _master_print("sync")
+                    _xla_sync()
 
                 with torch.no_grad():
                     pred = outputs.detach().argmax(dim=1)
@@ -1112,38 +1122,47 @@ def main():
                     base_loss_t += base_loss.detach() * valid_pixels
                 train_total_t = train_total_t.clamp_min(1)
                 train_samples_t = train_samples_t.clamp_min(1)
-                if step % log_interval == 0:
-                    _xla_sync()
-                    if IS_MASTER:
-                        avg_loss = (running_loss_t / train_total_t).float().item()
-                        avg_acc = (train_correct_t / train_total_t).float().item()
-                        msg = f"Epoch {epoch+1}/{args.epochs} step {step}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
-                        if aux_loss is not None:
-                            avg_aux = (aux_loss_sum_t / train_samples_t).float().item()
-                            msg += f" aux={avg_aux:.4f}"
-                        if args.show_peak_gpu_mem:
-                            info = _tpu_info_mem()
-                            if info is not None:
-                                used_mb, total_mb, peak_mb = info
-                                msg += f" tpu_mem={used_mb:.0f}/{peak_mb:.0f}/{total_mb:.0f}MB"
-                            elif not tpu_mem_warned:
-                                tpu_mem_warned = True
-                                print("TPU memory info unavailable; skipping TPU mem logging.", flush=True)
-                            cpu_peak = _cpu_peak_mb()
-                            if cpu_peak is not None:
-                                if cpu_total_mb is not None:
-                                    msg += f" cpu_peak={cpu_peak:.0f}/{cpu_total_mb:.0f}MB"
-                                else:
-                                    msg += f" cpu_peak={cpu_peak:.0f}MB"
-                        logger.info(msg)
+                if getattr(args, "debug_xla", False):
+                    _master_print(f"[rank {RANK}] step{step}: calculated")
+                if step % log_interval == 0 and IS_MASTER:
+                    _master_print("start loggin")
+                    avg_loss = (running_loss_t / train_total_t).float().item()
+                    avg_acc = (train_correct_t / train_total_t).float().item()
+                    msg = f"Epoch {epoch+1}/{args.epochs} step {step}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
+                    if aux_loss is not None:
+                        avg_aux = (aux_loss_sum_t / train_samples_t).float().item()
+                        msg += f" aux={avg_aux:.4f}"
+                    if grad_norm is not None:
+                        try:
+                            msg += f" grad_norm={float(grad_norm):.4g}"
+                        except Exception:
+                            msg += " grad_norm=ERR"
+                    if args.show_peak_gpu_mem:
+                        info = _tpu_info_mem()
+                        if info is not None:
+                            used_mb, total_mb, peak_mb = info
+                            msg += f" tpu_mem={used_mb:.0f}/{peak_mb:.0f}/{total_mb:.0f}MB"
+                        elif not tpu_mem_warned:
+                            tpu_mem_warned = True
+                            print("TPU memory info unavailable; skipping TPU mem logging.", flush=True)
+                        cpu_peak = _cpu_peak_mb()
+                        if cpu_peak is not None:
+                            if cpu_total_mb is not None:
+                                msg += f" cpu_peak={cpu_peak:.0f}/{cpu_total_mb:.0f}MB"
+                            else:
+                                msg += f" cpu_peak={cpu_peak:.0f}MB"
+                    logger.info(msg)
 
             train_time = time.time() - epoch_train_start
+            if IS_MASTER:
+                _master_print("Training Epoch Finished")
             model.eval()
             decoder.eval()
             val_correct_t = torch.zeros((), device=DEVICE)
             val_total_t = torch.zeros((), device=DEVICE)
             confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
-
+            if IS_MASTER:
+                _master_print("Eval start")
             val_start = time.time()
             with torch.no_grad():
                 for inputs, labels in valid_loader:
@@ -1172,7 +1191,12 @@ def main():
                             )
                         else:
                             if args.seg_head == "upernet":
+                                if IS_MASTER:
+                                    _master_print("Head forward ...")
                                 outputs, _, _ = _forward_upernet(model, decoder, inputs, args.feature_layers)
+                                
+                                if IS_MASTER:
+                                    _master_print("Head forworded")
                             else:
                                 feats = model.forward_features(inputs)
                                 grid_hw = _infer_grid_hw(model, inputs)
@@ -1181,6 +1205,7 @@ def main():
                                     grid_size=grid_hw,
                                     out_size=inputs.shape[-2:],
                                 )
+                          
                     pred = outputs.argmax(dim=1)
                     mask = labels >= 0
                     if args.val_pad_to_full_batch and real_bs < args.batch_size:
@@ -1188,7 +1213,11 @@ def main():
                     val_correct_t += ((pred == labels) & mask).sum()
                     val_total_t += mask.sum()
                     confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+                    if IS_MASTER:
+                        _master_print("After confusion")   
 
+            if IS_MASTER:
+                _master_print("Before reduce")
             val_time = time.time() - val_start
             if WORLD_SIZE > 1:
                 xm.all_reduce(
@@ -1205,7 +1234,9 @@ def main():
                     ],
                 )
                 xm.all_reduce(xm.REDUCE_SUM, [confmat])
-
+            
+            if IS_MASTER:
+                _master_print("Eval start")
             confmat_f = confmat.to(torch.float32)
             intersection = torch.diag(confmat_f)
             union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
@@ -1216,6 +1247,8 @@ def main():
             epoch_train_acc = (train_correct_t / train_total_t).float().item()
             epoch_train_loss = (running_loss_t / train_total_t).float().item()
 
+            if IS_MASTER:
+                _master_print("Eval start")
             improved_miou = epoch_val_miou > best_miou
             if improved_miou:
                 best_miou = epoch_val_miou

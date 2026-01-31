@@ -1,23 +1,20 @@
 {
-  "id": "robinrainy/depth-base-rope-tpu8c-50",
-  "title": "depth base rope tpu8c 50",
-  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
+  "id": "chencaihonga/cls-base-colrow-ra220-116",
+  "title": "cls base colrow ra220 116",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "liucong12601/hsm-train-part01",
-    "liucong12601/hsm-train-part02",
-    "liucong12601/hsm-train-part03",
-    "liucong12601/hsm-train-part04",
-    "liucong12601/hsm-train-part05",
-    "liucong12601/hsm-test-val"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "chencaihonga/cls-base-colrow-ra220-16"
+  ],
   "model_sources": []
 }
