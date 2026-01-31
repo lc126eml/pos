@@ -554,7 +554,6 @@ if args.use_rc_loss:
         grid_h=grid_h,
         grid_w=grid_w,
         # loss_type=args.loss_type,
-        huber_beta=args.huber_beta,
     ).to(DEVICE)
     training_parameters += list(rowcol_loss.parameters())
     param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})

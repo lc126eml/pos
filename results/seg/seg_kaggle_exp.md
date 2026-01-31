@@ -206,7 +206,6 @@ final_ms_flip_acc	final_ms_flip_miou
 final_ms_flip_acc	final_ms_flip_miou
 0.658887625	0.182158306
 
-
 ### jjjerry12138/seg-base-colrow-d-462
 valid_acc	valid_miou	train_time	val_time	epoch
 0.657746851	0.182367831	1283.350677	36.40031314	130
@@ -220,8 +219,8 @@ final_ms_flip_acc	final_ms_flip_miou
 
 ### jiangshuai0210/seg-base-colrow-d-450
 1.151812553	0.781348646	0.661500692	0.187490165	1284.145727	36.51757836	130
-final_ms_flip_acc	final_ms_flip_miou	best_ms_flip_acc	best_ms_flip_miou
-0.668168783	0.189385042	0.668168783	0.189385042
+final_ms_flip_acc	final_ms_flip_miou
+0.668168783	0.189385042
 
 ### jiangshuai0210/seg-base-colrow-d-451
 1.876859665	0.777040005	0.654198825	0.179953218	1286.630517	36.68391681	130
@@ -229,4 +228,7 @@ final_ms_flip_acc	final_ms_flip_miou
 0.662066877	0.184522912
 
 
+## 20260131
 
+
+## rc_alpha ablation

@@ -38,6 +38,10 @@
     - [sollasi/cls-base-relpos-desc-626](#sollasicls-base-relpos-desc-626)
   - [20260130](#20260130)
     - [yinmengmeng/cls-base-abs-d-718](#yinmengmengcls-base-abs-d-718)
+    - [asdsad0000/cls-base-rope-d-815](#asdsad0000cls-base-rope-d-815)
+    - [ampere888/cls-base-rope-d-816](#ampere888cls-base-rope-d-816)
+    - [ampere888/cls-base-rope-d-817](#ampere888cls-base-rope-d-817)
+    - [asdsad0000/cls-base-rope-d-818](#asdsad0000cls-base-rope-d-818)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
     - [rrrrmm/cls-base-colrow-ra100-wsfa200-16](#rrrrmmcls-base-colrow-ra100-wsfa200-16)
@@ -202,7 +206,17 @@ eastwangwei/cls-base-abs-d-717
 
 
 
+### asdsad0000/cls-base-rope-d-815
+0.264511794	0.928061545	0.681999981	2605.115828	32.36702776	130
 
+### ampere888/cls-base-rope-d-816
+0.265429288	0.928661585	0.674799979	2601.882329	32.18635082	130
+
+### ampere888/cls-base-rope-d-817
+0.261341631	0.928861558	0.684599996	2582.073358	31.79768419	130
+
+### asdsad0000/cls-base-rope-d-818
+0.257901967	0.931200027	0.682399988	2614.811826	32.7463088	130
 
 roseqw/cls-base-colrow-d-715
 1.004234672	0.842669249	0.725799978	2397.782822	27.41329002	130

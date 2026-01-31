@@ -380,7 +380,7 @@ def main():
     base_path_default = "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
     args = SimpleNamespace(
         model_type="dinov3",
-        use_abs_pos_emb=False,
+        use_abs_pos_emb=True,
         use_rot_pos_emb=False,
         model_size='base',
         num_classes=150,
@@ -397,7 +397,7 @@ def main():
         ms_scales=(0.90, 1.0, 1.15),
         eval_crop_mode="crop_or_pad",
         final_ms_flip_eval=True,
-        lr=5e-05,
+        lr=3e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
         composite_lr=True,
@@ -745,7 +745,6 @@ def main():
             feat_dim=model.embed_dim,
             grid_h=grid_h,
             grid_w=grid_w,
-            huber_beta=args.huber_beta,
         ).to(DEVICE)
         training_parameters += list(rowcol_loss.parameters())
         param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})

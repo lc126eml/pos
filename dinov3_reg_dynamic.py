@@ -31,6 +31,9 @@ import gc
 import time
 import argparse
 import logging
+import shutil
+import urllib.request
+import zipfile
 train_start_time = time.time()
 # try:
 #     from filelock import FileLock
@@ -114,8 +117,8 @@ else:
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
-    dynamic_img_size=True,
+    pos_type = 'alibi', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    dynamic_img_size=False,
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
@@ -143,7 +146,7 @@ args = SimpleNamespace(
     overlap=0,
     pretrained=None,
     seed=16,
-    use_patch_position_loss=True,
+    use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
@@ -219,6 +222,178 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         for k, v in vars(ckpt_args).items():
             if k not in skip_keys:
                 setattr(args, k, v)
+
+def _download_with_retries(url, dst, retries=3, timeout=30):
+    tmp_path = dst + ".part"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/zip",
+    }
+
+    def _cleanup_tmp():
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    def _finalize():
+        if not zipfile.is_zipfile(tmp_path):
+            raise RuntimeError("Downloaded file is not a zip.")
+        os.replace(tmp_path, dst)
+
+    def _try_curl():
+        curl = shutil.which("curl")
+        if not curl:
+            print("download: curl not found", flush=True)
+            return False
+        print("download: trying curl", flush=True)
+        cmd = [
+            curl,
+            "-L",
+            "--retry",
+            "3",
+            "--retry-all-errors",
+            "--max-redirs",
+            "20",
+            "--connect-timeout",
+            str(timeout),
+            "-H",
+            f"User-Agent: {headers['User-Agent']}",
+            "-H",
+            f"Accept: {headers['Accept']}",
+            "-o",
+            tmp_path,
+            url,
+        ]
+        subprocess.check_call(cmd)
+        _finalize()
+        print("download: curl ok", flush=True)
+        return True
+
+    def _try_requests():
+        try:
+            import requests  # type: ignore
+        except Exception:
+            print("download: requests not available", flush=True)
+            return False
+        print("download: trying requests", flush=True)
+        resp = requests.get(url, stream=True, timeout=timeout, headers=headers, allow_redirects=True)
+        resp.raise_for_status()
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+        _finalize()
+        print("download: requests ok", flush=True)
+        return True
+
+    def _try_urllib():
+        print("download: trying urllib", flush=True)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(tmp_path, mode="wb") as f:
+                shutil.copyfileobj(resp, f)
+        _finalize()
+        print("download: urllib ok", flush=True)
+        return True
+
+    methods = [_try_curl, _try_requests, _try_urllib]
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        for method in methods:
+            try:
+                ok = method()
+                if ok:
+                    return
+            except Exception as exc:
+                last_exc = exc
+                print(f"download: method failed ({exc})", flush=True)
+                _cleanup_tmp()
+        if attempt < retries:
+            time.sleep(2 * attempt)
+    raise RuntimeError(f"Downloaded file is not a zip. Last error: {last_exc}")
+
+
+def _ensure_pos_repo():
+    if not _is_kaggle_env:
+        return
+
+    def _find_repo_root():
+        if os.path.isdir("/kaggle/working/pos"):
+            return "/kaggle/working/pos"
+        for name in os.listdir("/kaggle/working"):
+            cand = os.path.join("/kaggle/working", name)
+            if os.path.isdir(os.path.join(cand, "core")) and os.path.isdir(os.path.join(cand, "data")):
+                return cand
+        return None
+
+    url = "https://github.com/lc126eml/pos/archive/refs/heads/master.zip"
+    zip_path = "/kaggle/working/pos.zip"
+    if os.path.exists(zip_path) and not zipfile.is_zipfile(zip_path):
+        os.remove(zip_path)
+    if not os.path.exists(zip_path):
+        _download_with_retries(url, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall("/kaggle/working")
+    if os.path.exists(zip_path):
+        os.remove(zip_path)
+
+    repo_root = _find_repo_root()
+    if not repo_root:
+        raise RuntimeError("POS repo not found after unzip; expected /kaggle/working/pos or a repo with core/ and data/.")
+    os.environ["POS_REPO_ROOT"] = repo_root
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    print(f"POS repo ready: {repo_root}", flush=True)
+
+
+_ensure_pos_repo()
+
+
+def _ensure_timm_pe():
+    if args.pos_type is None:
+        return
+    repo_root = os.environ.get("POS_REPO_ROOT")
+    if repo_root and os.path.isdir(os.path.join(repo_root, "timm_pe")):
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+    else:
+        repo_root = None
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if os.path.isdir(os.path.join(script_dir, "timm_pe")):
+            repo_root = script_dir
+        elif _is_kaggle_env and os.path.isdir("/kaggle/working"):
+            for name in os.listdir("/kaggle/working"):
+                cand = os.path.join("/kaggle/working", name)
+                if os.path.isdir(os.path.join(cand, "timm_pe")):
+                    repo_root = cand
+                    break
+        if repo_root:
+            sys.path.insert(0, repo_root)
+    if repo_root is None:
+        raise RuntimeError(
+            f"pos_type={args.pos_type} requires timm_pe modules. "
+            "Failed to locate timm_pe directory."
+        )
+    try:
+        if args.pos_type == "relpos":
+            import timm_pe.eva_relpos  # noqa: F401
+        elif args.pos_type == "alibi":
+            import timm_pe.eva_alibi  # noqa: F401
+        elif args.pos_type == "sin":
+            import timm_pe.eva_sin  # noqa: F401
+        else:
+            raise ValueError(f"Unsupported pos_type: {args.pos_type}")
+    except Exception as exc:
+        raise RuntimeError(
+            f"pos_type={args.pos_type} requires timm_pe modules. "
+            f"Failed to import timm_pe. ({exc})"
+        ) from exc
+
+
+_ensure_timm_pe()
+
 if args.pos_type is not None:
     args.has_pos = True
     args.overlap = 0
@@ -230,12 +405,11 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
-
 offset = 0
 # args.batch_size = 64
 # args.grad_accum_steps=2
 # print(args)
-MODEL_NAME = f"vit_{args.model_size}_patch16_{args.model_type}"
+MODEL_NAME = f"vit_{f'{args.pos_type}_' if args.pos_type is not None else ""}{args.model_size}_patch16_{args.model_type}"
 if is_kaggle:
     output_dir = args.root_dir
     ckpt_output_dir = os.path.join(output_dir, "ckpt")
@@ -1284,7 +1458,6 @@ if args.use_rc_loss:
             grid_h=grid_h,
             grid_w=grid_w,
             # loss_type=args.loss_type,
-            # huber_beta=args.huber_beta,
         ).to(DEVICE)
     else:
         grid_h = grid_w = max(args.img_sizes)//args.patch_size
@@ -1294,7 +1467,6 @@ if args.use_rc_loss:
             grid_h=grid_h,
             grid_w=grid_w,
             # loss_type=args.loss_type,
-            # huber_beta=args.huber_beta,
         ).to(DEVICE)
     training_parameters += list(rowcol_loss.parameters())
     param_groups.append({"params": rowcol_loss.parameters(), "weight_decay": 0.0, "lr": lr_aux})
@@ -1713,7 +1885,8 @@ if args.train:
         #     scheduler.step()
 
     else:
-        args.val = True
+        if args.pos_type is None:
+            args.val = True
 
     logger.info("Training complete.")
     logger.info(f"Best Accuracy: {best_acc:.4f}")

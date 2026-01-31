@@ -1,11 +1,11 @@
 task: seg
 id: guyuefangyuan6666
 pos_type: null # alibi relpos
-method: none # colrow, rope, abs, none
+method: abs # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu8c
-# desc_keys: ["img_sizes"]
+desc_keys: ["lr"]
 # desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
 is_private: true
 dataset_sources: null
@@ -28,4 +28,4 @@ simple:
 # - show_peak_gpu_mem: True
 # - val: false
 # - batch_size: 16
-# - lr: 5.0e-05
+- lr: 3.0e-05

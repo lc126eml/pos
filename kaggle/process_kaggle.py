@@ -420,14 +420,7 @@ def main():
         cfg["id"] = chosen
     else:
         selected_from_available = False
-    if pos_type is not None:
-        if task != "cls":
-            raise ValueError("pos_type is only supported for cls task.")
-        if use_tpu:
-            py_file = Path("dinov3_reg_dynamic_tpu.py")
-        else:
-            py_file = Path("dinov3_reg_dynamic_pos.py")
-    elif task == "seg":
+    if task == "seg":
         if use_tpu:
             py_file = Path("seg") / "dinov3_seg_kaggle_tpu.py"
         else:
@@ -633,6 +626,8 @@ def main():
             subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
         if args_ns.add_running_node:
             total_runs = args_ns.total_runs
+            if total_runs is None:
+                total_runs = cfg.get("total_runs")
             if total_runs is None:
                 total_runs = 1 if use_tpu else 8
             _add_running_node(

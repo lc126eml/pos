@@ -188,6 +188,7 @@ Valid AbsRel: 0.2899 | Valid L1: 2.0970 | Valid RMSE: 2.8584 | Valid a1: 0.6330
 2026-01-29 16:37:44,029 - INFO -   Best RMSE:    2.8120 (Epoch 61)
 
 # mean_std
+lr=0.0002 > lr=0.00028
 ## /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr27_relative_median_dec_dpt_h224w224_s60/20260129_194258
 batch_size=48, grad_accum_steps=2, patch_size=16, **lr=0.00028,** lr_aux=1e-05, eta_min=1e-07, epochs=120, break_at_epoch=80
 Valid AbsRel: 0.2808 | Valid L1: 2.0678 | Valid RMSE: 2.9474 | Valid a1: 0.6568
@@ -198,5 +199,12 @@ Valid AbsRel: 0.2808 | Valid L1: 2.0678 | Valid RMSE: 2.9474 | Valid a1: 0.6568
 
 ## /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr20_relative_median_dec_dpt_h224w224_s60/20260130_151656
 batch_size=48, grad_accum_steps=2, patch_size=16, **lr=0.0002,** lr_aux=1e-05, eta_min=1e-07, epochs=120, **break_at_epoch=None**
+0.3167629539966583,0.27103558845898706,2.014981028440975,2.758483473612583,0.6603721443829268,780.9821531772614,41.649816036224365,**80**
+--- Epoch 120 Validation Summary ---
+2026-01-31 18:55:33,236 - INFO -   Train Loss: 0.2880 | train_time: 797.7s | val_time: 41.6s
+2026-01-31 18:55:33,236 - INFO -  Valid AbsRel: 0.2726 | Valid L1: 2.0338 | Valid RMSE: 2.7711 | Valid a1: 0.6584
+2026-01-31 18:55:34,343 - INFO -   Best a1:      0.6627 (Epoch 68)
+2026-01-31 18:55:34,343 - INFO -   Best AbsRel:  0.2673 (Epoch 59)
+2026-01-31 18:55:34,344 - INFO -   Best RMSE:    2.6398 (Epoch 23)
 
 

@@ -1,11 +1,12 @@
-task: depth
+task: cls
 id: 
-pos_type: null # alibi relpos
-method: colrow # colrow, rope, abs, none, patch
+pos_type: alibi # alibi relpos
+method: none # colrow, rope, abs, none, patch
 model_size: base
 run_id: 0
-desc: mres
-desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
+# total_runs: 1
+desc: gpu
+# desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -19,5 +20,5 @@ seed: 16
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
-- rc_alpha: 600
-- warmup_steps_for_aux: 600
+# - rc_alpha: 70
+# - warmup_steps_for_aux: 300

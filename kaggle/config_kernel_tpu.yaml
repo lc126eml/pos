@@ -13,17 +13,29 @@ exhausted_ids:
 running_nodes:
 - id: robinrainy
   left_time: 20
-  notebooks: null
+  notebooks:
+  - kernel_id: robinrainy/seg-base-abs-lr7-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-31 16:56:35'
+    resumed_from: null
+    history_ids: []
 - id: xulijuan
   left_time: 20
-  notebooks: null
+  notebooks:
+  - kernel_id: xulijuan/seg-base-abs-lr5-50
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-01-31 16:57:06'
+    resumed_from: null
+    history_ids: []
 - id: guyuefangyuan6666
   left_time: 20
   notebooks:
-  - kernel_id: guyuefangyuan6666/seg-base-none-tpu8c-50
+  - kernel_id: guyuefangyuan6666/seg-base-abs-lr3-50
     run_id: 0
     total_runs: 1
-    start_time: '2026-01-31 16:44:03'
+    start_time: '2026-01-31 16:57:23'
     resumed_from: null
     history_ids: []
 finished_notebooks: null

@@ -1,16 +1,16 @@
 {
-  "id": "guyuefangyuan6666/seg-base-none-tpu8c-50",
-  "title": "seg base none tpu8c 50",
-  "code_file": "../seg/dinov3_seg_kaggle_tpu.py",
+  "id": "jinzhanbo/cls-base-alibi-gpu-16",
+  "title": "cls base alibi gpu 16",
+  "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
-  "is_private": "true",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "is_private": "false",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "awsaf49/ade20k-dataset"
+    "ambityga/imagenet100"
   ],
   "competition_sources": [],
   "kernel_sources": [],
