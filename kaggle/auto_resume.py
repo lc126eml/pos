@@ -417,6 +417,7 @@ def main():
                             else:
                                 ok, output = _push_kernel(cfg)
                             if not ok:
+                                logging.info(output)
                                 quota_msg = "Maximum weekly GPU quota"
                                 if quota_msg in output:
                                     target_node = _move_to_new_node(
@@ -472,7 +473,7 @@ def main():
             kcfg["available_ids"] = sorted(available_ids)
             kcfg["exhausted_ids"] = exhausted_ids
             kcfg["finished_notebooks"] = finished_notebooks
-            kcfg["error_notebooks"] = error_notebooks
+            # kcfg["error_notebooks"] = error_notebooks
 
             if changed:
                 _write_yaml(config_path, kcfg)

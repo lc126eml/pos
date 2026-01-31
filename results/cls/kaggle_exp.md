@@ -38,6 +38,11 @@
     - [sollasi/cls-base-relpos-desc-626](#sollasicls-base-relpos-desc-626)
   - [20260130](#20260130)
     - [yinmengmeng/cls-base-abs-d-718](#yinmengmengcls-base-abs-d-718)
+  - [rc alpha warmup](#rc-alpha-warmup)
+    - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
+    - [rrrrmm/cls-base-colrow-ra100-wsfa200-16](#rrrrmmcls-base-colrow-ra100-wsfa200-16)
+    - [tianxianglii/cls-base-colrow-ra100-wsfa500-16](#tianxiangliicls-base-colrow-ra100-wsfa500-16)
+    - [chencaihonga/cls-base-colrow-ra220-16](#chencaihongacls-base-colrow-ra220-16)
   - [lr ablation](#lr-ablation)
     - [jacksisi/cls-base-none-lr5e-5-53](#jacksisicls-base-none-lr5e-5-53)
     - [jacksisi/cls-base-none-lr2e-4-53](#jacksisicls-base-none-lr2e-4-53)
@@ -170,8 +175,62 @@ Best Accuracy: 0.6168
 
 ## 20260130
 namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=18, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=1, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
+
+eastwangwei/cls-base-none-d-715
+0.29331708	0.927400053	0.627799988	2377.232176	27.13887477	130
+
+robinrainy/cls-base-none-d-716
+0.288127244	0.926800013	0.630199969	2360.556972	26.77071929	130
+
+robinrainy/cls-base-none-d-717
+0.291850299	0.926946163	0.622999966	2393.38039	27.61225271	130
+
+- kernel_id: maoshuwen0415/cls-base-none-d-718
+0.285520136	0.92742312	0.630599976	2382.139256	27.39493513	130
+
+gloden613/cls-base-abs-d-715
+0.284928143	0.97000046	0.646799982	2382.102685	27.38780832	130
+
+roseqw/cls-base-abs-d-716
+0.27779898	0.929684639	0.636599958	2377.364023	27.34206533	130
+
+eastwangwei/cls-base-abs-d-717
+0.280990809	0.929669261	0.65259999	2376.600208	27.06773448	130
+
 ### yinmengmeng/cls-base-abs-d-718
 0.02142968	0.995469272	0.658399999	2378.702361	27.58827186	130
+
+
+
+
+
+roseqw/cls-base-colrow-d-715
+1.004234672	0.842669249	0.725799978	2397.782822	27.41329002	130
+
+xiaoluoalice/cls-base-colrow-d-716
+1.261722803	0.806776941	0.710599959	2381.429861	27.23062944	130
+
+eastwangwei/cls-base-colrow-d-717
+1.199402213	0.820361555	0.726399958	2382.091406	27.12340927	130
+
+chencaihonga/cls-base-colrow-d-718
+1.056852937	0.845007718	0.727599978	2407.905407	27.6153574	130
+
+
+## rc alpha warmup
+wsfa500 > wsfa1000 > wsfa200 > None
+### djiangjiang/cls-base-colrow-ra600-wsfa1000-16
+Train Loss: 27.0997 | Aux Loss: 0.0389 | Base Loss: 3.7451 | Train Acc: 0.1360 | Valid Acc: 0.1488 | train_time: 2378.2s | val_time: 26.9s
+Best Accuracy: 0.1488
+### rrrrmm/cls-base-colrow-ra100-wsfa200-16
+Train Loss: 27.4631 | Aux Loss: 0.0394 | Base Loss: 3.8047 | Train Acc: 0.1276 | Valid Acc: 0.1396 | train_time: 2402.4s | val_time: 27.7s
+Best Accuracy: 0.1396
+### tianxianglii/cls-base-colrow-ra100-wsfa500-16
+Train Loss: 26.9665 | Aux Loss: 0.0387 | Base Loss: 3.7362 | Train Acc: 0.1380 | Valid Acc: 0.1496 | train_time: 2401.1s | val_time: 27.7s
+Best Accuracy: 0.1496
+### chencaihonga/cls-base-colrow-ra220-16
+Train Loss: 27.5159 | Aux Loss: 0.0395 | Base Loss: 3.8425 | Train Acc: 0.1208 | Valid Acc: 0.1298 | train_time: 2426.7s | val_time: 27.6s
+Best Accuracy: 0.1298
 
 ## lr ablation
 <!-- grad_accum_steps=2, batch_size=64 -->

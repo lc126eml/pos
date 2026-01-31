@@ -14,9 +14,9 @@ Epoch 100 Validation Summary ---
 16749.2s	800	2026-01-30 14:36:08,024 - INFO -   Best AbsRel:  0.2681 (Epoch 88)
 16749.2s	801	2026-01-30 14:36:08,024 - INFO -   Best RMSE:    2.6531 (Epoch 94)
 
-  - kernel_id: xulijuan/depth-base-colrow-tpu8c-51
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-01-30 19:36:52'
-    resumed_from: null
-    history_ids: []
+### xulijuan/depth-base-colrow-tpu8c-51
+0.902304292	0.270149231	2.001711845	2.748797178	0.658001184	145.6667423	33.16564536	100
+Valid AbsRel: 0.2701 | Valid L1: 2.0017 | Valid RMSE: 2.7488 | Valid a1: 0.6580
+17224.2s	799	2026-01-30 16:24:25,134 - INFO -   Best a1:      0.6580 (Epoch 100)
+17224.2s	800	2026-01-30 16:24:25,134 - INFO -   Best AbsRel:  0.2690 (Epoch 95)
+17224.2s	801	2026-01-30 16:24:25,134 - INFO -   Best RMSE:    2.7219 (Epoch 66)

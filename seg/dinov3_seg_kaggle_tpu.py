@@ -380,11 +380,11 @@ def main():
     base_path_default = "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
     args = SimpleNamespace(
         model_type="dinov3",
-        use_abs_pos_emb=True,
+        use_abs_pos_emb=False,
         use_rot_pos_emb=False,
         model_size='base',
         num_classes=150,
-        batch_size=8,
+        batch_size=16,
         val_drop_last=False,
         val_pad_to_full_batch=False,
         train_img_size=336,
@@ -425,7 +425,7 @@ def main():
         lock=False if _IS_KAGGLE else True,
         clip_value=1.0,
         output_dir=root_dir,
-        log_interval=10,
+        log_interval=150,
         csv_interval=3,
         show_peak_gpu_mem=True,
         compile_model=False,
@@ -436,16 +436,16 @@ def main():
         resume_scheduler=True,
         resume_optimizer=True,
         resume_bs=True,
-        total_run_time_hr=1.0,
+        total_run_time_hr=9.0,
         base_path=base_path_default,
         pos_type=None,
         log_all_ranks=False,
-        debug_xla=True,
+        debug_xla=False,
     )
 
     base_global_batch = 16
     global_batch = args.batch_size * WORLD_SIZE
-    lr_scale = min(global_batch / base_global_batch, 4.0)
+    lr_scale = global_batch / base_global_batch
     args.lr *= lr_scale
     args.lr_aux *= lr_scale
 
@@ -1065,8 +1065,6 @@ def main():
                 aux_loss = None
 
                 with _autocast():
-                    if getattr(args, "debug_xla", False):
-                        _master_print(f"[rank {RANK}] step{step}: forward start")
                     if args.seg_head == "upernet":
                         outputs, features, grid_hw = _forward_upernet(model, decoder, inputs, args.feature_layers)
                         last_tokens = features[-1]
@@ -1088,25 +1086,16 @@ def main():
                         alpha_t = args.alpha_min + (args.rc_alpha - args.alpha_min) * t
                         loss = base_loss + alpha_t * aux_loss
 
-                xm.mark_step()
-                if getattr(args, "debug_xla", False):
-                    _master_print(f"[rank {RANK}] step{step}: forward done")
                 loss.backward()
-                xm.mark_step()
-                if getattr(args, "debug_xla", False):
-                    _master_print(f"[rank {RANK}] step{step}: backward done")
                 grad_norm = None
                 if args.clip_value is not None:
                     grad_norm = torch.nn.utils.clip_grad_norm_(training_parameters, max_norm=args.clip_value)
-                if getattr(args, "debug_xla", False):
-                    _master_print(f"[rank {RANK}] step{step}: clipped")
                 xm.optimizer_step(optimizer, barrier=True)
-                if getattr(args, "debug_xla", False):
-                    _master_print(f"[rank {RANK}] step{step}: optimizer step done")
+                # if getattr(args, "debug_xla", False):
+                #     _master_print(f"[rank {RANK}] step{step}: optimizer step done")
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 if step % log_interval == 0:
-                    _master_print("sync")
                     _xla_sync()
 
                 with torch.no_grad():
@@ -1122,10 +1111,7 @@ def main():
                     base_loss_t += base_loss.detach() * valid_pixels
                 train_total_t = train_total_t.clamp_min(1)
                 train_samples_t = train_samples_t.clamp_min(1)
-                if getattr(args, "debug_xla", False):
-                    _master_print(f"[rank {RANK}] step{step}: calculated")
                 if step % log_interval == 0 and IS_MASTER:
-                    _master_print("start loggin")
                     avg_loss = (running_loss_t / train_total_t).float().item()
                     avg_acc = (train_correct_t / train_total_t).float().item()
                     msg = f"Epoch {epoch+1}/{args.epochs} step {step}: loss={avg_loss:.4f} acc={avg_acc:.3f}"
@@ -1154,15 +1140,11 @@ def main():
                     logger.info(msg)
 
             train_time = time.time() - epoch_train_start
-            if IS_MASTER:
-                _master_print("Training Epoch Finished")
             model.eval()
             decoder.eval()
             val_correct_t = torch.zeros((), device=DEVICE)
             val_total_t = torch.zeros((), device=DEVICE)
             confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
-            if IS_MASTER:
-                _master_print("Eval start")
             val_start = time.time()
             with torch.no_grad():
                 for inputs, labels in valid_loader:
@@ -1191,12 +1173,7 @@ def main():
                             )
                         else:
                             if args.seg_head == "upernet":
-                                if IS_MASTER:
-                                    _master_print("Head forward ...")
                                 outputs, _, _ = _forward_upernet(model, decoder, inputs, args.feature_layers)
-                                
-                                if IS_MASTER:
-                                    _master_print("Head forworded")
                             else:
                                 feats = model.forward_features(inputs)
                                 grid_hw = _infer_grid_hw(model, inputs)
@@ -1213,11 +1190,7 @@ def main():
                     val_correct_t += ((pred == labels) & mask).sum()
                     val_total_t += mask.sum()
                     confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
-                    if IS_MASTER:
-                        _master_print("After confusion")   
 
-            if IS_MASTER:
-                _master_print("Before reduce")
             val_time = time.time() - val_start
             if WORLD_SIZE > 1:
                 xm.all_reduce(
@@ -1235,8 +1208,6 @@ def main():
                 )
                 xm.all_reduce(xm.REDUCE_SUM, [confmat])
             
-            if IS_MASTER:
-                _master_print("Eval start")
             confmat_f = confmat.to(torch.float32)
             intersection = torch.diag(confmat_f)
             union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
@@ -1247,8 +1218,6 @@ def main():
             epoch_train_acc = (train_correct_t / train_total_t).float().item()
             epoch_train_loss = (running_loss_t / train_total_t).float().item()
 
-            if IS_MASTER:
-                _master_print("Eval start")
             improved_miou = epoch_val_miou > best_miou
             if improved_miou:
                 best_miou = epoch_val_miou
@@ -1315,9 +1284,6 @@ def main():
                 xm.save(best_ckpt, best_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved best checkpoint (weights only) to %s", best_ckpt_path)
-                    del best_ckpt
-                gc.collect()
-                _xla_sync()
 
             if args.save_full_ckpt and not save_best:
                 ckpt_payload = {}
@@ -1337,9 +1303,6 @@ def main():
                 xm.save(ckpt_payload, last_ckpt_path, master_only=True)
                 if IS_MASTER:
                     logger.info("Saved full checkpoint to %s", last_ckpt_path)
-                    del ckpt_payload
-                gc.collect()
-                _xla_sync()
 
             if args.total_run_time_hr is not None:
                 elapsed = time.time() - train_start_time

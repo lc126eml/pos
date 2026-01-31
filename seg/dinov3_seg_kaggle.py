@@ -197,7 +197,7 @@ args = SimpleNamespace(
     ms_scales=(0.90, 1.0, 1.15),
     eval_crop_mode="crop_or_pad",
     final_ms_flip_eval=True,
-    lr=7e-05,
+    lr=5e-05,
     lr_aux=1e-5,
     eta_min=1e-7,
     composite_lr=True,
@@ -338,23 +338,6 @@ def _seed_worker(worker_id):
 
 data_rng = torch.Generator()
 data_rng.manual_seed(args.seed)
-if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
-    rng_state = ckpt.get("rng_state", None)
-    if isinstance(rng_state, dict):
-        try:
-            if "python" in rng_state:
-                random.setstate(rng_state["python"])
-            if "numpy" in rng_state:
-                np.random.set_state(rng_state["numpy"])
-            if "torch" in rng_state:
-                torch.set_rng_state(rng_state["torch"])
-            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
-                torch.cuda.set_rng_state_all(rng_state["cuda"])
-            if "data_rng" in rng_state and rng_state["data_rng"] is not None:
-                data_rng.set_state(rng_state["data_rng"])
-            logger.info("Restored RNG states from checkpoint.")
-        except Exception as exc:
-            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 run_tag = time.strftime("%Y%m%d_%H%M%S")
 
 subdir_name = (
@@ -394,6 +377,23 @@ if not os.path.isdir(TRAIN_IMAGE_PATH):
         logger.error("Available /kaggle/input entries: %s", os.listdir("/kaggle/input"))
     raise FileNotFoundError(f"Training images not found: {TRAIN_IMAGE_PATH}")
 
+if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+    rng_state = ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if "data_rng" in rng_state and rng_state["data_rng"] is not None:
+                data_rng.set_state(rng_state["data_rng"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 # =============================================================================
 # Dataset and dataloaders
 # =============================================================================

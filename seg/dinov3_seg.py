@@ -245,6 +245,25 @@ if args.lock:
     print("Lock acquired. It is safe to proceed.")
 
 logger.info(output_dir)
+if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+    rng_state = ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if rng_state.get("data_rng") is not None:
+                data_rng.set_state(rng_state["data_rng"])
+            elif rng_state.get("train_generator") is not None:
+                data_rng.set_state(rng_state["train_generator"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 # %%
 # %%
 # =================================================================================
@@ -1021,6 +1040,13 @@ if args.train:
                 "scaler": scaler.state_dict() if scaler is not None else None,
                 "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": data_rng.get_state(),
+                },
                 "args": args,
             }
             torch.save(ckpt, last_ckpt_path)

@@ -229,10 +229,6 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
-if args.model_size == "base":
-    args.rc_alpha = 600.0
-else:
-    args.rc_alpha = 300.0
 
 offset = 0
 # args.batch_size = 64

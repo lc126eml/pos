@@ -66,7 +66,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=True,
+    use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
@@ -88,10 +88,10 @@ args = SimpleNamespace(
     overlap=0,
     seed=60,
     val_steps=None,
-    use_rc_loss=False,
+    use_rc_loss=True,
     loss_type="smooth_l1",
     rc_alpha=100.0,
-    warmup_steps_for_aux=1,
+    warmup_steps_for_aux=100,
     alpha_min=10,
     # warmup_steps_for_aux=100,
     workers=8,
@@ -297,6 +297,26 @@ logger.info(subdir_name)
 if args.resume_full_ckpt and args.resume_ckpt_path is None:
     logger.info("resume_full_ckpt=True requires resume_ckpt_path to be set. Return to current ckpt path")
     args.resume_ckpt_path = last_ckpt_path
+
+if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+    rng_state = ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if rng_state.get("data_rng") is not None:
+                data_rng.set_state(rng_state["data_rng"])
+            elif rng_state.get("train_generator") is not None:
+                data_rng.set_state(rng_state["train_generator"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 
 
 
@@ -1272,6 +1292,13 @@ if args.train:
                 "scaler": scaler.state_dict() if scaler is not None else None,
                 "rowcol_loss": rowcol_loss.state_dict() if Use_Row_Col_Loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": data_rng.get_state(),
+                },
                 "args": args,
             }
             torch.save(ckpt, last_ckpt_path)

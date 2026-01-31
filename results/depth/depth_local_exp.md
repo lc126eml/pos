@@ -187,8 +187,8 @@ Valid AbsRel: 0.2899 | Valid L1: 2.0970 | Valid RMSE: 2.8584 | Valid a1: 0.6330
 2026-01-29 16:37:44,029 - INFO -   Best AbsRel:  0.2839 (Epoch 61)
 2026-01-29 16:37:44,029 - INFO -   Best RMSE:    2.8120 (Epoch 61)
 
+# mean_std
 ## /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr27_relative_median_dec_dpt_h224w224_s60/20260129_194258
-mean_std t0
 batch_size=48, grad_accum_steps=2, patch_size=16, **lr=0.00028,** lr_aux=1e-05, eta_min=1e-07, epochs=120, break_at_epoch=80
 Valid AbsRel: 0.2808 | Valid L1: 2.0678 | Valid RMSE: 2.9474 | Valid a1: 0.6568
 --- Best Validation Metrics from History ---
@@ -198,3 +198,5 @@ Valid AbsRel: 0.2808 | Valid L1: 2.0678 | Valid RMSE: 2.9474 | Valid a1: 0.6568
 
 ## /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr20_relative_median_dec_dpt_h224w224_s60/20260130_151656
 batch_size=48, grad_accum_steps=2, patch_size=16, **lr=0.0002,** lr_aux=1e-05, eta_min=1e-07, epochs=120, **break_at_epoch=None**
+
+

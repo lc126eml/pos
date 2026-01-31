@@ -1,7 +1,7 @@
-task: cls
+task: depth
 id: 
 pos_type: null # alibi relpos
-method: colrow # colrow, rope, abs, none
+method: colrow # colrow, rope, abs, none, patch
 model_size: base
 run_id: 0
 desc: mres
@@ -19,5 +19,5 @@ seed: 16
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
-- rc_alpha: 800
-- warmup_steps_for_aux: 1000
+- rc_alpha: 600
+- warmup_steps_for_aux: 600

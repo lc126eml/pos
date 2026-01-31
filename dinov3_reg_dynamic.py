@@ -143,13 +143,13 @@ args = SimpleNamespace(
     overlap=0,
     pretrained=None,
     seed=16,
-    use_patch_position_loss=False,
-    use_rc_loss=True,
+    use_patch_position_loss=True,
+    use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
     # huber_beta=None,
     # rc_alpha=300.0,
-    rc_alpha=800, # base
-    warmup_steps_for_aux=1,
+    rc_alpha=600, # base
+    warmup_steps_for_aux=600,
     alpha_min=10,
     workers=5,
     randaugment=False,
@@ -162,8 +162,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/cls-base-colrow-ra220-16/ckpt/last.pth',
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -230,10 +230,6 @@ if args.use_abs_pos_emb or args.use_rot_pos_emb:
     args.overlap = 0
     args.use_patch_position_loss=False
     args.use_rc_loss = False
-if args.model_size == "base":
-    args.rc_alpha = 600.0
-else:
-    args.rc_alpha = 300.0
 
 offset = 0
 # args.batch_size = 64

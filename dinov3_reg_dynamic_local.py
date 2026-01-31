@@ -395,12 +395,34 @@ logger.info(f"Total validation images ({args.num_classes} classes): {len(valid_d
 # --- Create DataLoaders ---
 batch_sampler = None
 prefetch_kwargs = {"prefetch_factor": 2} if args.workers > 0 else {}
+train_generator = torch.Generator()
+train_generator.manual_seed(args.seed)
+if args.resume_full_ckpt and args.resume_ckpt_path and resume_ckpt is not None:
+    rng_state = resume_ckpt.get("rng_state", None)
+    if isinstance(rng_state, dict):
+        try:
+            if "python" in rng_state:
+                random.setstate(rng_state["python"])
+            if "numpy" in rng_state:
+                np.random.set_state(rng_state["numpy"])
+            if "torch" in rng_state:
+                torch.set_rng_state(rng_state["torch"])
+            if torch.cuda.is_available() and rng_state.get("cuda") is not None:
+                torch.cuda.set_rng_state_all(rng_state["cuda"])
+            if rng_state.get("data_rng") is not None:
+                train_generator.set_state(rng_state["data_rng"])
+            elif rng_state.get("train_generator") is not None:
+                train_generator.set_state(rng_state["train_generator"])
+            logger.info("Restored RNG states from checkpoint.")
+        except Exception as exc:
+            logger.warning("Failed to restore RNG states from checkpoint: %s", exc)
 if len(args.img_sizes) == 1:
     train_dataset = CustomImageDataset(train_samples, transform=size_to_transform[args.img_sizes[0]])
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
+        generator=train_generator,
         num_workers=args.workers,
         pin_memory=True,
         persistent_workers=(args.workers > 0),
@@ -991,6 +1013,13 @@ if args.train:
                 "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
                 "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
                 "training_history": training_history,
+                "rng_state": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch": torch.get_rng_state(),
+                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                    "data_rng": train_generator.get_state(),
+                },
                 "args": args,
                 "best_acc": best_acc,
             }

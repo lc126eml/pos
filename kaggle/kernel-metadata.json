@@ -1,20 +1,18 @@
 {
-  "id": "chencaihonga/cls-base-colrow-ra220-116",
-  "title": "cls base colrow ra220 116",
-  "code_file": "../dinov3_reg_dynamic.py",
+  "id": "guyuefangyuan6666/seg-base-none-tpu8c-50",
+  "title": "seg base none tpu8c 50",
+  "code_file": "../seg/dinov3_seg_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",
-  "is_private": "false",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_tpu": "true",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
-    "ambityga/imagenet100"
+    "awsaf49/ade20k-dataset"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "chencaihonga/cls-base-colrow-ra220-16"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }
