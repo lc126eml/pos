@@ -212,13 +212,14 @@ def _update_left_time(node, notebook, now, is_tpu, verbose):
 
 def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids, is_tpu):
     node_notebooks = node.get("notebooks") or []
+    notebook_limit = 1 if is_tpu else 2
     for candidate in running_nodes:
         if candidate is node:
             continue
         if float(candidate.get("left_time", 0)) <= 0:
             continue
         candidate_notebooks = candidate.get("notebooks") or []
-        if len(candidate_notebooks) < 2:
+        if len(candidate_notebooks) < notebook_limit:
             candidate_notebooks.append(notebook)
             candidate["notebooks"] = candidate_notebooks
             if notebook in node_notebooks:
@@ -300,7 +301,7 @@ def main():
             base_cfg = _load_yaml(BASE_DIR / "config.yaml")
             poll_interval_minutes = float(kcfg.get("poll_interval_minutes", 10))
 
-            now = _now_naive()
+            # now = _now_naive()
             changed = False
             running_nodes = kcfg.get("running_nodes") or []
             available_ids = set(kcfg.get("available_ids") or [])
@@ -353,7 +354,7 @@ def main():
                             notebook["history_ids"] = history_ids
                             notebook["resumed_from"] = kernel_id
 
-                            _, left_time, _ = _update_left_time(node, notebook, now, is_tpu, verbose)
+                            _, left_time, _ = _update_left_time(node, notebook, _now_naive(), is_tpu, verbose)
 
                             total_runs = int(notebook.get("total_runs", 0))
                             if notebook["run_id"] >= total_runs:
@@ -396,7 +397,7 @@ def main():
                             cfg["tpu"] = is_tpu
                             new_kernel_id = _build_kernel_id(cfg)
                             notebook["kernel_id"] = new_kernel_id
-                            notebook["start_time"] = _format_time(now)
+                            notebook["start_time"] = _format_time(_now_naive())
                             if verbose:
                                 logging.info(
                                     "Updated kernel_id for notebook: %s",
@@ -436,7 +437,7 @@ def main():
                                     cfg["tpu"] = is_tpu
                                     new_kernel_id = _build_kernel_id(cfg)
                                     notebook["kernel_id"] = new_kernel_id
-                                    notebook["start_time"] = _format_time(now)
+                                    notebook["start_time"] = _format_time(_now_naive())
                                     if verbose:
                                         logging.info(
                                             "Updated kernel_id for notebook: %s",
@@ -485,7 +486,7 @@ def main():
                 _write_yaml(config_path, kcfg)
 
             del kcfg
-        logging.info("sleeping ...")
+        logging.info(f"sleeping for {poll_interval_minutes} minutes...")
         time.sleep(poll_interval_minutes * 60)
 
 

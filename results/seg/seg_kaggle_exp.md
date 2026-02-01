@@ -232,3 +232,40 @@ final_ms_flip_acc	final_ms_flip_miou
 
 
 ## rc_alpha ablation
+wsfa600: ra50 > ra60 > ra30 > ra70 > ra90 > ra70 > ra80 > ra300 > ra200 > ra500
+wsfa600 > wsfa300
+ampere888/seg-base-colrow-ra70-wsfa600-16
+Best MS+Flip Acc: 0.6296 | Best MS+Flip mIoU: 0.1353
+
+ampere888/seg-base-colrow-ra80-wsfa600-16
+Best MS+Flip Acc: 0.6295 | Best MS+Flip mIoU: 0.1352
+
+asdsad0000/seg-base-colrow-ra90-wsfa600-16
+Best MS+Flip Acc: 0.6336 | Best MS+Flip mIoU: 0.1380
+
+cshlhs/seg-base-colrow-ra100-wsfa600-16
+Best MS+Flip Acc: 0.6301 | Best MS+Flip mIoU: 0.1356
+
+cshlhs/seg-base-colrow-ra200-wsfa600-16
+Best MS+Flip Acc: 0.6239 | Best MS+Flip mIoU: 0.1273
+
+cycyxcy/seg-base-colrow-ra300-wsfa600-16
+Best MS+Flip Acc: 0.6201 | Best MS+Flip mIoU: 0.1274
+
+cycyxcy/seg-base-colrow-ra500-wsfa600-16
+Best MS+Flip Acc: 0.6151 | Best MS+Flip mIoU: 0.1229
+
+dddd110/seg-base-colrow-ra50-wsfa600-16
+Best MS+Flip Acc: 0.6335 | Best MS+Flip mIoU: 0.1431
+
+dddd110/seg-base-colrow-ra60-wsfa600-16
+Best MS+Flip Acc: 0.6339 | Best MS+Flip mIoU: 0.1411
+
+denghaimeng/seg-base-colrow-ra30-wsfa600-16
+Best MS+Flip Acc: 0.6308 | Best MS+Flip mIoU: 0.1398
+
+houwen/seg-base-colrow-ra70-wsfa600-16
+Best MS+Flip Acc: 0.6344 | Best MS+Flip mIoU: 0.1391
+
+huoqiuxia/seg-base-colrow-ra70-wsfa300-16
+Best MS+Flip Acc: 0.6338 | Best MS+Flip mIoU: 0.1382

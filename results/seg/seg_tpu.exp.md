@@ -17,3 +17,13 @@ nan
 
   - kernel_id: guyuefangyuan6666/seg-base-abs-lr3-50
 1.253396034	0.653880477	0.627223492	0.133852154	84.82031035	7.598225594	129
+
+robinrainy/seg-base-abs-lr07-50
+Train Loss: 1.7705 | Train Acc: 0.5508 | Valid Acc: 0.5574 | Valid mIoU: 0.0626 | train_time: 83.3s | val_time: 7.6s
+
+xulijuan/seg-base-abs-lr05-50
+Epoch 130/130
+Train Loss: 1.8800 | Train Acc: 0.5305 | Valid Acc: 0.5404 | Valid mIoU: 0.0534 | train_time: 82.5s | val_time: 8.0s
+
+guyuefangyuan6666/seg-base-abs-lr1-50
+Train Loss: 1.6000 | Train Acc: 0.5822 | Valid Acc: 0.5851 | Valid mIoU: 0.0834 | train_time: 82.6s | val_time: 7.8s

@@ -181,7 +181,7 @@ if _IS_KAGGLE:
     base_path_default =  "/kaggle/input/ade20k-dataset/ADEChallengeData2016"
 args = SimpleNamespace(
     model_type="dinov3",
-    use_abs_pos_emb=True,
+    use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     num_classes=150,
@@ -196,21 +196,21 @@ args = SimpleNamespace(
     cat_max_ratio_tries=10,
     ms_scales=(0.90, 1.0, 1.15),
     eval_crop_mode="crop_or_pad",
-    final_ms_flip_eval=True,
+    final_ms_flip_eval=False,
     lr=7e-05,
     lr_aux=1e-5,
     eta_min=1e-7,
     composite_lr=True,
-    warmup_steps=500,
+    warmup_steps=3000,
     weight_decay=0.01,
     epochs=130,
     overlap=0,
     start_epoch=0,
-    seed=19,
-    use_rc_loss=False,
+    seed=16,
+    use_rc_loss=True,
     use_patch_position_loss=False,
     rc_alpha=70,
-    warmup_steps_for_aux=300,
+    warmup_steps_for_aux=600,
     alpha_min=10,
     seg_head="upernet",  # "ppmlite", "upernet", "fcn", "linear"
     feature_layers=[2, 5, 8, 11],
@@ -228,8 +228,8 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/seg-base-abs-gpu-19/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
+    resume_full_ckpt=False,
+    resume_ckpt_path=None, #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,
@@ -1042,6 +1042,8 @@ if args.train:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    else:
+        args.final_ms_flip_eval = True
     logger.info("Training complete.")
     logger.info("Best Accuracy: %.4f", best_acc)
     logger.info(output_dir)

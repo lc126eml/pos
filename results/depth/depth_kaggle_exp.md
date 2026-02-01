@@ -214,3 +214,37 @@ Valid AbsRel: 0.2853 | Valid L1: 2.0325 | Valid RMSE: 2.7696 | Valid a1: 0.6438
 41864.9s	224	2026-01-30 01:19:09,844 - INFO -   Best a1:      0.6506 (Epoch 18)
 41864.9s	225	2026-01-30 01:19:09,844 - INFO -   Best AbsRel:  0.2800 (Epoch 18)
 41864.9s	226	2026-01-30 01:19:09,845 - INFO -   Best RMSE:    2.7142 (Epoch 15)
+
+
+# 20260201
+## ra ablation
+**19 Epochs not informative**
+cfy002/depth-base-colrow-ra200-wsfa600-16
+Valid AbsRel: 0.2867 | Valid L1: 2.1052 | Valid RMSE: 2.8729 | Valid a1: 0.6345
+
+cfy002/depth-base-colrow-ra100-wsfa600-16
+Valid AbsRel: 0.2849 | Valid L1: 2.0504 | Valid RMSE: 2.7824 | Valid a1: 0.6422
+
+cheaterchow/depth-base-colrow-ra150-wsfa600-16
+Valid AbsRel: 0.2851 | Valid L1: 2.0515 | Valid RMSE: 2.7865 | Valid a1: 0.6404
+
+cheaterchow/depth-base-colrow-ra250-wsfa600-16
+Valid AbsRel: 0.2802 | Valid L1: 2.0579 | Valid RMSE: 2.8092 | Valid a1: 0.6447
+
+chengchi1007/depth-base-colrow-ra50-wsfa600-16
+Valid AbsRel: 0.2796 | Valid L1: 2.0368 | Valid RMSE: 2.7709 | Valid a1: 0.6446
+
+chengchi1007/depth-base-colrow-ra80-wsfa600-16
+Valid AbsRel: 0.2828 | Valid L1: 2.0447 | Valid RMSE: 2.7804 | Valid a1: 0.6439
+
+chenhao1213/depth-base-colrow-ra30-wsfa600-16
+Valid AbsRel: 0.2801 | Valid L1: 2.0365 | Valid RMSE: 2.7602 | Valid a1: 0.6444
+
+chenhao1213/depth-base-colrow-ra400-wsfa600-16
+Valid AbsRel: 0.2847 | Valid L1: 2.0458 | Valid RMSE: 2.7975 | Valid a1: 0.6393
+
+cq1234/depth-base-colrow-ra500-wsfa600-16
+Valid AbsRel: 0.2880 | Valid L1: 2.0614 | Valid RMSE: 2.8051 | Valid a1: 0.6387
+
+cq1234/depth-base-colrow-ra600-wsfa600-16
+Valid AbsRel: 0.2816 | Valid L1: 2.0482 | Valid RMSE: 2.7891 | Valid a1: 0.6426

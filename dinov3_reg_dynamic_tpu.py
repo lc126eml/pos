@@ -264,7 +264,7 @@ def main():
         use_patch_position_loss=False,
         use_rc_loss=False,
         rc_alpha=100,
-        warmup_steps_for_aux=100,
+        warmup_steps_for_aux=600,
         alpha_min=10,
         workers=5,
         re_prob=0.0,
@@ -520,6 +520,7 @@ def main():
     lr_scale = min(global_batch / base_global_batch, 4.0)
     args.lr *= lr_scale
     args.lr_aux *= lr_scale
+    args.warmup_steps = args.warmup_steps * base_global_batch / global_batch
     tpu_workers = getattr(args, "tpu_workers", 0)
     if tpu_workers is None:
         tpu_workers = 0

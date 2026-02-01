@@ -44,9 +44,14 @@
     - [asdsad0000/cls-base-rope-d-818](#asdsad0000cls-base-rope-d-818)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
+    - [djiangjiang/cls-base-colrow-ra600-wsfa1000-116](#djiangjiangcls-base-colrow-ra600-wsfa1000-116)
     - [rrrrmm/cls-base-colrow-ra100-wsfa200-16](#rrrrmmcls-base-colrow-ra100-wsfa200-16)
+    - [rrrrmm/cls-base-colrow-ra100-wsfa200-116](#rrrrmmcls-base-colrow-ra100-wsfa200-116)
     - [tianxianglii/cls-base-colrow-ra100-wsfa500-16](#tianxiangliicls-base-colrow-ra100-wsfa500-16)
+    - [tianxianglii/cls-base-colrow-ra100-wsfa500-116](#tianxiangliicls-base-colrow-ra100-wsfa500-116)
     - [chencaihonga/cls-base-colrow-ra220-16](#chencaihongacls-base-colrow-ra220-16)
+    - [chencaihonga/cls-base-colrow-ra220-116](#chencaihongacls-base-colrow-ra220-116)
+  - [ra works](#ra-works)
   - [lr ablation](#lr-ablation)
     - [jacksisi/cls-base-none-lr5e-5-53](#jacksisicls-base-none-lr5e-5-53)
     - [jacksisi/cls-base-none-lr2e-4-53](#jacksisicls-base-none-lr2e-4-53)
@@ -127,7 +132,7 @@ Best Accuracy: 0.7202
 
 # base
 ## AbsPE
-namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.0003,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=51, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=1, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs51/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=100, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12, root_dir='/kaggle/working')
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.0003,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=51, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=600, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs51/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=100, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12, root_dir='/kaggle/working')
 ### sinayliu/cls-base-abs50
 0.237841651	0.936076939	0.579599977	2371.856316	27.13275433
 
@@ -178,7 +183,7 @@ Best Accuracy: 0.5864
 Best Accuracy: 0.6168
 
 ## 20260130
-namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=18, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=1, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=18, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=600, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
 
 eastwangwei/cls-base-none-d-715
 0.29331708	0.927400053	0.627799988	2377.232176	27.13887477	130
@@ -232,19 +237,108 @@ chencaihonga/cls-base-colrow-d-718
 
 
 ## rc alpha warmup
-wsfa500 > wsfa1000 > wsfa200 > None
+16: wsfa500 > wsfa1000 > wsfa200 > None
+116: wsfa1000 > wsfa500 > None > wsfa200
 ### djiangjiang/cls-base-colrow-ra600-wsfa1000-16
 Train Loss: 27.0997 | Aux Loss: 0.0389 | Base Loss: 3.7451 | Train Acc: 0.1360 | Valid Acc: 0.1488 | train_time: 2378.2s | val_time: 26.9s
 Best Accuracy: 0.1488
+### djiangjiang/cls-base-colrow-ra600-wsfa1000-116
+Train Loss: 21.3115 | Aux Loss: 0.0308 | Base Loss: 2.8063 | Train Acc: 0.3074 | Valid Acc: 0.3090 | train_time: 2379.1s | val_time: 27.1s
+Best Accuracy: 0.3090
+
 ### rrrrmm/cls-base-colrow-ra100-wsfa200-16
 Train Loss: 27.4631 | Aux Loss: 0.0394 | Base Loss: 3.8047 | Train Acc: 0.1276 | Valid Acc: 0.1396 | train_time: 2402.4s | val_time: 27.7s
 Best Accuracy: 0.1396
+### rrrrmm/cls-base-colrow-ra100-wsfa200-116
+Train Loss: 21.8736 | Aux Loss: 0.0316 | Base Loss: 2.8935 | Train Acc: 0.2883 | Valid Acc: 0.2784 | train_time: 2393.9s | val_time: 27.6s
+Best Accuracy: 0.2784
+
 ### tianxianglii/cls-base-colrow-ra100-wsfa500-16
 Train Loss: 26.9665 | Aux Loss: 0.0387 | Base Loss: 3.7362 | Train Acc: 0.1380 | Valid Acc: 0.1496 | train_time: 2401.1s | val_time: 27.7s
 Best Accuracy: 0.1496
+### tianxianglii/cls-base-colrow-ra100-wsfa500-116
+Train Loss: 20.9839 | Aux Loss: 0.0302 | Base Loss: 2.8475 | Train Acc: 0.2956 | Valid Acc: 0.2886 | train_time: 2405.6s | val_time: 27.8s
+Best Accuracy: 0.2984
+
 ### chencaihonga/cls-base-colrow-ra220-16
 Train Loss: 27.5159 | Aux Loss: 0.0395 | Base Loss: 3.8425 | Train Acc: 0.1208 | Valid Acc: 0.1298 | train_time: 2426.7s | val_time: 27.6s
 Best Accuracy: 0.1298
+### chencaihonga/cls-base-colrow-ra220-116
+rc_alpha=600.0, warmup_steps_for_aux=1
+Epoch 34/130
+Train Loss: 21.8485 | Aux Loss: 0.0316 | Base Loss: 2.8787 | Train Acc: 0.2894 | Valid Acc: 0.2818 | train_time: 2388.5s | val_time: 27.2s
+Best Accuracy: 0.2858
+
+## ra works
+**ra600**: wsfa2000 > wsfa300 > wsfa700 > wsfa600 > wsfa3000 seems **totally random, not observable from just 17 epochs**
+roseqw/cls-base-colrow-ra600-wsfa300-16
+Train Loss: 26.6802 | Aux Loss: 0.0382 | Base Loss: 3.7646 | Train Acc: 0.1326 | Valid Acc: 0.1372 | train_time: 2382.2s | val_time: 27.1s
+Best Accuracy: 0.1372
+
+roseqw/cls-base-colrow-ra600-wsfa700-16
+Train Loss: 27.6016 | Aux Loss: 0.0396 | Base Loss: 3.8434 | Train Acc: 0.1209 | Valid Acc: 0.1316 | train_time: 2373.4s | val_time: 26.9s
+Best Accuracy: 0.1316
+
+cdong121/cls-base-colrow-ra600-wsfa3000-16
+Train Loss: 27.4458 | Aux Loss: 0.0392 | Base Loss: 3.9038 | Train Acc: 0.1151 | Valid Acc: 0.1228 | train_time: 2366.3s | val_time: 26.9s
+Best Accuracy: 0.1228
+
+b201xiaoli/cls-base-colrow-ra600-wsfa2000-16
+Train Loss: 27.4417 | Aux Loss: 0.0394 | Base Loss: 3.8304 | Train Acc: 0.1224 | Valid Acc: 0.1398 | train_time: 2397.8s | val_time: 27.2s
+Best Accuracy: 0.1398
+
+**wsfa600**: ra100 > ra200 > ra300 > ra400 > ra500 > ra600 > ra700 > ra800 > ra900 > ra1000, **Early epochs might not decidable**
+eastwangwei/cls-base-colrow-ra600-wsfa600-16
+Train Loss: 27.3820 | Aux Loss: 0.0392 | Base Loss: 3.8332 | Train Acc: 0.1221 | Valid Acc: 0.1308 | train_time: 2413.4s | val_time: 27.7s
+Best Accuracy: 0.1308
+
+robinrainy/cls-base-colrow-ra800-wsfa600-16
+Train Loss: 35.8763 | Aux Loss: 0.0398 | Base Loss: 4.0167 | Train Acc: 0.0980 | Valid Acc: 0.1126 | train_time: 2489.2s | val_time: 29.3s
+Best Accuracy: 0.1126
+
+robinrainy/cls-base-colrow-ra500-wsfa600-16
+Train Loss: 23.1104 | Aux Loss: 0.0389 | Base Loss: 3.6675 | Train Acc: 0.1503 | Valid Acc: 0.1612 | train_time: 2376.3s | val_time: 27.0s
+Best Accuracy: 0.1612
+
+chencaihonga/cls-base-colrow-ra100-wsfa600-16
+Train Loss: 6.4024 | Aux Loss: 0.0376 | Base Loss: 2.6449 | Train Acc: 0.3386 | Valid Acc: 0.3384 | train_time: 2370.4s | val_time: 27.1s
+est Accuracy: 0.3384
+
+djiangjiang/cls-base-colrow-ra200-wsfa600-16
+Train Loss: 10.7605 | Aux Loss: 0.0385 | Base Loss: 3.0692 | Train Acc: 0.2499 | Valid Acc: 0.2578 | train_time: 2388.8s | val_time: 27.1s
+Best Accuracy: 0.2578
+
+hsdfuieqg/cls-base-colrow-ra300-wsfa600-16
+Train Loss: 15.0341 | Aux Loss: 0.0390 | Base Loss: 3.3489 | Train Acc: 0.1992 | Valid Acc: 0.2082 | train_time: 2404.2s | val_time: 27.3s
+Best Accuracy: 0.2082
+
+hsdfuieqg/cls-base-colrow-ra400-wsfa600-16
+Train Loss: 19.3042 | Aux Loss: 0.0394 | Base Loss: 3.5631 | Train Acc: 0.1602 | Valid Acc: 0.1698 | train_time: 2402.2s | val_time: 27.5s
+Best Accuracy: 0.1698
+
+asssmer/cls-base-colrow-ra700-wsfa600-16
+Train Loss: 31.5430 | Aux Loss: 0.0395 | Base Loss: 3.8717 | Train Acc: 0.1176 | Valid Acc: 0.1234 | train_time: 2410.8s | val_time: 27.6s
+Best Accuracy: 0.1234
+
+autune/cls-base-colrow-ra900-wsfa600-16
+Train Loss: 39.7775 | Aux Loss: 0.0398 | Base Loss: 3.9819 | Train Acc: 0.1038 | Valid Acc: 0.1104 | train_time: 2411.9s | val_time: 27.8s
+Best Accuracy: 0.1104
+
+b201xiaoli/cls-base-colrow-ra1000-wsfa600-16
+Train Loss: 43.5181 | Aux Loss: 0.0395 | Base Loss: 4.0356 | Train Acc: 0.0991 | Valid Acc: 0.1088 | train_time: 2389.5s | val_time: 27.5s
+Best Accuracy: 0.1088
+
+**ra800**: wsfa800 > wsfa1000
+gloden613/cls-base-colrow-ra800-wsfa800-16
+Train Loss: 35.5920 | Aux Loss: 0.0395 | Base Loss: 3.9744 | Train Acc: 0.1063 | Valid Acc: 0.1150 | train_time: 2391.4s | val_time: 27.2s
+Best Accuracy: 0.1150
+
+gloden613/cls-base-colrow-ra800-wsfa1000-16
+Train Loss: 35.8000 | Aux Loss: 0.0398 | Base Loss: 3.9896 | Train Acc: 0.1014 | Valid Acc: 0.1108 | train_time: 2402.4s | val_time: 27.4s
+Best Accuracy: 0.1108
+
+
+
 
 ## lr ablation
 <!-- grad_accum_steps=2, batch_size=64 -->

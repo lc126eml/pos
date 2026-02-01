@@ -402,14 +402,14 @@ def main():
         lr_aux=1e-5,
         eta_min=1e-7,
         composite_lr=True,
-        warmup_steps=500,
+        warmup_steps=3000,
         weight_decay=0.01,
         epochs=130,
         overlap=0,
         start_epoch=0,
         seed=50,
         use_rc_loss=False,
-        warmup_steps_for_aux=1,
+        warmup_steps_for_aux=600,
         alpha_min=10,
         huber_beta=0.1,
         rc_alpha=70.0,
@@ -446,9 +446,10 @@ def main():
 
     base_global_batch = 16
     global_batch = args.batch_size * WORLD_SIZE
-    lr_scale = global_batch / base_global_batch
+    lr_scale = min(global_batch / base_global_batch, 4.0)
     args.lr *= lr_scale
     args.lr_aux *= lr_scale
+    args.warmup_steps = args.warmup_steps * base_global_batch / global_batch
 
     tpu_workers = int(getattr(args, "tpu_workers", 0) or 0)
     args.workers = min(args.workers, tpu_workers)
