@@ -1,5 +1,5 @@
 task: seg
-id: guyuefangyuan6666
+id: robinrainy
 pos_type: null # alibi relpos
 method: abs # colrow, rope, abs, none
 model_size: base
@@ -28,4 +28,4 @@ simple:
 # - show_peak_gpu_mem: True
 # - val: false
 # - batch_size: 16
-- lr: 3.0e-05
+- lr: 7.0e-06

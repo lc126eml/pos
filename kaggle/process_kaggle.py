@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
@@ -315,6 +316,11 @@ def main():
         help="Print a concise report instead of detailed before/after changes.",
     )
     parser.add_argument(
+        "--push-output-only",
+        action="store_true",
+        help="Only output kaggle kernels push stdout/stderr.",
+    )
+    parser.add_argument(
         "--add-node",
         "--add-running-node",
         action="store_true",
@@ -588,7 +594,9 @@ def main():
 
     json_path.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
 
-    if args_ns.concise:
+    if args_ns.push_output_only:
+        pass
+    elif args_ns.concise:
         print(f"Updated python file: {py_path}")
         print(f"Updated args: {', '.join(sorted(updates.keys()))}")
         print(f"Updated json file: {json_path}")
@@ -617,13 +625,19 @@ def main():
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         if os.name == "nt":
-            subprocess.check_call(
-                ["cmd", "/c", "chcp 65001 >nul && kaggle kernels push -p ."],
-                cwd=BASE_DIR,
-                env=env,
-            )
+            cmd = ["cmd", "/c", "chcp 65001 >nul && kaggle kernels push -p ."]
         else:
-            subprocess.check_call(["kaggle", "kernels", "push", "-p", "."], cwd=BASE_DIR, env=env)
+            cmd = ["kaggle", "kernels", "push", "-p", "."]
+        if args_ns.push_output_only:
+            result = subprocess.run(cmd, cwd=BASE_DIR, env=env, capture_output=True, text=True)
+            if result.stdout:
+                sys.stdout.write(result.stdout)
+            if result.stderr:
+                sys.stderr.write(result.stderr)
+            if result.returncode != 0:
+                raise SystemExit(result.returncode)
+        else:
+            subprocess.check_call(cmd, cwd=BASE_DIR, env=env)
         if args_ns.add_running_node:
             total_runs = args_ns.total_runs
             if total_runs is None:

@@ -117,11 +117,11 @@ else:
 # --- Configuration via SimpleNamespace for easy interactive use ---
 args = SimpleNamespace(
     # --- Model & Training Settings ---
-    pos_type = 'alibi', #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
+    pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
     dynamic_img_size=False,
     model_type= "dinov3",
     use_abs_pos_emb=False,
-    use_rot_pos_emb=False,
+    use_rot_pos_emb=True,
     model_size='base',
     num_classes=100,
     patch_size = 16,
@@ -133,7 +133,7 @@ args = SimpleNamespace(
     # batch_size=512, 
     # ViT models have a fixed input size
     # img_sizes=[224, 192, 288],
-    img_sizes=[224],
+    img_sizes=[224, 192, 288],
     val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
     # val_img_sizes=[224],
     # lr=1e-3, #small
@@ -145,7 +145,7 @@ args = SimpleNamespace(
     # has_pos=True, # Set to True or False directly
     overlap=0,
     pretrained=None,
-    seed=16,
+    seed=17,
     use_patch_position_loss=False,
     use_rc_loss=False,
     # loss_type="smooth_l1", # "mse", "smooth_l1"
@@ -165,8 +165,8 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/cls-base-rope-mres-17/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
     resume_bs=True,

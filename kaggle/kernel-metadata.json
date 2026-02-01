@@ -1,6 +1,6 @@
 {
-  "id": "jinzhanbo/cls-base-alibi-gpu-16",
-  "title": "cls base alibi gpu 16",
+  "id": "jokerking1/cls-base-rope-mres-117",
+  "title": "cls base rope mres 117",
   "code_file": "../dinov3_reg_dynamic.py",
   "language": "python",
   "kernel_type": "script",
@@ -13,6 +13,8 @@
     "ambityga/imagenet100"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "jokerking1/cls-base-rope-mres-17"
+  ],
   "model_sources": []
 }

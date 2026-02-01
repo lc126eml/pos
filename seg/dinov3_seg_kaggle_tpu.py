@@ -385,6 +385,7 @@ def main():
         model_size='base',
         num_classes=150,
         batch_size=16,
+        val_batch_size=8,
         val_drop_last=False,
         val_pad_to_full_batch=False,
         train_img_size=336,
@@ -397,7 +398,7 @@ def main():
         ms_scales=(0.90, 1.0, 1.15),
         eval_crop_mode="crop_or_pad",
         final_ms_flip_eval=True,
-        lr=3e-05,
+        lr=7e-06,
         lr_aux=1e-5,
         eta_min=1e-7,
         composite_lr=True,
@@ -639,7 +640,7 @@ def main():
     )
     valid_loader = DataLoader(
         valid_dataset,
-        batch_size=args.batch_size,
+        batch_size=args.val_batch_size,
         shuffle=False,
         sampler=valid_sampler,
         drop_last=eval_drop_last,
@@ -1316,6 +1317,7 @@ def main():
             gc.collect()
 
         if IS_MASTER:
+            pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
             logger.info("Training complete.")
             logger.info("Best Accuracy: %.4f", best_acc)
             logger.info(output_dir)

@@ -155,7 +155,13 @@ def _push_kernel(cfg):
     cfg_path = BASE_DIR / "config.yaml"
     _write_yaml(cfg_path, cfg)
     result = subprocess.run(
-        ["python", str(BASE_DIR / "process_kaggle.py"), "--run", "--concise"],
+        [
+            "python",
+            str(BASE_DIR / "process_kaggle.py"),
+            "--run",
+            "--concise",
+            "--push-output-only",
+        ],
         cwd=BASE_DIR,
         check=False,
         capture_output=True,
@@ -235,13 +241,6 @@ def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_id
         node_notebooks.remove(notebook)
         node["notebooks"] = node_notebooks
     return target_node
-
-def _remove_exhausted(node, running_nodes, exhausted_ids):
-    node_notebooks = node.get("notebooks") or []
-    if not node_notebooks and float(node.get("left_time", 0)) <= 0:
-        if node in running_nodes:
-            running_nodes.remove(node)
-        exhausted_ids.append(node.get("id"))
 
 def main():
     parser = argparse.ArgumentParser(description="Auto resume Kaggle kernels.", epilog=USAGE)
@@ -360,7 +359,6 @@ def main():
                             if notebook["run_id"] >= total_runs:
                                 _move_finished(notebook, finished_notebooks)
                                 notebooks.remove(notebook)
-                                _remove_exhausted(node, nodes, exhausted)
                                 changed = True
                                 continue
 
@@ -374,7 +372,6 @@ def main():
                                     exhausted,
                                     is_tpu,
                                 )
-                                _remove_exhausted(node, nodes, exhausted)
                                 if target_node is None:
                                     continue
                                 if verbose:
@@ -465,8 +462,17 @@ def main():
 
                     node["notebooks"] = notebooks
 
+            def _remove_exhausted(running_nodes, exhausted_ids):
+                nonlocal changed
+                for node in list(running_nodes):
+                    node_notebooks = node.get("notebooks") or []
+                    if not node_notebooks and float(node.get("left_time", 0)) <= 0:
+                        running_nodes.remove(node)
+                        exhausted_ids.append(node.get("id"))
+                        changed = True
             try:
                 _process_nodes(running_nodes, is_tpu, available_ids, exhausted_ids)
+                _remove_exhausted(running_nodes, exhausted_ids)
             except Exception as e:
                 logging.error(e)
             kcfg["running_nodes"] = running_nodes
