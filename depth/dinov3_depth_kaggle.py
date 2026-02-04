@@ -222,11 +222,14 @@ args = SimpleNamespace(
     model_size='base',
     train_sizes=[(224, 224)],
     eval_size=(224, 224),
-    final_eval_size=(224, 224),
+    final_eval_size=[(224, 224)],
+    # final_eval_size=[(224, 224), (240,240), (240, 320), (288, 384), (336, 448), (384, 512)],
     color_jitter_prob=0.5,
     scale_jitter=(1.0, 1.2),
     scale_jitter_sw=(1.0, 1.01),
     batch_size=24,
+    eval_batch_size=24,
+    image_list_path=None,
     grad_accum_steps=1,
     patch_size=16,
     lr=5.0e-5, #7e-5
@@ -237,7 +240,7 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=19,
+    seed=18,
     val_steps=None,
     use_rc_loss=True,
     loss_type="smooth_l1",
@@ -276,8 +279,8 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/depth-base-colrow-gpu-518/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
@@ -286,7 +289,7 @@ args = SimpleNamespace(
     total_run_time_hr=12.0,
     train=True,
     val=False,
-    final_use_sliding_window=True,
+    final_use_sliding_window=False,
     final_sw_window_size=None,
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
@@ -313,15 +316,17 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "rc_alpha",
             "train",
             "val",
+            "final_eval_size",
             "eval_crop_mode",
             "eval_prescale",
         ]
         if not args.resume_scheduler:
             skip_keys.extend(["epochs", "warmup_steps", "warmup_ratio", "eta_min", "composite_lr"])
         if not args.resume_bs:
-            skip_keys.extend(["batch_size", "grad_accum_steps"])
+            skip_keys.extend(["batch_size", "grad_accum_steps", "eval_batch_size"])
         if not args.resume_img_size:
             skip_keys.extend(["train_sizes", "eval_size", "final_eval_size"])
+        skip_keys.extend(["image_list_path"])
         ckpt_args = ckpt.get("args", None)
         if ckpt_args is not None:
             for k, v in vars(ckpt_args).items():
@@ -469,18 +474,22 @@ if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
 # =============================================================================
 logger.info("Creating datasets...")
 try:
-    train_dataset = HyperSimSimple(
-        roots=args.train_roots,
-        split=None,
-        resolution=(TRAIN_SIZE[1], TRAIN_SIZE[0]),
-        pair_transform=TrainDepthAug(
-            target_size=TRAIN_SIZE,
-            scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
-            color_jitter_prob=args.color_jitter_prob,
-            normalize=True,
-            depth_valid_thresh=args.train_depth_valid_thresh,
-        ),
-    )
+    train_dataset = None
+    train_loader = None
+    if args.train:
+        train_dataset = HyperSimSimple(
+            roots=args.train_roots,
+            split=None,
+            resolution=(TRAIN_SIZE[1], TRAIN_SIZE[0]),
+            pair_transform=TrainDepthAug(
+                target_size=TRAIN_SIZE,
+                scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
+                color_jitter_prob=args.color_jitter_prob,
+                normalize=True,
+                depth_valid_thresh=args.train_depth_valid_thresh,
+            ),
+            image_list_path=args.image_list_path,
+        )
     eval_root = args.eval_root
     eval_split = args.eval_split
     valid_dataset = HyperSimSimple(
@@ -503,6 +512,7 @@ try:
                 depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         ),
+        image_list_path=args.image_list_path,
     )
 
     loader_kwargs = dict(
@@ -516,9 +526,10 @@ try:
     if args.workers > 0:
         loader_kwargs["prefetch_factor"] = args.prefetch_factor
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **loader_kwargs)
+    if args.train:
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **loader_kwargs)
     valid_kwargs = dict(
-        batch_size=args.batch_size,
+        batch_size=args.eval_batch_size,
         shuffle=False,
         drop_last=False,
         persistent_workers=(args.workers > 0),
@@ -529,13 +540,19 @@ try:
     )
     if args.workers > 0:
         valid_kwargs["prefetch_factor"] = args.prefetch_factor
-    valid_loader = DataLoader(valid_dataset, **valid_kwargs)
+    def _make_valid_loader(batch_size):
+        kwargs = dict(valid_kwargs)
+        kwargs["batch_size"] = batch_size
+        return DataLoader(valid_dataset, **kwargs)
+    valid_loader = _make_valid_loader(args.eval_batch_size)
 
-    steps_per_epoch = len(train_loader)
-    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
-    optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
-
-    logger.info("DataLoaders created: train=%s, val=%s", len(train_dataset), len(valid_dataset))
+    if args.train:
+        steps_per_epoch = len(train_loader)
+        accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+        optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
+        logger.info("DataLoaders created: train=%s, val=%s", len(train_dataset), len(valid_dataset))
+    else:
+        logger.info("DataLoaders created: val=%s", len(valid_dataset))
 except Exception as e:
     logger.error("Error creating datasets: %s", e)
     if _IS_KAGGLE and os.path.isdir("/kaggle/input"):
@@ -737,40 +754,43 @@ criterion = MonocularDepthHybridLoss(
     align_mode=getattr(args, "align_mode", "scale_shift"),
 )
 
-optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+optimizer = None
+if args.train:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    steps_per_epoch = len(train_loader)
+    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
 
-steps_per_epoch = len(train_loader)
-accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
-optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
-
-total_steps = EPOCHS * optimizer_steps_per_epoch
-if args.composite_lr:
-    warmup_steps = args.warmup_steps
-    if args.warmup_ratio is not None:
-        warmup_steps = int(max(1, total_steps * float(args.warmup_ratio)))
-    warmup_steps = min(warmup_steps, max(1, total_steps - 1))
-    warmup = torch.optim.lr_scheduler.LinearLR(
-        optimizer,
-        start_factor=1e-7 / args.lr,
-        end_factor=1.0,
-        total_iters=warmup_steps,
-    )
-    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=total_steps - warmup_steps,
-        eta_min=1e-8,
-    )
-    scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup, cosine],
-        milestones=[warmup_steps],
-    )
+    total_steps = EPOCHS * optimizer_steps_per_epoch
+    if args.composite_lr:
+        warmup_steps = args.warmup_steps
+        if args.warmup_ratio is not None:
+            warmup_steps = int(max(1, total_steps * float(args.warmup_ratio)))
+        warmup_steps = min(warmup_steps, max(1, total_steps - 1))
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=1e-7 / args.lr,
+            end_factor=1.0,
+            total_iters=warmup_steps,
+        )
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps - warmup_steps,
+            eta_min=1e-8,
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup, cosine],
+            milestones=[warmup_steps],
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps,
+            eta_min=args.eta_min,
+        )
 else:
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=total_steps,
-        eta_min=args.eta_min,
-    )
+    scheduler = None
 
 logger.info("Loss, Optimizer, and Scheduler are ready.")
 
@@ -924,7 +944,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
         logger.info("Skipping optimizer state load (resume_optimizer=False).")
     if args.resume_scheduler:
         start_epoch = int(ckpt.get("epoch", 0))
-        if "scheduler" in ckpt and ckpt["scheduler"] is not None:
+        if scheduler is not None and "scheduler" in ckpt and ckpt["scheduler"] is not None:
             scheduler.load_state_dict(ckpt["scheduler"])
     else:
         logger.info("Skipping scheduler state load (resume_scheduler=False).")
@@ -999,6 +1019,25 @@ def _history_to_frame(hist):
 
 if args.resume_full_ckpt:
     _pad_history(training_history)
+
+
+def _append_eval_log(log_path, row):
+    if not row:
+        return
+    df = pd.DataFrame([row])
+    header = not os.path.exists(log_path)
+    df.to_csv(log_path, mode="a", header=header, index=False)
+
+
+def _scaled_eval_batch_size(size_hw, base_size_hw, base_batch_size):
+    if not size_hw or not base_size_hw:
+        return max(1, int(base_batch_size))
+    h, w = int(size_hw[0]), int(size_hw[1])
+    bh, bw = int(base_size_hw[0]), int(base_size_hw[1])
+    area = max(1, h * w)
+    base_area = max(1, bh * bw)
+    scale = base_area / area
+    return max(1, int(round(base_batch_size * scale)))
 
 
 def train_one_epoch(
@@ -1282,7 +1321,7 @@ if args.train:
         if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
             max_run_time_sec = args.total_run_time_hr * 3600
-            if elapsed  + (train_time + val_time) + 1200>= max_run_time_sec:
+            if elapsed  + (train_time + val_time) + 900>= max_run_time_sec:
                 logger.info("Stopping training: elapsed %.0fs reached limit %.2fh.", elapsed, args.total_run_time_hr)
                 break
         if args.break_at_epoch is not None and (epoch + 1) >= args.break_at_epoch:
@@ -1298,6 +1337,81 @@ else:
     logger.info("Skipping training (args.train=False).")
     if not (args.resume_full_ckpt and args.resume_ckpt_path):
         logger.warning("No checkpoint specified; evaluation will use randomly initialized weights.")
+
+if args.val:
+    if not args.train and args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+        model.load_state_dict(ckpt.get("model", {}), strict=False)
+        decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
+        logger.info("Loaded checkpoint for evaluation from %s.", args.resume_ckpt_path)
+    elif not args.train and args.resume_full_ckpt:
+        logger.warning("Evaluation requested but no checkpoint loaded; results may be random.")
+
+    base_size = tuple(args.eval_size)
+    final_sizes = args.final_eval_size
+    if not isinstance(final_sizes, (list, tuple)):
+        final_sizes = [final_sizes]
+    final_eval_log = os.path.join(output_dir, f"{subdir_name}_final_eval.csv")
+    for size in final_sizes:
+        size_hw = tuple(size)
+        valid_dataset.resolution = (size_hw[1], size_hw[0])
+        valid_dataset._setup_resolution()
+        if args.use_sliding_window:
+            valid_dataset.pair_transform = EvalDepthPreprocessNoResize(
+                ensure_multiple_of=args.patch_size,
+                normalize=True,
+            )
+        else:
+            valid_dataset.pair_transform = EvalDepthPreprocess(
+                target_size=size_hw,
+                target_by="height",
+                eval_crop_mode=args.eval_crop_mode,
+                eval_prescale=args.eval_prescale,
+                ensure_multiple_of=args.patch_size,
+                normalize=True,
+                depth_valid_thresh=args.eval_depth_valid_thresh,
+            )
+        eval_bs = _scaled_eval_batch_size(size_hw, base_size, args.eval_batch_size)
+        eval_loader = _make_valid_loader(eval_bs)
+        sw_window_size = args.final_sw_window_size or size_hw
+        val_start = time.time()
+        _, avg_val_metrics = validate(
+            model,
+            decoder,
+            eval_loader,
+            criterion,
+            feature_layers,
+            max_steps=args.val_steps,
+        )
+        val_time = time.time() - val_start
+        # logger.info(
+        #     "Final Eval @%s: AbsRel %.4f | L1 %.4f | RMSE %.4f | a1 %.4f | time %.1fs",
+        #     size_hw,
+        #     avg_val_metrics["abs_rel"],
+        #     avg_val_metrics["l1"],
+        #     avg_val_metrics["rmse"],
+        #     avg_val_metrics["a1"],
+        #     val_time,
+        # )
+        print(
+            size_hw,
+            avg_val_metrics["abs_rel"],
+            avg_val_metrics["a1"]
+        )
+        _append_eval_log(
+            final_eval_log,
+            {
+                "run_tag": run_tag,
+                "subdir_name": subdir_name,
+                "output_dir": output_dir,
+                "eval_size": str(size_hw),
+                "eval_batch_size": int(eval_bs),
+                "valid_abs_rel": float(avg_val_metrics["abs_rel"]),
+                "valid_l1": float(avg_val_metrics["l1"]),
+                "valid_rmse": float(avg_val_metrics["rmse"]),
+                "valid_a1": float(avg_val_metrics["a1"]),
+                "val_time": float(val_time),
+            },
+        )
 
 history_df = _history_to_frame(training_history)
 if args.train:

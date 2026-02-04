@@ -186,9 +186,11 @@ args = SimpleNamespace(
     model_size='base',
     num_classes=150,
     batch_size=16,
+    val_batch_size=16,
     grad_accum_steps=1,
     train_img_size=336,
     eval_img_size=368,
+    final_eval_img_size=[368, 384, 400, 416],
     use_ms_flip_eval=False,
     scale_jitter=(1.0, 1.3),
     use_cat_max_ratio=True,
@@ -206,7 +208,7 @@ args = SimpleNamespace(
     epochs=130,
     overlap=0,
     start_epoch=0,
-    seed=16,
+    seed=19,
     use_rc_loss=True,
     use_patch_position_loss=False,
     rc_alpha=70,
@@ -217,8 +219,8 @@ args = SimpleNamespace(
     workers=2 if _IS_KAGGLE else 5,
     color_jitter={"brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.05},
     color_jitter_prob=0.1,
-    train=True,
-    val=False,
+    train=False,
+    val=True,
     ckpt_path=None,
     lock=False if _IS_KAGGLE else True,
     clip_value=1.0,
@@ -228,11 +230,11 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None, #seg/base_abs_pos_rc_False_lr50
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/seg-base-colrow-gpu-419/ckpt/last.pth', #seg/base_abs_pos_rc_False_lr50
     resume_scheduler=True,
     resume_optimizer=True,
-    resume_bs=True,
+    resume_bs=False,
     total_run_time_hr=12.0,
     base_path=base_path_default,
     pos_type=None,
@@ -262,6 +264,10 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
         "resume_optimizer",
         "total_run_time_hr",
         "output_dir",
+        "final_eval_img_size",
+        "final_ms_flip_eval",
+        "train",
+        "val"
     ]
     if not args.resume_scheduler:
         skip_keys.extend([
@@ -272,7 +278,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "composite_lr",
         ])
     if not args.resume_bs:
-        skip_keys.extend(["batch_size", "grad_accum_steps"])
+        skip_keys.extend(["batch_size", "val_batch_size", "grad_accum_steps"])
     ckpt = torch.load(args.resume_ckpt_path, map_location="cpu", weights_only=False)
     ckpt_args = ckpt.get("args", None)
     if ckpt_args is not None:
@@ -423,20 +429,23 @@ class SegmentationDataset(Dataset):
         mask_t = mask_t.long() - 1
         return image_t, mask_t
 
-train_dataset = SegmentationDataset(
-    TRAIN_IMAGE_PATH,
-    TRAIN_ANNOTATION_PATH,
-    pair_transform=TrainSegAug(
-        target_size=(args.train_img_size, args.train_img_size),
-        scale_jitter=args.scale_jitter,
-        cat_max_ratio=(args.cat_max_ratio if args.use_cat_max_ratio else None),
-        cat_max_ratio_tries=args.cat_max_ratio_tries,
-        ignore_index=0 if args.use_cat_max_ratio else None,
-        color_jitter=args.color_jitter,
-        color_jitter_prob=args.color_jitter_prob,
-        normalize=True,
-    ),
-)
+train_dataset = None
+train_loader = None
+if args.train:
+    train_dataset = SegmentationDataset(
+        TRAIN_IMAGE_PATH,
+        TRAIN_ANNOTATION_PATH,
+        pair_transform=TrainSegAug(
+            target_size=(args.train_img_size, args.train_img_size),
+            scale_jitter=args.scale_jitter,
+            cat_max_ratio=(args.cat_max_ratio if args.use_cat_max_ratio else None),
+            cat_max_ratio_tries=args.cat_max_ratio_tries,
+            ignore_index=0 if args.use_cat_max_ratio else None,
+            color_jitter=args.color_jitter,
+            color_jitter_prob=args.color_jitter_prob,
+            normalize=True,
+        ),
+    )
 valid_dataset = SegmentationDataset(
     VALID_IMAGE_PATH,
     VALID_ANNOTATION_PATH,
@@ -458,25 +467,32 @@ loader_kwargs = dict(
 if args.workers > 0:
     loader_kwargs["prefetch_factor"] = 2
 
-train_loader = DataLoader(
-    train_dataset,
-    batch_size=args.batch_size,
-    shuffle=True,
-    drop_last=True,
-    **loader_kwargs,
-)
-valid_loader = DataLoader(
-    valid_dataset,
-    batch_size=args.batch_size,
-    shuffle=False,
-    drop_last=False,
-    **loader_kwargs,
-)
+if args.train:
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True,
+        **loader_kwargs,
+    )
+def _make_valid_loader(batch_size):
+    return DataLoader(
+        valid_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        **loader_kwargs,
+    )
 
-steps_per_epoch = len(train_loader)
-accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
-optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
-logger.info("DataLoaders created: train=%s, val=%s", len(train_dataset), len(valid_dataset))
+valid_loader = _make_valid_loader(args.val_batch_size)
+
+if args.train:
+    steps_per_epoch = len(train_loader)
+    accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
+    optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
+    logger.info("DataLoaders created: train=%s, val=%s", len(train_dataset), len(valid_dataset))
+else:
+    logger.info("DataLoaders created: val=%s", len(valid_dataset))
 
 # =============================================================================
 # Model, head, optimizer
@@ -599,31 +615,34 @@ param_groups.append({"params": decay_params, "lr": args.lr, "weight_decay": args
 param_groups.append({"params": no_decay_params, "lr": args.lr, "weight_decay": 0.0})
 
 ce_criterion = MMSegCrossEntropyLoss(ignore_index=-1, avg_non_ignore=True)
-optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
-total_steps = args.epochs * optimizer_steps_per_epoch
-if args.composite_lr:
-    warmup_steps = min(args.warmup_steps, max(1, total_steps - 1))
-    warmup = torch.optim.lr_scheduler.LinearLR(
-        optimizer,
-        start_factor=1e-7 / args.lr,
-        end_factor=1.0,
-        total_iters=warmup_steps,
-    )
-    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=total_steps - warmup_steps,
-        eta_min=1e-8,
-    )
-    scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup, cosine],
-        milestones=[warmup_steps],
-    )
-else:
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=total_steps, eta_min=args.eta_min
-    )
-logger.info("Initialized loss, optimizer, and scheduler.")
+optimizer = None
+scheduler = None
+if args.train:
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
+    total_steps = args.epochs * optimizer_steps_per_epoch
+    if args.composite_lr:
+        warmup_steps = min(args.warmup_steps, max(1, total_steps - 1))
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=1e-7 / args.lr,
+            end_factor=1.0,
+            total_iters=warmup_steps,
+        )
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps - warmup_steps,
+            eta_min=1e-8,
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup, cosine],
+            milestones=[warmup_steps],
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=total_steps, eta_min=args.eta_min
+        )
+    logger.info("Initialized loss, optimizer, and scheduler.")
 
 # =============================================================================
 # Helpers
@@ -731,6 +750,64 @@ def fast_confusion_matrix(pred: torch.Tensor, target: torch.Tensor, num_classes:
     conf = torch.bincount(idx, minlength=num_classes * num_classes)
     return conf.view(num_classes, num_classes)
 
+def _append_eval_log(log_path, row):
+    if not row:
+        return
+    df = pd.DataFrame([row])
+    header = not os.path.exists(log_path)
+    df.to_csv(log_path, mode="a", header=header, index=False)
+
+def _run_ms_flip_eval(tag: str):
+    max_scale = max(args.ms_scales) if args.ms_scales else 1.0
+    val_bs = _scaled_val_batch_size(
+        args.eval_img_size,
+        args.eval_img_size,
+        args.val_batch_size,
+        scale_factor=max_scale,
+    )
+    eval_loader = _make_valid_loader(val_bs)
+    model.eval()
+    decoder.eval()
+    val_correct_t = torch.zeros((), device=DEVICE)
+    val_total_t = torch.zeros((), device=DEVICE)
+    confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
+    with torch.inference_mode():
+        for inputs, labels in eval_loader:
+            inputs = inputs.to(DEVICE, non_blocking=True)
+            labels = labels.to(DEVICE, non_blocking=True)
+            outputs = _ms_flip_predict(
+                model,
+                decoder,
+                inputs,
+                args.num_classes,
+                args.ms_scales,
+                True,
+                model.patch_embed.patch_size,
+                feature_layers=args.feature_layers,
+            )
+            pred = outputs.argmax(dim=1)
+            mask = (labels >= 0)
+            val_correct_t += ((pred == labels) & mask).sum()
+            val_total_t += mask.sum()
+            confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+
+    confmat_f = confmat.to(torch.float32)
+    intersection = torch.diag(confmat_f)
+    union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
+    valid = union > 0
+    ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
+    ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
+    logger.info("%s MS+Flip Acc: %.4f | %s MS+Flip mIoU: %.4f", tag, ms_acc, tag, ms_miou)
+    return ms_acc, ms_miou
+
+def _scaled_val_batch_size(img_size, base_img_size, base_batch_size, *, scale_factor=1.0):
+    if not img_size or not base_img_size or img_size <= 0 or base_img_size <= 0:
+        return max(1, int(base_batch_size))
+    if scale_factor is None or scale_factor <= 0:
+        scale_factor = 1.0
+    scale = (base_img_size / (img_size * scale_factor)) ** 2
+    return max(1, int(round(base_batch_size * scale)))
+
 # =============================================================================
 # Train / validation
 # =============================================================================
@@ -797,13 +874,6 @@ if args.train:
         for k in keys:
             if len(hist[k]) < max_len:
                 hist[k].extend([fill_value] * (max_len - len(hist[k])))
-
-    def _append_eval_log(log_path, row):
-        if not row:
-            return
-        df = pd.DataFrame([row])
-        header = not os.path.exists(log_path)
-        df.to_csv(log_path, mode="a", header=header, index=False)
 
     if args.resume_full_ckpt:
         _pad_history(training_history)
@@ -1031,7 +1101,7 @@ if args.train:
         if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
             max_run_time_sec = args.total_run_time_hr * 3600            
-            if elapsed + (train_time + val_time) + 900 >= max_run_time_sec:
+            if elapsed + (train_time + val_time) + 600 >= max_run_time_sec:
                 logger.info(
                     "Stopping training: elapsed %.0fs reached limit %.2fh.",
                     elapsed,
@@ -1049,41 +1119,6 @@ if args.train:
     logger.info(output_dir)
 
     if args.final_ms_flip_eval and not args.use_ms_flip_eval:
-        def _run_ms_flip_eval(tag: str):
-            model.eval()
-            decoder.eval()
-            val_correct_t = torch.zeros((), device=DEVICE)
-            val_total_t = torch.zeros((), device=DEVICE)
-            confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
-            with torch.inference_mode():
-                for inputs, labels in valid_loader:
-                    inputs = inputs.to(DEVICE, non_blocking=True)
-                    labels = labels.to(DEVICE, non_blocking=True)
-                    outputs = _ms_flip_predict(
-                        model,
-                        decoder,
-                        inputs,
-                        args.num_classes,
-                        args.ms_scales,
-                        True,
-                        model.patch_embed.patch_size,
-                        feature_layers=args.feature_layers,
-                    )
-                    pred = outputs.argmax(dim=1)
-                    mask = (labels >= 0)
-                    val_correct_t += ((pred == labels) & mask).sum()
-                    val_total_t += mask.sum()
-                    confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
-
-            confmat_f = confmat.to(torch.float32)
-            intersection = torch.diag(confmat_f)
-            union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
-            valid = union > 0
-            ms_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
-            ms_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
-            logger.info("%s MS+Flip Acc: %.4f | %s MS+Flip mIoU: %.4f", tag, ms_acc, tag, ms_miou)
-            return ms_acc, ms_miou
-
         logger.info("Running final multi-scale + flip evaluation (final checkpoint)...")
         final_eval_row = {
             "run_tag": run_tag,
@@ -1130,3 +1165,94 @@ if args.train:
     logger.info(f"  Best miou:      {best_miou_val:.4f} (Epoch {best_miou_epoch})")
     logger.info(f"  Best acc:  {best_acc_val:.4f} (Epoch {best_acc_epoch})")
     logger.info("------------------------------------------")
+
+if args.val:
+    if not args.train and args.resume_full_ckpt and args.resume_ckpt_path and ckpt is not None:
+        model.load_state_dict(ckpt.get("model", {}), strict=False)
+        decoder.load_state_dict(ckpt.get("decoder", {}), strict=False)
+        logger.info("Loaded checkpoint for evaluation from %s.", args.resume_ckpt_path)
+    elif not args.train and args.resume_full_ckpt:
+        logger.warning("Evaluation requested but no checkpoint loaded; results may be random.")
+
+    def _run_single_eval(img_size, tag):
+        valid_dataset.pair_transform = EvalSegPreprocess(
+            target_size=(img_size, img_size),
+            target_by="shorter",
+            eval_crop_mode=args.eval_crop_mode,
+            normalize=True,
+        )
+        val_bs = _scaled_val_batch_size(img_size, args.eval_img_size, args.val_batch_size)
+        eval_loader = _make_valid_loader(val_bs)
+        model.eval()
+        decoder.eval()
+        val_correct_t = torch.zeros((), device=DEVICE)
+        val_total_t = torch.zeros((), device=DEVICE)
+        confmat = torch.zeros((args.num_classes, args.num_classes), device=DEVICE, dtype=torch.int64)
+        with torch.inference_mode():
+            for inputs, labels in eval_loader:
+                inputs = inputs.to(DEVICE, non_blocking=True)
+                labels = labels.to(DEVICE, non_blocking=True)
+                if args.seg_head == "upernet":
+                    outputs, _, grid_hw = _forward_upernet(model, decoder, inputs, args.feature_layers)
+                else:
+                    feats = model.forward_features(inputs)
+                    grid_hw = _infer_grid_hw(model, inputs)
+                    outputs = decoder(
+                        feats[:, model.num_prefix_tokens:, :],
+                        grid_size=grid_hw,
+                        out_size=inputs.shape[-2:],
+                    )
+                pred = outputs.argmax(dim=1)
+                mask = (labels >= 0)
+                val_correct_t += ((pred == labels) & mask).sum()
+                val_total_t += mask.sum()
+                confmat += fast_confusion_matrix(pred, labels, args.num_classes, ignore_index=-1)
+
+        confmat_f = confmat.to(torch.float32)
+        intersection = torch.diag(confmat_f)
+        union = confmat_f.sum(dim=1) + confmat_f.sum(dim=0) - intersection
+        valid = union > 0
+        eval_miou = (intersection[valid] / union[valid]).mean().item() if valid.any() else 0.0
+        eval_acc = (val_correct_t / val_total_t.clamp_min(1)).float().item()
+        # print("%s Eval @%s Acc: %.4f | %s Eval @%s mIoU: %.4f", tag, img_size, eval_acc, tag, img_size, eval_miou)
+        print(img_size, eval_acc, eval_miou)
+        return eval_acc, eval_miou
+
+    eval_epoch = int(last_trained_epoch) if args.train else int(ckpt.get("epoch", 0) if ckpt else 0)
+    if args.final_ms_flip_eval:
+        valid_dataset.pair_transform = EvalSegPreprocess(
+            target_size=(args.eval_img_size, args.eval_img_size),
+            target_by="shorter",
+            eval_crop_mode=args.eval_crop_mode,
+            normalize=True,
+        )
+
+        logger.info("Running final multi-scale + flip evaluation (val)...")
+        final_eval_row = {
+            "run_tag": run_tag,
+            "subdir_name": subdir_name,
+            "output_dir": output_dir,
+            "epoch": eval_epoch,
+        }
+        final_ms_acc, final_ms_miou = _run_ms_flip_eval("Final")
+        final_eval_row["final_ms_flip_acc"] = final_ms_acc
+        final_eval_row["final_ms_flip_miou"] = final_ms_miou
+        final_eval_log = os.path.join(output_dir, f"{subdir_name}_final_eval.csv")
+        _append_eval_log(final_eval_log, final_eval_row)
+    else:
+        sizes = args.final_eval_img_size
+        if not isinstance(sizes, (list, tuple)):
+            sizes = [sizes]
+        final_eval_log = os.path.join(output_dir, f"{subdir_name}_final_eval.csv")
+        for img_size in sizes:
+            eval_acc, eval_miou = _run_single_eval(img_size, "Final")
+            final_eval_row = {
+                "run_tag": run_tag,
+                "subdir_name": subdir_name,
+                "output_dir": output_dir,
+                "epoch": eval_epoch,
+                "eval_img_size": int(img_size),
+                "final_eval_acc": eval_acc,
+                "final_eval_miou": eval_miou,
+            }
+            _append_eval_log(final_eval_log, final_eval_row)

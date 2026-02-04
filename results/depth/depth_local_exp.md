@@ -174,7 +174,9 @@ break
 2026-01-24 20:51:43,003 - INFO -   Best AbsRel:  0.2769 (Epoch 47)
 2026-01-24 20:51:43,003 - INFO -   Best RMSE:    2.7239 (Epoch 64)
 # s60
-## /home/liucong/codes/pos/logs/depth/base_rc_True_lr6_relative_median_dec_dpt_h224w224_s60_alpha_100
+## /home/liucong/codes/pos/logs/depth/base_rc_True_lr6_relative_median_dec_dpt_h224w224_s60_alpha_100/20260124_205146
+1.7107744216918945,0.24813851880753834,1.9062204606696953,2.6374618675143724,0.6853376262836006,766.2882072925568,37.59240508079529,80,1.6230026483535767,0.000877703947480768
+
 Valid AbsRel: 0.2481 | Valid L1: 1.9062 | Valid RMSE: 2.6375 | Valid a1: 0.6853
 2026-01-25 15:01:22,261 - INFO -   Best a1:      0.6908 (Epoch 79)
 2026-01-25 15:01:22,261 - INFO -   Best AbsRel:  0.2455 (Epoch 79)
@@ -189,6 +191,8 @@ Valid AbsRel: 0.2899 | Valid L1: 2.0970 | Valid RMSE: 2.8584 | Valid a1: 0.6330
 
 # mean_std
 lr=0.0002 > lr=0.00028
+namespace(data_root='/home/liucong/data/3d', model_type='dinov3', use_abs_pos_emb=False, use_rot_pos_emb=True, model_size='base', train_sizes=[(224, 224)], eval_size=(224, 224), final_eval_size=(224, 224), color_jitter_prob=0.5, scale_jitter=(1.0, 1.2), scale_jitter_sw=(1.0, 1.01), batch_size=48, grad_accum_steps=2, patch_size=16, lr=0.0002, lr_aux=1e-05, eta_min=1e-07, epochs=120, break_at_epoch=None, has_pos=False, weight_decay=0.05, overlap=0, seed=60, val_steps=None, use_rc_loss=False, loss_type='smooth_l1', rc_alpha=100.0, workers=8, composite_lr=True, warmup_steps=3000, warmup_ratio=None, clip_value=1.0, debug_loss_stats=False, debug_loss_interval=1, lock=True, depth_decoder='dpt', log_interval=500, show_peak_gpu_mem=True, depth_eval_mode='relative', align_mode='mean_std', silog_w=0.0, depth_norm='median', ssim_norm_mode='per_image', ssim_percentiles=(5.0, 95.0), eval_crop_mode='crop', eval_dataset='hypersim', eval_depth_min=0.001, eval_depth_max=None, eval_prescale=1.07, train_depth_valid_thresh=0.1, eval_depth_valid_thresh=0.01, min_valid_pixels=0, loss_det_threshold=1e-06, use_sliding_window=False, sw_window_size=None, sw_overlap=0.25, debug_dataset=False, output_dir='/home/liucong/codes/pos/logs/depth', csv_interval=5, prefetch_factor=2, compile_model=False, save_full_ckpt=True, resume_full_ckpt=False, resume_ckpt_path='/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_175558/ckpt/last.pth', resume_args=True, resume_scheduler=True, resume_optimizer=True, resume_bs=False, resume_img_size=False, total_run_time_hr=None, train=True, val=False, final_use_sliding_window=True, final_sw_window_size=(224, 224), final_sw_overlap=0.25, cuda_alloc_conf='expandable_segments:True', lock_priority=30)
+
 ## /home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr27_relative_median_dec_dpt_h224w224_s60/20260129_194258
 batch_size=48, grad_accum_steps=2, patch_size=16, **lr=0.00028,** lr_aux=1e-05, eta_min=1e-07, epochs=120, break_at_epoch=80
 Valid AbsRel: 0.2808 | Valid L1: 2.0678 | Valid RMSE: 2.9474 | Valid a1: 0.6568

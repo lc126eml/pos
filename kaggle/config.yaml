@@ -1,20 +1,22 @@
 task: cls
-id: hsdfuieqg
+id: sollasi
 pos_type: null
-method: colrow
+method: abs
 model_size: base
-run_id: 1
-desc: ra200-wsfa600
+run_id: 7
+desc: mres
 is_private: false
 dataset_sources: null
-kernel_sources: djiangjiang/cls-base-colrow-ra200-wsfa600-16
+kernel_sources: sollasi/cls-base-abs-mres-617
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 16
+seed: 17
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0
+- train: true
+- val: false

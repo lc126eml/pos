@@ -1,13 +1,13 @@
-task: seg
-id: robinrainy
+task: depth
+id: 
 pos_type: null # alibi relpos
-method: abs # colrow, rope, abs, none
+method: rope # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu8c
-desc_keys: ["lr"]
+# desc_keys: ["lr"]
 # desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
-is_private: true
+is_private: false
 dataset_sources: null
 kernel_sources: null
 resume_full_ckpt: false
@@ -16,7 +16,7 @@ resume_infer: false
 tpu: true
 tpu_workers: 0
 tpu_threads: 1
-seed: 50
+seed: 60
 simple:
 - resume_bs: true
 - total_run_time_hr: 9.0
@@ -28,4 +28,3 @@ simple:
 # - show_peak_gpu_mem: True
 # - val: false
 # - batch_size: 16
-- lr: 7.0e-06

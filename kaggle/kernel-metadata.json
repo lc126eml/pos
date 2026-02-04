@@ -1,12 +1,12 @@
 {
-  "id": "autune/depth-base-colrow-ra200-wsfa600-19",
-  "title": "depth base colrow ra200 wsfa600 19",
-  "code_file": "../depth/dinov3_depth_kaggle.py",
+  "id": "xulijuan/depth-base-rope-tpu8c-60",
+  "title": "depth base rope tpu8c 60",
+  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",
-  "is_private": "false",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_tpu": "true",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",

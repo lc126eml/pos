@@ -299,7 +299,7 @@ def main():
         eval_split="test",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=False,
+        use_rot_pos_emb=True,
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
@@ -312,19 +312,19 @@ def main():
         val_drop_last=True,
         val_pad_to_full_batch=False,
         patch_size=16,
-        lr=5e-05,
-        lr_aux=1e-6,
+        lr=2e-04,
+        lr_aux=1e-5,
         eta_min=1e-7,
-        epochs=130,
-        break_at_epoch=None,
+        epochs=120,
+        break_at_epoch=100,
         has_pos=False,
         weight_decay=0.05,
         overlap=0,
-        seed=50,
+        seed=60,
         val_steps=None,
-        use_rc_loss=True,
+        use_rc_loss=False,
         loss_type="smooth_l1",
-        rc_alpha=200.0, #200
+        rc_alpha=100.0, #200
         warmup_steps_for_aux=600,
         alpha_min=10,
         workers=2 if _IS_KAGGLE else 8,
@@ -359,7 +359,7 @@ def main():
         eval_prescale=1.07,
         train_depth_valid_thresh=0.1,
         eval_depth_valid_thresh=0.01,
-        min_valid_pixels=100,
+        min_valid_pixels=50,
         loss_det_threshold=1e-6,
         use_sliding_window=False,
         sw_window_size=None,
@@ -382,10 +382,10 @@ def main():
         resume_optimizer=False,
         resume_bs=True,
         resume_img_size=False,
-        total_run_time_hr=1.0,
+        total_run_time_hr=9.0,
         train=True,
         val=True,
-        final_use_sliding_window=True,
+        final_use_sliding_window=False,
         final_sw_window_size=None,
         final_sw_overlap=0.25,
     )
@@ -490,7 +490,7 @@ def main():
     use_bf16 = bool(getattr(args, "use_bf16", True))
     autocast_dtype = torch.bfloat16 if use_bf16 else torch.float32
 
-    base_global_batch = 24
+    base_global_batch = 96
     global_batch = args.batch_size * WORLD_SIZE
     lr_scale = min(global_batch / base_global_batch, 4.0)
     args.lr *= lr_scale

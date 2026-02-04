@@ -1,4 +1,5 @@
 import glob
+import hashlib
 import os
 import random
 from typing import List, Optional, Sequence, Tuple, Union
@@ -29,6 +30,7 @@ class HyperSimSimple(Dataset):
         split: Optional[str] = None,
         sample_rate: float = 1.0,
         pair_transform=None,
+        image_list_path: Optional[str] = None,
         **kwargs,
     ):
         super().__init__()
@@ -66,10 +68,27 @@ class HyperSimSimple(Dataset):
             self.pair_transform = pair_transform
 
         self.image_paths: List[str] = []
-        for root in self.roots:
-            if not os.path.isdir(root):
-                continue
-            self.image_paths.extend(glob.glob(os.path.join(root, "**", "*_rgb.png"), recursive=True))
+        list_file = None
+        if image_list_path:
+            split_tag = split if split is not None else "all"
+            list_file = os.path.join(
+                image_list_path,
+                f"{self.dataset_label.lower()}_{split_tag}.txt",
+            )
+
+        if list_file and os.path.isfile(list_file):
+            with open(list_file, "r", encoding="utf-8") as f:
+                self.image_paths = [line.strip() for line in f if line.strip()]
+        else:
+            for root in self.roots:
+                if not os.path.isdir(root):
+                    continue
+                self.image_paths.extend(glob.glob(os.path.join(root, "**", "*_rgb.png"), recursive=True))
+            if list_file:
+                os.makedirs(image_list_path, exist_ok=True)
+                with open(list_file, "w", encoding="utf-8") as f:
+                    for p in self.image_paths:
+                        f.write(p + "\n")
 
         if not self.image_paths:
             raise FileNotFoundError(f"No '*_rgb.png' files found in roots: {self.roots}")

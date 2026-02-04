@@ -42,6 +42,7 @@
     - [ampere888/cls-base-rope-d-816](#ampere888cls-base-rope-d-816)
     - [ampere888/cls-base-rope-d-817](#ampere888cls-base-rope-d-817)
     - [asdsad0000/cls-base-rope-d-818](#asdsad0000cls-base-rope-d-818)
+    - [mres](#mres)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-116](#djiangjiangcls-base-colrow-ra600-wsfa1000-116)
@@ -235,6 +236,15 @@ eastwangwei/cls-base-colrow-d-717
 chencaihonga/cls-base-colrow-d-718
 1.056852937	0.845007718	0.727599978	2407.905407	27.6153574	130
 
+### mres
+- kernel_id: xx03071425/cls-base-rope-mres-816
+  total_runs: 9
+  start_time: '2026-02-03 20:36:12'
+  history_ids: []
+- kernel_id: sollasi/cls-base-patch-ra600-wsfa600-716
+  total_runs: 8
+  start_time: '2026-02-04 01:01:31'
+  history_ids: []
 
 ## rc alpha warmup
 16: wsfa500 > wsfa1000 > wsfa200 > None
