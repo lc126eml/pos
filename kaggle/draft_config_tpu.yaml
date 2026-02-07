@@ -22,6 +22,7 @@ simple:
 - total_run_time_hr: 9.0
 - train: true
 - val: False
+- break_at_epoch: 2
 # - rc_alpha: 60
 # - lr: 3.0e-4
 # - weight_decay: 0.05

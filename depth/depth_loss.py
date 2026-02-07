@@ -214,6 +214,7 @@ class MonocularDepthHybridLoss(nn.Module):
         if self.align_mode == "mean_std":
             pred_mean, pred_std, denom = _masked_mean_std(pred_hw, m_hw, self.eps)
             tgt_mean, tgt_std, _ = _masked_mean_std(tgt_hw, m_hw, self.eps)
+            pred_std = pred_std.clamp(self.scale_min, 1/self.scale_min)
             pred_aligned = (prediction - pred_mean.view(-1, 1, 1, 1)) / pred_std.view(-1, 1, 1, 1)
             target_aligned = (target - tgt_mean.view(-1, 1, 1, 1)) / tgt_std.view(-1, 1, 1, 1)
 
@@ -239,6 +240,8 @@ class MonocularDepthHybridLoss(nn.Module):
                 )
                 self._debug_count += 1
         else:
+            tgt_mean, tgt_std, _ = _masked_mean_std(tgt_hw, m_hw, self.eps)
+            tgt_hw = (tgt_hw - tgt_mean.view(-1, 1, 1)) / tgt_std.view(-1, 1, 1)
             if self.debug:
                 scale, shift, det, det_valid = compute_scale_and_shift(
                     pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=True

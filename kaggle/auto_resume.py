@@ -167,6 +167,7 @@ def _push_kernel(cfg):
         capture_output=True,
         text=True,
     )
+    print(result)
     output = (result.stdout or "") + (result.stderr or "")
     return result.returncode == 0, output.strip()
 

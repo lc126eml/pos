@@ -1243,25 +1243,25 @@ def main():
                 training_history['step'].append(step+1)
                 if (epoch + 1) % csv_interval == 0:
                     pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
-            if args.save_full_ckpt:
-                ckpt = {}
-                if IS_MASTER:
-                    ckpt = {
-                        "epoch": epoch + 1,
-                        "step": step,
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                        "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
-                        "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
-                        "training_history": training_history,
-                        "args": args,
-                        "best_acc": best_acc,
-                    }
-                _xla_sync()
-                xm.save(ckpt, last_ckpt_path, master_only=True)
-                if IS_MASTER:
-                    logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
+            # if args.save_full_ckpt:
+            #     ckpt = {}
+            #     if IS_MASTER:
+            #         ckpt = {
+            #             "epoch": epoch + 1,
+            #             "step": step,
+            #             "model": model.state_dict(),
+            #             "optimizer": optimizer.state_dict(),
+            #             "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            #             "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+            #             "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
+            #             "training_history": training_history,
+            #             "args": args,
+            #             "best_acc": best_acc,
+            #         }
+            #     _xla_sync()
+            #     xm.save(ckpt, last_ckpt_path, master_only=True)
+            #     if IS_MASTER:
+            #         logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
     
             if args.total_run_time_hr is not None:
                 elapsed = time.time() - train_start_time
@@ -1280,6 +1280,25 @@ def main():
             logger.info(output_dir)
             pd.DataFrame(training_history).to_csv(os.path.join(output_dir, f'{subdir_name}.csv'), index=False)
     
+        if args.save_full_ckpt:
+            ckpt = {}
+            if IS_MASTER:
+                ckpt = {
+                    "epoch": epoch + 1,
+                    "step": step,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                    "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+                    "position_loss": position_loss.state_dict() if args.use_patch_position_loss else None,
+                    "training_history": training_history,
+                    "args": args,
+                    "best_acc": best_acc,
+                }
+            _xla_sync()
+            xm.save(ckpt, last_ckpt_path, master_only=True)
+            if IS_MASTER:
+                logger.info(f"Saved full checkpoint to '{last_ckpt_path}'")
     if args.val:    
         val_results = {
             'img_size': [],
