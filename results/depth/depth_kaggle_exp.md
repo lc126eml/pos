@@ -73,7 +73,7 @@ Valid AbsRel: 0.2876 | Valid L1: 1.3322 | Valid RMSE: 1.8866 | Valid a1: 0.6466
 40864.9s	219	2026-01-24 16:20:21,548 - INFO -   Best RMSE:    1.8866 (Epoch 19)
 
 # redo 20160126
-
+namespace(train_roots=['/kaggle/input/hsm-train-part01', '/kaggle/input/hsm-train-part02', '/kaggle/input/hsm-train-part03', '/kaggle/input/hsm-train-part04', '/kaggle/input/hsm-train-part05'], eval_root='/kaggle/input/hsm-test-val', eval_split='val', model_type='dinov3', use_abs_pos_emb=False, use_rot_pos_emb=False, model_size='base', train_sizes=[(224, 224)], eval_size=(224, 224), final_eval_size=(224, 224), color_jitter_prob=0.5, scale_jitter=(1.0, 1.2), scale_jitter_sw=(1.0, 1.01), batch_size=24, grad_accum_steps=1, patch_size=16, lr=7e-05, lr_aux=1e-05, eta_min=1e-07, epochs=120, break_at_epoch=None, has_pos=False, weight_decay=0.05, overlap=0, seed=50, val_steps=None, use_rc_loss=True, loss_type='smooth_l1', rc_alpha=200.0, workers=2, composite_lr=True, warmup_steps=3000, warmup_ratio=None, clip_value=1.0, debug_loss_stats=False, debug_loss_interval=1, depth_decoder='dpt', log_interval=500, show_peak_gpu_mem=True, depth_eval_mode='relative', silog_w=0.0, depth_norm='median', ssim_norm_mode='per_image', ssim_percentiles=(5.0, 95.0), eval_crop_mode='crop', eval_dataset='hypersim', eval_depth_min=0.001, eval_depth_max=None, eval_prescale=1.07, train_depth_valid_thresh=0.1, eval_depth_valid_thresh=0.01, use_sliding_window=False, sw_window_size=None, sw_overlap=0.25, debug_dataset=False, output_dir='/kaggle/working', csv_interval=5, prefetch_factor=2, compile_model=False, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/depth-base-colrow-d-650/ckpt/last.pth', resume_args=True, resume_scheduler=True, resume_optimizer=True, resume_bs=True, resume_img_size=False, total_run_time_hr=12.0, train=True, val=False, final_use_sliding_window=True, final_sw_window_size=(224, 224), final_sw_overlap=0.25, cuda_alloc_conf='expandable_segments:True')
 ## Epoch 80
 ### yangjiamin/depth-base-none-lr7e-5-650
 train_loss	valid_abs_rel	valid_l1	valid_rmse	valid_a1	train_time	val_time	epoch
@@ -263,6 +263,12 @@ train_loss	valid_abs_rel	valid_l1	valid_rmse	valid_a1	train_time	val_time	epoch
 - kernel_id: xuwenhui123/depth-base-colrow-gpu-617
 4.049808025	0.275616348	1.98281465	2.720840199	0.64987221	1979.349785	192.1549625	130
 
+
+- kernel_id: yyyyjay/depth-base-colrow-gpu-618
+3.758416653	0.277446807	2.009748968	2.750535232	0.650446927	1973.479198	162.7083986	130
+
+- kernel_id: zhuangminghui/depth-base-colrow-ra200-wsfa600-616
+5.228550434	0.279283694	2.025599569	2.770502212	0.646717053	1983.072464	164.2516484	130
 
 
 ## ra ablation

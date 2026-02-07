@@ -296,10 +296,11 @@ def main():
         # Data
         train_roots=train_roots_default,
         eval_root=eval_root_default,
+        image_list_path="/kaggle/input/ds-file-list",
         eval_split="test",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
         use_abs_pos_emb=False,
-        use_rot_pos_emb=True,
+        use_rot_pos_emb=False,
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
@@ -309,23 +310,23 @@ def main():
         scale_jitter_sw=(1.0, 1.01),
         batch_size=24,
         val_batch_size=16,
-        val_drop_last=True,
-        val_pad_to_full_batch=False,
+        val_drop_last=False,
+        val_pad_to_full_batch=True,
         patch_size=16,
-        lr=2e-04,
+        lr=5e-5,
         lr_aux=1e-5,
         eta_min=1e-7,
-        epochs=120,
-        break_at_epoch=100,
+        epochs=100,
+        break_at_epoch=None,
         has_pos=False,
         weight_decay=0.05,
         overlap=0,
-        seed=60,
+        seed=16,
         val_steps=None,
-        use_rc_loss=False,
+        use_rc_loss=True,
         loss_type="smooth_l1",
-        rc_alpha=100.0, #200
-        warmup_steps_for_aux=600,
+        rc_alpha=200, #200
+        warmup_steps_for_aux=60,
         alpha_min=10,
         workers=2 if _IS_KAGGLE else 8,
         tpu_workers=0,
@@ -337,7 +338,7 @@ def main():
         debug_loss_stats=False,
         debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
-        log_interval=300,
+        log_interval=30000,
         show_peak_gpu_mem=False,
         log_all_ranks=False,
         debug_xla=False,
@@ -346,7 +347,8 @@ def main():
         val_mark_step_interval=5,
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-        align_mode="mean_std",
+        align_mode="scale_shift", # scale_shift, mean_std
+        scale_min=0.5,
         silog_w=0.0,
         grad_w=0.5, #0.5
         depth_norm="median",
@@ -372,7 +374,7 @@ def main():
         val_prefetch_factor=1,
         val_persistent_workers=False,
         compile_model=False,
-        save_full_ckpt=False,
+        save_full_ckpt=True,
         save_full_ckpt_interval=10,
         save_weights=False,
         resume_full_ckpt=False,
@@ -384,7 +386,7 @@ def main():
         resume_img_size=False,
         total_run_time_hr=9.0,
         train=True,
-        val=True,
+        val=False,
         final_use_sliding_window=False,
         final_sw_window_size=None,
         final_sw_overlap=0.25,
@@ -420,6 +422,7 @@ def main():
                 skip_keys.extend(["batch_size"])
             if not args.resume_img_size:
                 skip_keys.extend(["train_sizes", "eval_size", "final_eval_size"])
+            skip_keys.extend(["image_list_path"])
             ckpt_args = ckpt.get("args", None)
             if ckpt_args is not None:
                 for k, v in vars(ckpt_args).items():
@@ -490,11 +493,11 @@ def main():
     use_bf16 = bool(getattr(args, "use_bf16", True))
     autocast_dtype = torch.bfloat16 if use_bf16 else torch.float32
 
-    base_global_batch = 96
+    base_global_batch = 24
     global_batch = args.batch_size * WORLD_SIZE
     lr_scale = min(global_batch / base_global_batch, 4.0)
     args.lr *= lr_scale
-    # args.lr_aux *= lr_scale
+    args.lr_aux *= lr_scale
     args.warmup_steps = args.warmup_steps * base_global_batch / global_batch
     
     tpu_workers = getattr(args, "tpu_workers", 0)
@@ -727,6 +730,7 @@ def main():
                 normalize=True,
                 depth_valid_thresh=args.train_depth_valid_thresh,
             ),
+            image_list_path=args.image_list_path,
         )
         eval_root = args.eval_root
         eval_split = args.eval_split
@@ -750,6 +754,7 @@ def main():
                     depth_valid_thresh=args.eval_depth_valid_thresh,
                 )
             ),
+            image_list_path=args.image_list_path,
         )
     
         if getattr(args, "val_drop_last", False) and getattr(args, "val_pad_to_full_batch", False):
@@ -1030,6 +1035,7 @@ def main():
         min_valid_pixels=getattr(args, "min_valid_pixels", 0),
         align_mode=getattr(args, "align_mode", "scale_shift"),
         debug=getattr(args, "debug_loss_stats", False),
+        scale_min=getattr(args, "scale_min", 0.5),
     )
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1103,7 +1109,8 @@ def main():
         dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
         eps = 1e-8
         thresh = max(dmin, eps)
-        valid_mask = torch.isfinite(target) & torch.isfinite(pred)
+        pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
+        valid_mask = torch.isfinite(target) 
         valid_mask = valid_mask & (target > thresh) & (target <= dmax)
         if mask is not None:
             valid_mask = valid_mask & mask.bool()
@@ -1570,9 +1577,9 @@ def main():
                 if max_steps and batch_count >= max_steps:
                     break
     
-        if IS_MASTER:
-            cpu_peak = _cpu_peak_mb()
-            _master_print(f"eval cpu peak: {cpu_peak}")
+        # if IS_MASTER:
+        #     cpu_peak = _cpu_peak_mb()
+        #     _master_print(f"eval cpu peak: {cpu_peak}")
         metrics_keys = ["abs_rel", "l1", "rmse", "a1", "a2", "a3"]
         metrics_t = torch.tensor([val_metrics[k] for k in metrics_keys], device=DEVICE)
         steps_t = torch.tensor(steps, device=DEVICE)
@@ -1647,45 +1654,45 @@ def main():
                     history_df = _history_to_frame(training_history)
                     history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
     
-            if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
-                logger.info("Prepare to save full checkpoint ...")
-                if IS_MASTER:
-                    gc.collect()
-                    ckpt = {
-                        "epoch": epoch + 1,
-                        "step": int(global_step),
-                        "model": model.state_dict(),
-                        "decoder": decoder.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                        "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
-                        "training_history": training_history,
-                        "args": args,
-                    }
-                else:
-                    ckpt = {}
-                _xla_sync()
-                xm.save(ckpt, last_ckpt_path, master_only=True)
-                if IS_MASTER:
-                    logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
-                    del ckpt
-                gc.collect()
-                _xla_sync()
-            elif args.save_weights:
-                if IS_MASTER:
-                    weights = {
-                        "model": model.state_dict(),
-                        "decoder": decoder.state_dict(),
-                    }
-                else:
-                    weights = {}
-                _xla_sync()
-                xm.save(weights, last_weights_path, master_only=True)
-                if IS_MASTER:
-                    logger.info("Saved weights checkpoint to '%s'", last_weights_path)
-                    del weights
-                gc.collect()
-                _xla_sync()
+            # if args.save_full_ckpt and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
+            #     logger.info("Prepare to save full checkpoint ...")
+            #     if IS_MASTER:
+            #         gc.collect()
+            #         ckpt = {
+            #             "epoch": epoch + 1,
+            #             "step": int(global_step),
+            #             "model": model.state_dict(),
+            #             "decoder": decoder.state_dict(),
+            #             "optimizer": optimizer.state_dict(),
+            #             "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            #             "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+            #             "training_history": training_history,
+            #             "args": args,
+            #         }
+            #     else:
+            #         ckpt = {}
+            #     _xla_sync()
+            #     xm.save(ckpt, last_ckpt_path, master_only=True)
+            #     if IS_MASTER:
+            #         logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
+            #         del ckpt
+            #     gc.collect()
+            #     _xla_sync()
+            # elif args.save_weights and ckpt_interval > 0 and ((epoch + 1) % ckpt_interval == 0):
+            #     if IS_MASTER:
+            #         weights = {
+            #             "model": model.state_dict(),
+            #             "decoder": decoder.state_dict(),
+            #         }
+            #     else:
+            #         weights = {}
+            #     _xla_sync()
+            #     xm.save(weights, last_weights_path, master_only=True)
+            #     if IS_MASTER:
+            #         logger.info("Saved weights checkpoint to '%s'", last_weights_path)
+            #         del weights
+            #     gc.collect()
+            #     _xla_sync()
     
             if args.total_run_time_hr is not None:
                 elapsed = time.time() - train_start_time
@@ -1702,7 +1709,6 @@ def main():
         logger.info("Skipping training (args.train=False).")
         if not (args.resume_full_ckpt and args.resume_ckpt_path):
             logger.warning("No checkpoint specified; evaluation will use randomly initialized weights.")
-    
     
     if IS_MASTER:
         history_df = _history_to_frame(training_history)
@@ -1732,6 +1738,26 @@ def main():
             logger.info("  Best RMSE:    %.4f (Epoch %s)", best_rmse_val, best_rmse_epoch)
             logger.info("------------------------------------------")
     
+    if args.save_full_ckpt:
+        logger.info("Prepare to save full checkpoint ...")
+        if IS_MASTER:
+            gc.collect()
+            ckpt = {
+                "epoch": epoch + 1,
+                "step": int(global_step),
+                "model": model.state_dict(),
+                "decoder": decoder.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+                "training_history": training_history,
+                "args": args,
+            }
+        else:
+            ckpt = {}
+        _xla_sync()
+        xm.save(ckpt, last_ckpt_path, master_only=True)
+
     logger.info("Output dir: %s", output_dir)
     logger.info("Subdir: %s", subdir_name)
 

@@ -1,259 +1,181 @@
 available_ids:
-- qqmail4092
-- xulijuan
-- yangyangchengcheng
-- zjl001
-exhausted_ids:
-- eastwangwei
-- roseqw
-- robinrainy
-- gloden613
-- fakeid
-- tianxianglii
-- chuasiliu
-- tangjiayuan1004
-- zhuxinchen07
-- cdong121
-- gorgeous0912
-- chenrunze11
-- kezzymik
-- fanhuayang
-- denghaimeng
-- du55148
-- elong1202
-- geminiyy
-- dusi605
-- fzzy123
-- hysz0821
-- jacksisi
-- jcy666
-- jiangshuai0210
-- asdsad0000
-- houwen
-- huoqiuxia
-- jokerking1
-- rrrrmm
-- jjjerry12138
-- linyunlk243
-- jinzhanbo
-- jiwei313
-- keyongkk
-- lemonlaila
-- liucong126
-- jufuchao
-- kanwenbin
-- liucong12601
-- hsdfuieqg
-- djiangjiang
 - ampere888
-- chencaihonga
+- asdsad0000
 - asssmer
 - autune
+- b201xiaoli
+- cdong121
 - cfy002
 - cheaterchow
+- chencaihonga
 - chengchi1007
 - chenhao1213
-- b201xiaoli
+- chenrunze11
+- chuasiliu
 - cq1234
 - cshlhs
 - cycyxcy
 - dddd110
+- denghaimeng
+- djiangjiang
+- du55148
+- dusi605
+- eastwangwei
+- elong1202
+- fakeid
+- fanhuayang
+- fzzy123
+- geminiyy
+- gloden613
+- gorgeous0912
+- houwen
+- hsdfuieqg
+- huoqiuxia
+- hysz0821
+- jacksisi
+- jcy666
+- jiangshuai0210
+- jinzhanbo
+- jiwei313
+- jjjerry12138
+- jokerking1
+- jufuchao
+- kanwenbin
+- keyongkk
+- kezzymik
+- lemonlaila
+- linyunlk243
+- liucong126
+- liucong12601
 - luanjing
-- srmmmm
-- phoenixcsw01
-- top1pcl
-- qinghui9527
-- sss45633
-- straghtwizard
-- sh1weiwu
-- zzr123123
-- rushly
-- ywhicher
-- wenyangtang
-- zhangtingfengztf
-- tangjudge
 - ly1122
-- zhaotianchi
-- ycy1n66
+- maoshuwen0415
+- miratowa1
+- ohyeah00
+- permanentlove
+- phoenixcsw01
+- pycjn666
+- qcx2333
+- qinghui9527
+- qqmail4092
+- quepimao
+- rmoope
+- robinrainy
+- roseqw
+- rqmiraitowa
+- rrrrmm
+- rushly
+- sh1weiwu
+- sinayliu
+- smartchaochao
+- sollasi
+- srmmmm
+- sss45633
+- ssss7777
+- starysinger
+- straghtwizard
+- tangjiayuan1004
+- tangjudge
+- tangyujie123
+- tianxianglii
+- top1pcl
+- ttzyty
+- uamadeus
+- wenyangtang
+- wzywzy1227
+- xiaoluoalice
 - xpeng01
+- xulijuan
+- xulin5522
+- xuwenhui123
+- xwj66666
+- xx03071425
+- yangjiamin
+- yangyangchengcheng
+- yccwff
+- ycy1n66
+- yinmengmeng
+- yuanhahah
+- ywhicher
+- yyyyjay
+- zhangtingfengztf
+- zhaotianchi
 - zhikaiwang
 - zhoujiahui0199
-- smartchaochao
-- xiaoluoalice
-- ssss7777
-- rqmiraitowa
-- ohyeah00
-- quepimao
-- qcx2333
-- pycjn666
-- yinmengmeng
-- rmoope
-- permanentlove
-- xwj66666
+- zhuangminghui
+- zhuxinchen07
 - zhuzichen123
-- fakeid
-- fakeid
-- yccwff
-- uamadeus
-- wzywzy1227
-- yangjiamin
-- xuwenhui123
-- yuanhahah
-- miratowa1
-- yyyyjay
+- zjl001
+- zongjiaxin
+- zzr123123
+exhausted_ids: []
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: zongjiaxin
-  notebooks:
-  - kernel_id: zongjiaxin/depth-base-colrow-ra200-wsfa600-516
-    run_id: 5
-    total_runs: 7
-    start_time: '2026-02-04 00:05:19'
-    resumed_from: zongjiaxin/depth-base-colrow-ra200-wsfa600-416
-    history_ids: []
-  - kernel_id: zongjiaxin/cls-base-none-mres-617
-    run_id: 6
-    total_runs: 8
-    start_time: '2026-02-04 00:39:26'
-    resumed_from: zongjiaxin/cls-base-none-mres-517
-    history_ids: []
-  left_time: 3.5362064466666663
-- id: sinayliu
-  notebooks:
-  - kernel_id: sinayliu/cls-base-alibi-gpu-717
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 09:35:56'
-    resumed_from: yuanhahah/cls-base-alibi-gpu-617
-    history_ids: []
-  - kernel_id: sinayliu/cls-base-relpos-gpu-717
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 09:36:03'
-    resumed_from: yuanhahah/cls-base-relpos-gpu-617
-    history_ids: []
-  left_time: 20.978057988333337
-- id: xulin5522
-  notebooks:
-  - kernel_id: xulin5522/cls-base-alibi-gpu-716
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 05:26:50'
-    resumed_from: xulin5522/cls-base-alibi-gpu-616
-    history_ids: []
-  - kernel_id: xulin5522/cls-base-relpos-gpu-716
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 05:59:54'
-    resumed_from: xulin5522/cls-base-relpos-gpu-616
-    history_ids: []
-  left_time: 6.173479996388888
-- id: tangyujie123
-  notebooks:
-  - kernel_id: tangyujie123/cls-base-rope-mres-717
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 06:00:00'
-    resumed_from: tangyujie123/cls-base-rope-mres-617
-    history_ids: []
-  - kernel_id: tangyujie123/cls-base-alibi-gpu-518
-    run_id: 5
-    total_runs: 8
-    start_time: '2026-02-04 06:33:08'
-    resumed_from: tangyujie123/cls-base-alibi-gpu-418
-    history_ids: []
-  left_time: 6.930747453888891
-- id: starysinger
-  notebooks:
-  - kernel_id: starysinger/cls-base-relpos-gpu-518
-    run_id: 5
-    total_runs: 8
-    start_time: '2026-02-04 06:44:16'
-    resumed_from: starysinger/cls-base-relpos-gpu-418
-    history_ids: []
-  - kernel_id: starysinger/cls-base-none-mres-716
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 08:02:47'
-    resumed_from: starysinger/cls-base-none-mres-616
-    history_ids: []
-  left_time: 6.377402076388888
-- id: xx03071425
-  notebooks:
-  - kernel_id: xx03071425/cls-base-colrow-mres-517
-    total_runs: 8
-    start_time: '2026-02-04 01:01:24'
-    history_ids: []
-    run_id: 5
-    resumed_from: wzywzy1227/cls-base-colrow-mres-417
-  - kernel_id: xx03071425/cls-base-rope-mres-518
-    run_id: 5
-    total_runs: 8
-    start_time: '2026-02-04 07:05:42'
-    resumed_from: yangjiamin/cls-base-rope-mres-418
-    history_ids: []
-  left_time: 21.90544631277778
-- id: maoshuwen0415
-  notebooks:
-  - kernel_id: maoshuwen0415/cls-base-colrow-mres-619
-    total_runs: 8
-    start_time: '2026-02-04 08:36:15'
-    history_ids: []
-    run_id: 6
-    resumed_from: maoshuwen0415/cls-base-colrow-mres-519
-  - kernel_id: maoshuwen0415/cls-base-colrow-mres-716
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 09:36:30'
-    resumed_from: maoshuwen0415/cls-base-colrow-mres-616
-    history_ids:
-    - yccwff/cls-base-colrow-mres-516
-  left_time: 6.154608352222223
-- id: sollasi
-  notebooks:
-  - kernel_id: sollasi/cls-base-abs-mres-717
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 09:36:38'
-    resumed_from: sollasi/cls-base-abs-mres-617
-    history_ids:
-    - uamadeus/cls-base-abs-mres-517
-  - kernel_id: sollasi/cls-base-patch-mres-716
-    run_id: 7
-    total_runs: 8
-    start_time: '2026-02-04 08:56:10'
-    resumed_from: miratowa1/cls-base-patch-mres-616
-    history_ids:
-    - yccwff/cls-base-patch-mres-516
-  left_time: 10.291413057777778
-- id: ttzyty
-  notebooks:
-  - kernel_id: ttzyty/cls-base-rope-mres-519
-    run_id: 5
-    total_runs: 8
-    start_time: '2026-02-04 07:17:04'
-    resumed_from: yyyyjay/cls-base-rope-mres-419
-    history_ids: []
-  - kernel_id: ttzyty/cls-base-abs-mres-616
-    run_id: 6
-    total_runs: 8
-    start_time: '2026-02-04 08:01:54'
-    resumed_from: yangjiamin/cls-base-abs-mres-516
-    history_ids: []
+- id: guyuefangyuan6666
   left_time: 30
-- id: zhuangminghui
   notebooks:
-  - kernel_id: zhuangminghui/cls-base-colrow-mres-518
-    total_runs: 8
-    start_time: '2026-02-04 08:13:23'
-    resumed_from: miratowa1/cls-base-colrow-mres-418
+  - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-116
+    run_id: 1
+    total_runs: 3
+    start_time: null
+    resumed_from: guyuefangyuan6666/cls-small-colrow-gpu-16
     history_ids: []
-    run_id: 5
+  - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-117
+    run_id: 1
+    total_runs: 3
+    start_time: null
+    resumed_from: guyuefangyuan6666/cls-small-colrow-gpu-17
+    history_ids: []
+- id: zhoushuqing
   left_time: 30
-finished_notebooks:
-- kernel_id: yyyyjay/depth-base-colrow-gpu-618
-  total_runs: 7
-  start_time: '2026-02-04 00:39:11'
-  history_ids:
-  - sinayliu/depth-base-colrow-gpu-518
+  notebooks:
+  - kernel_id: zhoushuqing/cls-small-rope-gpu-217
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:17'
+    resumed_from: zhoushuqing/cls-small-rope-gpu-117
+    history_ids:
+    - zhoushuqing/cls-small-rope-gpu-17
+  - kernel_id: zhoushuqing/cls-small-rope-gpu-216
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:23'
+    resumed_from: zhoushuqing/cls-small-rope-gpu-116
+    history_ids:
+    - zhoushuqing/cls-small-rope-gpu-16
+- id: dingziheng11
+  left_time: 30
+  notebooks:
+  - kernel_id: dingziheng11/cls-small-abs-gpu-216
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:31'
+    resumed_from: dingziheng11/cls-small-abs-gpu-116
+    history_ids:
+    - dingziheng11/cls-small-abs-gpu-16
+  - kernel_id: dingziheng11/cls-small-abs-gpu-217
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:37'
+    resumed_from: dingziheng11/cls-small-abs-gpu-117
+    history_ids:
+    - dingziheng11/cls-small-abs-gpu-17
+- id: qcrqcrqcr
+  left_time: 30
+  notebooks:
+  - kernel_id: qcrqcrqcr/cls-small-none-gpu-217
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:44'
+    resumed_from: qcrqcrqcr/cls-small-none-gpu-117
+    history_ids:
+    - qcrqcrqcr/cls-small-none-gpu-17
+  - kernel_id: qcrqcrqcr/cls-small-none-gpu-216
+    run_id: 2
+    total_runs: 3
+    start_time: '2026-02-07 09:25:51'
+    resumed_from: qcrqcrqcr/cls-small-none-gpu-116
+    history_ids:
+    - qcrqcrqcr/cls-small-none-gpu-16
+finished_notebooks: []

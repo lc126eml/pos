@@ -1,36 +1,24 @@
 sleep_time_hr: 0
 poll_interval_minutes: 10
 available_ids:
-- zhoushuqing
-- dingziheng11
-- qcrqcrqcr
-- liucong126
-exhausted_ids:
+- guyuefangyuan6666
 - xulijuan
 - robinrainy
-- guyuefangyuan6666
+- zhoushuqing
+- qcrqcrqcr
+- dingziheng11
+- liucong126
+exhausted_ids:
 - sinayliu 0
 running_nodes:
-- id: robinrainy
-  left_time: 20
-  notebooks:
-  - kernel_id: robinrainy/depth-base-abs-tpu8c-60
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-02-04 10:34:50'
-    resumed_from: null
-    history_ids: []
 - id: xulijuan
   left_time: 20
   notebooks:
-  - kernel_id: xulijuan/depth-base-rope-tpu8c-60
+  - kernel_id: xulijuan/depth-base-colrow-tpu-16
     run_id: 0
     total_runs: 1
-    start_time: '2026-02-04 10:35:13'
+    start_time: '2026-02-07 09:25:28'
     resumed_from: null
     history_ids: []
-- id: guyuefangyuan6666
-  left_time: 20
-  notebooks: null
-finished_notebooks: null
+finished_notebooks: []
 error_notebooks: null

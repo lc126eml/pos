@@ -229,10 +229,10 @@ args = SimpleNamespace(
     scale_jitter_sw=(1.0, 1.01),
     batch_size=24,
     eval_batch_size=24,
-    image_list_path=None,
+    image_list_path="/kaggle/input/ds-file-list",
     grad_accum_steps=1,
     patch_size=16,
-    lr=5.0e-5, #7e-5
+    lr=7.0e-5, #7e-5
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=130,
@@ -240,7 +240,7 @@ args = SimpleNamespace(
     has_pos=False,
     weight_decay=0.05,
     overlap=0,
-    seed=18,
+    seed=16,
     val_steps=None,
     use_rc_loss=True,
     loss_type="smooth_l1",
@@ -258,7 +258,8 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-    align_mode="mean_std",
+    align_mode="scale_shift", # scale_shift, mean_std
+    scale_min=0.5,
     silog_w=0.0,
     depth_norm="median",
     ssim_norm_mode="per_image",
@@ -280,7 +281,7 @@ args = SimpleNamespace(
     compile_model=False,
     save_full_ckpt=True,
     resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/depth-base-colrow-gpu-518/ckpt/last.pth',
+    resume_ckpt_path='/kaggle/input/depth-base-colrow-ra200-wsfa600-516/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
@@ -752,6 +753,7 @@ criterion = MonocularDepthHybridLoss(
     eps=1e-8,
     silog_on_aligned=silog_on_aligned,
     align_mode=getattr(args, "align_mode", "scale_shift"),
+    scale_min=getattr(args, "scale_min", 0.5),
 )
 
 optimizer = None
@@ -828,7 +830,8 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
     dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
     eps = 1e-8
     thresh = max(dmin, eps)
-    valid_mask = torch.isfinite(target) & torch.isfinite(pred)
+    pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
+    valid_mask = torch.isfinite(target) 
     valid_mask = valid_mask & (target > thresh) & (target <= dmax)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()

@@ -585,6 +585,7 @@ def main():
                 "liucong12601/hsm-train-part04",
                 "liucong12601/hsm-train-part05",
                 "liucong12601/hsm-test-val",
+                "liucong12601/ds-file-list",
             ],
         )
     _unique_extend(dataset_sources, _as_list(cfg.get("dataset_sources")))

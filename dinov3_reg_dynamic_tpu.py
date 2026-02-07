@@ -253,7 +253,7 @@ def main():
         val_pad_to_full_batch=False,
         img_sizes=[224],
         val_img_sizes=[160, 176, 192, 208,224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416],
-        lr=7e-05,
+        lr=7e-04,
         lr_aux=1e-5,
         eta_min=0.0,
         weight_decay=0.01,

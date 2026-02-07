@@ -1,11 +1,11 @@
 task: depth
 id: 
 pos_type: null # alibi relpos
-method: rope # colrow, rope, abs, none
+method: colrow # colrow, rope, abs, none
 model_size: base
 run_id: 0
-desc: tpu8c
-# desc_keys: ["lr"]
+desc: tpu
+# desc_keys: ["lr", "weight_decay"]
 # desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
 is_private: false
 dataset_sources: null
@@ -16,13 +16,16 @@ resume_infer: false
 tpu: true
 tpu_workers: 0
 tpu_threads: 1
-seed: 60
+seed: 16
 simple:
 - resume_bs: true
 - total_run_time_hr: 9.0
 - train: true
-- val: true
-# - warmup_steps_for_aux: 500
+- val: False
+# - rc_alpha: 60
+# - lr: 3.0e-4
+# - weight_decay: 0.05
+# - warmup_steps_for_aux: 60
 # - rc_alpha: 300
 # - img_sizes: [224, 192, 288]
 # - show_peak_gpu_mem: True

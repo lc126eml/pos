@@ -64,21 +64,23 @@ from core.priority_lock import PriorityLock
 
 args = SimpleNamespace(
     data_root=data_root_default,
+    image_list_path=f"{data_root_default}/hypersim_processed/file_list",
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
     eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
-    final_eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
+    # final_eval_size=(224, 224), #(384, 512),      # (H, W) eval at native size
+    final_eval_size=[(224, 224)],
     color_jitter_prob=0.5,
     scale_jitter=(1.0, 1.2),  # upper bound None caps scale at original size
     scale_jitter_sw=(1.0, 1.01),
-    batch_size=48,
-    grad_accum_steps=2,
+    batch_size=24,
+    grad_accum_steps=1,
     # batch_size=6,
     patch_size=16,
-    lr=2.0e-4,
+    lr=7.0e-5,
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=130,
@@ -117,7 +119,7 @@ args = SimpleNamespace(
     eval_prescale=1.07,
     train_depth_valid_thresh=0.1,
     eval_depth_valid_thresh=0.01,
-    min_valid_pixels=0,
+    min_valid_pixels=10,
     loss_det_threshold=1e-6,
     use_sliding_window=False,
     sw_window_size=None,
@@ -128,17 +130,17 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rc_True_lr10_relative_median_dec_dpt_h224w224_alpha_100/20260117_175558/ckpt/last.pth",
+    resume_full_ckpt=True,
+    resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr27_relative_median_dec_dpt_h224w224_s60/20260129_194258",
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=True,
-    resume_bs=False,
+    resume_bs=True,
     resume_img_size=False,
     total_run_time_hr=None,
-    train=True,
-    val=False,
-    final_use_sliding_window=True,
+    train=False,
+    val=True,
+    final_use_sliding_window=False,
     final_sw_window_size=None,
     final_sw_overlap=0.25,
     cuda_alloc_conf=CUDA_ALLOC_CONF_DEFAULT,
@@ -155,8 +157,11 @@ if args.lock:
     print("Lock acquired. It is safe to proceed.")
 ckpt = None
 if args.resume_full_ckpt and args.resume_ckpt_path:
-    if not os.path.exists(args.resume_ckpt_path):
-        resume_dir = os.path.dirname(os.path.dirname(os.path.dirname(args.resume_ckpt_path)))
+    if os.path.isdir(args.resume_ckpt_path) or not os.path.exists(args.resume_ckpt_path):
+        if not os.path.isdir(args.resume_ckpt_path):
+            resume_dir = os.path.dirname(os.path.dirname(os.path.dirname(args.resume_ckpt_path)))
+        else:
+            resume_dir = args.resume_ckpt_path
         candidates = sorted(
             glob.glob(os.path.join(resume_dir, "**", "last.pth"), recursive=True)
         )
@@ -178,6 +183,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
             "val",
             "eval_crop_mode",
             "eval_prescale",
+            "final_use_sliding_window",
         ]
         if not args.resume_scheduler:
             skip_keys.extend([
@@ -271,18 +277,22 @@ run_tag = time.strftime("%Y%m%d_%H%M%S")
 output_dir = os.path.join(args.output_dir, subdir_name)
 output_dir = os.path.join(output_dir, run_tag)
 ckpt_output_dir = os.path.join(output_dir, "ckpt")
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(ckpt_output_dir, exist_ok=True)
-last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
+if args.train:
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(ckpt_output_dir, exist_ok=True)
+    last_ckpt_path = os.path.join(ckpt_output_dir, "last.pth")
 
-log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
+    log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
+    handlers=[
+            logging.FileHandler(log_file_path),
+            logging.StreamHandler()
+        ]
+else:
+    handlers=[logging.StreamHandler()]
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file_path),
-        logging.StreamHandler()
-    ]
+    handlers=handlers,
 )
 logger = logging.getLogger()
 
@@ -339,6 +349,7 @@ try:
             normalize=True,
             depth_valid_thresh=args.train_depth_valid_thresh,
         ),
+        image_list_path=args.image_list_path,
     )
     valid_dataset = HyperSimSimple(
         split='test',
@@ -362,6 +373,7 @@ try:
                 depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         ),
+        image_list_path=args.image_list_path,
     )
     valid_prefetch = 2 if args.workers > 0 else None
     train_loader = DataLoader(
@@ -372,14 +384,22 @@ try:
         generator=data_rng,
         prefetch_factor=valid_prefetch,
     )
-    valid_loader = DataLoader(
-        valid_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=args.workers,
-        pin_memory=torch.cuda.is_available(), drop_last=False,
+    valid_kwargs = dict(
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=args.workers,
+        pin_memory=torch.cuda.is_available(),
+        drop_last=False,
         persistent_workers=(args.workers > 0),
         worker_init_fn=_seed_worker,
         generator=data_rng,
         prefetch_factor=valid_prefetch,
     )
+    def _make_valid_loader(batch_size):
+        kwargs = dict(valid_kwargs)
+        kwargs["batch_size"] = batch_size
+        return DataLoader(valid_dataset, **kwargs)
+    valid_loader = _make_valid_loader(BATCH_SIZE)
     steps_per_epoch = len(train_loader)
     accum_steps = max(1, int(getattr(args, "grad_accum_steps", 1)))
     optimizer_steps_per_epoch = math.ceil(steps_per_epoch / accum_steps)
@@ -538,7 +558,8 @@ def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False
     dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
     eps = 1e-8
     thresh = max(dmin, eps)
-    valid_mask = torch.isfinite(target) & torch.isfinite(pred)
+    pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
+    valid_mask = torch.isfinite(target) 
     valid_mask = valid_mask & (target > thresh) & (target <= dmax)
     if mask is not None:
         valid_mask = valid_mask & mask.bool()
@@ -727,6 +748,7 @@ criterion = MonocularDepthHybridLoss(
     min_valid_pixels=getattr(args, "min_valid_pixels", 0),
     align_mode=getattr(args, "align_mode", "scale_shift"),
     debug=getattr(args, "debug_loss_stats", False),
+    scale_min=getattr(args, "scale_min", 0.5),
 )
 
 
@@ -1209,6 +1231,16 @@ def _append_eval_log(log_path, row):
     df = pd.DataFrame([row])
     header = not os.path.exists(log_path)
     df.to_csv(log_path, mode="a", header=header, index=False)
+
+def _scaled_eval_batch_size(size_hw, base_size_hw, base_batch_size):
+    if not size_hw or not base_size_hw:
+        return max(1, int(base_batch_size))
+    h, w = int(size_hw[0]), int(size_hw[1])
+    bh, bw = int(base_size_hw[0]), int(base_size_hw[1])
+    area = max(1, h * w)
+    base_area = max(1, bh * bw)
+    scale = base_area / area
+    return max(1, int(round(base_batch_size * scale)))
 if args.resume_full_ckpt:
     _pad_history(training_history)
 best_val_abs_rel = float('inf')
@@ -1365,29 +1397,67 @@ logger.info(output_dir)
 logger.info(subdir_name)
 
 if args.val:
-    final_eval_row = {
-        "run_tag": run_tag,
-        "subdir_name": subdir_name,
-        "output_dir": output_dir,
-        "epoch": int(last_trained_epoch),
-    }
-    logger.info("Running final default evaluation...")
-    _, final_default = validate(
-        model, decoder, valid_loader, criterion, feature_layers, max_steps=VAL_STEPS
-    )
-    if final_default:
-        logger.info(
-            f"Final Default AbsRel: {final_default['abs_rel']:.4f} | "
-            f"Final Default L1: {final_default['l1']:.4f} | "
-            f"Final Default RMSE: {final_default['rmse']:.4f} | "
-            f"Final Default a1: {final_default['a1']:.4f}"
+    final_eval_sizes = args.final_eval_size
+    if not isinstance(final_eval_sizes, (list, tuple)):
+        final_eval_sizes = [final_eval_sizes]
+    base_size = tuple(args.eval_size)
+    final_eval_log = os.path.join(args.output_dir, subdir_name, "final_eval_log.csv")
+    for size in final_eval_sizes:
+        size_hw = tuple(size)
+        if size_hw == base_size:
+            eval_loader = valid_loader
+            eval_bs = BATCH_SIZE
+        else:
+            valid_dataset.resolution = (size_hw[1], size_hw[0])
+            valid_dataset._setup_resolution()
+            if args.use_sliding_window:
+                valid_dataset.pair_transform = EvalDepthPreprocessNoResize(
+                    ensure_multiple_of=args.patch_size,
+                    normalize=True,
+                )
+            else:
+                valid_dataset.pair_transform = EvalDepthPreprocess(
+                    target_size=size_hw,
+                    target_by="height",
+                    eval_crop_mode=args.eval_crop_mode,
+                    eval_prescale=args.eval_prescale,
+                    ensure_multiple_of=args.patch_size,
+                    normalize=True,
+                    depth_valid_thresh=args.eval_depth_valid_thresh,
+                )
+            eval_bs = _scaled_eval_batch_size(size_hw, base_size, BATCH_SIZE)
+            eval_loader = _make_valid_loader(eval_bs)
+        final_eval_row = {
+            "run_tag": run_tag,
+            "subdir_name": subdir_name,
+            "output_dir": output_dir,
+            "epoch": int(last_trained_epoch),
+            "eval_size": str(size_hw),
+            "eval_batch_size": int(eval_bs),
+        }
+        logger.info("Running final evaluation @%s...", size_hw)
+        _, final_metrics = validate(
+            model,
+            decoder,
+            eval_loader,
+            criterion,
+            feature_layers,
+            max_steps=VAL_STEPS,
         )
-        final_eval_row.update({
-            "final_default_abs_rel": final_default["abs_rel"],
-            "final_default_l1": final_default["l1"],
-            "final_default_rmse": final_default["rmse"],
-            "final_default_a1": final_default["a1"],
-        })
+        if final_metrics:
+            logger.info(
+                f"Final AbsRel: {final_metrics['abs_rel']:.4f} | "
+                f"Final L1: {final_metrics['l1']:.4f} | "
+                f"Final RMSE: {final_metrics['rmse']:.4f} | "
+                f"Final a1: {final_metrics['a1']:.4f}"
+            )
+            final_eval_row.update({
+                "final_abs_rel": final_metrics["abs_rel"],
+                "final_l1": final_metrics["l1"],
+                "final_rmse": final_metrics["rmse"],
+                "final_a1": final_metrics["a1"],
+            })
+        # _append_eval_log(final_eval_log, final_eval_row)
 
     # logger.info("Running final full-resolution evaluation...")
     # final_use_sw = bool(getattr(args, "final_use_sliding_window", False))

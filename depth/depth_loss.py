@@ -157,6 +157,7 @@ class MonocularDepthHybridLoss(nn.Module):
         align_mode: str = "scale_shift",
         debug: bool = False,
         debug_max: int = 5,
+        scale_min: float = 0.5,
     ):
         super().__init__()
         self.l1_w = float(l1_w)
@@ -174,6 +175,7 @@ class MonocularDepthHybridLoss(nn.Module):
         self.debug = bool(debug)
         self._debug_max = int(max(0, debug_max))
         self._debug_count = 0
+        self.scale_min = float(scale_min)
 
         if reduction == "batch-based":
             self._reduction = _reduction_batch
@@ -245,6 +247,7 @@ class MonocularDepthHybridLoss(nn.Module):
                 scale, shift = compute_scale_and_shift(
                     pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=False
                 )
+            scale = scale.clamp(self.scale_min, 1/self.scale_min)
             pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
             target_aligned = target
 

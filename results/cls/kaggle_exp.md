@@ -42,7 +42,12 @@
     - [ampere888/cls-base-rope-d-816](#ampere888cls-base-rope-d-816)
     - [ampere888/cls-base-rope-d-817](#ampere888cls-base-rope-d-817)
     - [asdsad0000/cls-base-rope-d-818](#asdsad0000cls-base-rope-d-818)
-    - [mres](#mres)
+    - [roseqw/cls-base-colrow-d-715](#roseqwcls-base-colrow-d-715)
+    - [xiaoluoalice/cls-base-colrow-d-716](#xiaoluoalicecls-base-colrow-d-716)
+    - [eastwangwei/cls-base-colrow-d-717](#eastwangweicls-base-colrow-d-717)
+    - [chencaihonga/cls-base-colrow-d-718](#chencaihongacls-base-colrow-d-718)
+  - [compare methods](#compare-methods)
+  - [mres](#mres)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-116](#djiangjiangcls-base-colrow-ra600-wsfa1000-116)
@@ -186,6 +191,7 @@ Best Accuracy: 0.6168
 ## 20260130
 namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=True, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, **grad_accum_steps=2, batch_size=64,** img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=18, use_patch_position_loss=False, use_rc_loss=False, rc_alpha=600.0, warmup_steps_for_aux=600, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-abs-d-618/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
 
+train_loss	train_acc	valid_acc	train_time	val_time	epoch
 eastwangwei/cls-base-none-d-715
 0.29331708	0.927400053	0.627799988	2377.232176	27.13887477	130
 
@@ -224,27 +230,81 @@ eastwangwei/cls-base-abs-d-717
 ### asdsad0000/cls-base-rope-d-818
 0.257901967	0.931200027	0.682399988	2614.811826	32.7463088	130
 
-roseqw/cls-base-colrow-d-715
+### roseqw/cls-base-colrow-d-715
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=False, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, grad_accum_steps=2, batch_size=64, img_sizes=[224], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=0.00016,** lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=15, use_patch_position_loss=False, use_rc_loss=True, rc_alpha=600.0, warmup_steps_for_aux=1, alpha_min=10, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-colrow-d-615/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
 1.004234672	0.842669249	0.725799978	2397.782822	27.41329002	130
 
-xiaoluoalice/cls-base-colrow-d-716
+### xiaoluoalice/cls-base-colrow-d-716
 1.261722803	0.806776941	0.710599959	2381.429861	27.23062944	130
 
-eastwangwei/cls-base-colrow-d-717
+### eastwangwei/cls-base-colrow-d-717
 1.199402213	0.820361555	0.726399958	2382.091406	27.12340927	130
 
-chencaihonga/cls-base-colrow-d-718
+### chencaihonga/cls-base-colrow-d-718
 1.056852937	0.845007718	0.727599978	2407.905407	27.6153574	130
 
-### mres
-- kernel_id: xx03071425/cls-base-rope-mres-816
-  total_runs: 9
-  start_time: '2026-02-03 20:36:12'
-  history_ids: []
+## compare methods
+
+- kernel_id: xulin5522/cls-base-alibi-gpu-716
+0.521085918	0.854723096	0.642399967	2425.157477	30.01611304	130
+
+- kernel_id: sinayliu/cls-base-alibi-gpu-717
+0.542885542	0.850315392	0.637399971	2399.584164	29.23903489	130
+
+- kernel_id: yangyangchengcheng/cls-base-alibi-gpu-718
+0.565398753	0.843730807	0.635599971	2404.211515	29.52222633	130
+
+- kernel_id: xulin5522/cls-base-relpos-gpu-716
+0.455137223	0.874123096	0.667599976	2414.408037	28.01959133	130
+
+- kernel_id: sinayliu/cls-base-relpos-gpu-717
+0.481518537	0.867515385	0.65259999	2418.578123	27.86309576	130
+
+- kernel_id: qqmail4092/cls-base-relpos-gpu-718
+0.458218724	0.874876976	0.654399991	2426.265976	27.96287632	130
+
 - kernel_id: sollasi/cls-base-patch-ra600-wsfa600-716
-  total_runs: 8
-  start_time: '2026-02-04 01:01:31'
-  history_ids: []
+2.73837328	0.620615423	0.600799978	2370.845325	27.06809878	130
+
+
+## mres
+- kernel_id: starysinger/cls-base-none-mres-716
+0.442209989	0.87975198	0.635199964	2384.479861	27.99359727	130
+
+- kernel_id: zjl001/cls-base-none-mres-717
+0.496297657	0.864074826	0.632999957	2385.446776	28.10336423	130
+
+- kernel_id: ttzyty/cls-base-abs-mres-716
+0.399724305	0.888936758	0.661599994	2377.711279	27.79076624	130
+
+- kernel_id: sollasi/cls-base-abs-mres-717
+0.42206341	0.883921325	0.647199988	2399.078232	28.22744656	130
+
+- kernel_id: xx03071425/cls-base-rope-mres-816
+0.43903172	0.878051996	0.669399977	2607.728029	32.36809421	130
+
+- kernel_id: xulijuan/cls-base-rope-mres-817
+0.463641673	0.870751858	0.680599988	2582.120093	31.99543047	130
+
+- kernel_id: qqmail4092/cls-base-rope-mres-818
+0.468748182	0.869113386	0.676199973	2587.12902	32.02012062	130
+
+- kernel_id: maoshuwen0415/cls-base-colrow-mres-716
+namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos_emb=False, use_rot_pos_emb=False, model_size='base', num_classes=100, patch_size=16, grad_accum_steps=2, batch_size=64, img_sizes=[224, 192, 288], val_img_sizes=[160, 176, 192, 208, 224, 256, 272, 288, 320, 336, 352, 368, 384, 400, 416], **lr=5e-05**, lr_aux=1e-05, eta_min=0.0, weight_decay=0.01, epochs=130, overlap=0, pretrained=None, seed=16, use_patch_position_loss=False, use_rc_loss=True, rc_alpha=600, warmup_steps_for_aux=600, alpha_min=10, workers=5, randaugment=False, randaugment_n=2, randaugment_m=3, random_erasing=False, re_prob=0.0, train=True, val=False, ckpt_path=None, lock=True, save_full_ckpt=True, resume_full_ckpt=True, resume_ckpt_path='/kaggle/input/cls-base-colrow-mres-616/ckpt/last.pth', resume_scheduler=True, resume_optimizer=True, resume_bs=True, composite_lr=True, warmup_steps=3000, clip_value=1.0, log_interval=500, csv_interval=1, show_peak_gpu_mem=True, compile_model=False, total_run_time_hr=12.0, root_dir='/kaggle/working')
+2.598177195	0.595278382	0.577399969	2398.979801	28.03303885	130
+
+- kernel_id: zhuangminghui/cls-base-colrow-mres-717
+2.479523897	0.602716982	0.602199972	2387.708254	27.6904273	130
+
+- kernel_id: qqmail4092/cls-base-colrow-mres-718
+2.360729933	0.618324935	0.611000001	2381.52163	27.72110963	130
+
+
+- kernel_id: zjl001/cls-base-colrow-mres-719
+2.111586571	0.637202144	0.628399968	2405.450285	28.15464258	130
+
+- kernel_id: sollasi/cls-base-patch-mres-716
+2.35313201	0.643148363	0.622799993	2401.536635	28.96081257	130
 
 ## rc alpha warmup
 16: wsfa500 > wsfa1000 > wsfa200 > None
