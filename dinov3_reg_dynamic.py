@@ -118,7 +118,7 @@ else:
 args = SimpleNamespace(
     # --- Model & Training Settings ---
     pos_type = None, #"alibi", # 'sin', 'alibi', 'relpos', None #,  'rpe', 'rope', 
-    dynamic_img_size=False,
+    dynamic_img_size=True,
     model_type= "dinov3",
     use_abs_pos_emb=False,
     use_rot_pos_emb=False,
@@ -165,11 +165,11 @@ args = SimpleNamespace(
     ckpt_path=None,
     lock=True,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/cls-small-colrow-ra300-wsfa800-137/ckpt/last.pth',
     resume_scheduler=True,
     resume_optimizer=True,
-    resume_bs=False,
+    resume_bs=True,
     composite_lr=True,
     warmup_steps=3000,
     clip_value=1.0,
@@ -1885,7 +1885,7 @@ if args.train:
         #     scheduler.step()
 
     else:
-        if args.pos_type is None:
+        if args.pos_type is None and args.model_size == "base":
             args.val = True
 
     logger.info("Training complete.")

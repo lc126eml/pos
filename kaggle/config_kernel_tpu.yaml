@@ -1,8 +1,6 @@
 sleep_time_hr: 0
 poll_interval_minutes: 10
 available_ids:
-- guyuefangyuan6666
-- xulijuan
 - robinrainy
 - zhoushuqing
 - qcrqcrqcr
@@ -14,11 +12,14 @@ running_nodes:
 - id: xulijuan
   left_time: 20
   notebooks:
-  - kernel_id: xulijuan/depth-base-colrow-tpu-16
+  - kernel_id: xulijuan/depth-base-colrow-lr7-lw0-16
     run_id: 0
     total_runs: 1
-    start_time: '2026-02-07 11:31:43'
+    start_time: '2026-02-08 10:07:41'
     resumed_from: null
     history_ids: []
+- id: guyuefangyuan6666
+  left_time: 20
+  notebooks: null
 finished_notebooks: []
 error_notebooks: null

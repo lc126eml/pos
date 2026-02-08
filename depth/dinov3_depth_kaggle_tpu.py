@@ -304,28 +304,26 @@ def main():
         model_size='base',
         train_sizes=[(224, 224)],
         eval_size=(224, 224),
-        final_eval_size=(224, 224),
         color_jitter_prob=0.5,
         scale_jitter=(1.0, 1.2),
         scale_jitter_sw=(1.0, 1.01),
-        batch_size=24,
+        batch_size=16,
         val_batch_size=16,
         val_drop_last=False,
         val_pad_to_full_batch=True,
         patch_size=16,
-        lr=5e-5,
+        lr=7e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
-        epochs=100,
-        break_at_epoch=None,
-        has_pos=False,
+        epochs=130,
+        break_at_epoch=100,
         weight_decay=0.05,
         overlap=0,
         seed=16,
         val_steps=None,
         use_rc_loss=True,
         loss_type="smooth_l1",
-        rc_alpha=200, #200
+        rc_alpha=30, #200
         warmup_steps_for_aux=60,
         alpha_min=10,
         workers=2 if _IS_KAGGLE else 8,
@@ -335,8 +333,6 @@ def main():
         warmup_steps=3000,
         warmup_ratio=None,
         clip_value=1.0,
-        debug_loss_stats=False,
-        debug_loss_interval=1,
         depth_decoder="dpt",  # "simple", "lite4", or "dpt"
         log_interval=30000,
         show_peak_gpu_mem=False,
@@ -347,13 +343,18 @@ def main():
         val_mark_step_interval=5,
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-        align_mode="scale_shift", # scale_shift, mean_std
-        scale_min=0.5,
-        silog_w=0.0,
-        grad_w=0.5, #0.5
+        silog_w=1.0,
+        grad_w=0.1, #0.5
+        l1_w=0.0,
+        silog_beta=0.0,
+        loss_scales=4,
+        loss_eps=1e-7,
+        loss_min_valid_pixels=0,
+        loss_min_depth=0.01,
+        loss_max_depth=None,
+        loss_clamp_scale_min=0.01,
+        loss_clamp_scale_max=100.0,
         depth_norm="median",
-        ssim_norm_mode="per_image",
-        ssim_percentiles=(5.0, 95.0),
         eval_crop_mode="crop",
         eval_dataset="hypersim",  # "hypersim" or "nyu"
         eval_depth_min=1e-3,
@@ -361,12 +362,9 @@ def main():
         eval_prescale=1.07,
         train_depth_valid_thresh=0.1,
         eval_depth_valid_thresh=0.01,
-        min_valid_pixels=50,
-        loss_det_threshold=1e-6,
         use_sliding_window=False,
         sw_window_size=None,
         sw_overlap=0.25,
-        debug_dataset=False,
         output_dir=output_root_default,
         csv_interval=5,
         prefetch_factor=2,
@@ -386,8 +384,6 @@ def main():
         resume_img_size=False,
         total_run_time_hr=9.0,
         train=True,
-        val=False,
-        final_use_sliding_window=False,
         final_sw_window_size=None,
         final_sw_overlap=0.25,
     )
@@ -448,7 +444,7 @@ def main():
     # =============================================================================
     # Depth losses (from depth/depth_loss.py)
     # =============================================================================
-    from depth.depth_loss import MonocularDepthHybridLoss, compute_scale_and_shift
+    from depth.depth_loss import MonocularDepthLoss, compute_depth_metrics
 
     # =============================================================================
     # Depth heads (from depth/depth_head.py)
@@ -1018,24 +1014,21 @@ def main():
     if args.depth_eval_mode not in ("relative", "metric", "scale_invariant"):
         raise ValueError(f"Unsupported depth_eval_mode='{args.depth_eval_mode}'.")
     
-    l1_w = 1.0
-    grad_w = args.grad_w #0.5
+    l1_w = args.l1_w
+    grad_w = args.grad_w  # 0.5
     silog_w = args.silog_w
-    silog_on_aligned = False
-    criterion = MonocularDepthHybridLoss(
+    criterion = MonocularDepthLoss(
         l1_w=l1_w,
         grad_w=grad_w,
         silog_w=silog_w,
-        silog_beta=0.15,
-        scales=4,
-        reduction="batch-based",
-        eps=1e-8,
-        silog_on_aligned=silog_on_aligned,
-        det_threshold=getattr(args, "loss_det_threshold", 1e-6),
-        min_valid_pixels=getattr(args, "min_valid_pixels", 0),
-        align_mode=getattr(args, "align_mode", "scale_shift"),
-        debug=getattr(args, "debug_loss_stats", False),
-        scale_min=getattr(args, "scale_min", 0.5),
+        silog_beta=args.silog_beta,
+        scales=args.loss_scales,
+        eps=args.loss_eps,
+        min_valid_pixels=args.loss_min_valid_pixels,
+        min_depth=args.loss_min_depth,
+        max_depth=args.loss_max_depth,
+        clamp_scale_min=args.loss_clamp_scale_min,
+        clamp_scale_max=args.loss_clamp_scale_max,
     )
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1075,91 +1068,6 @@ def main():
     logger.info("Loss, Optimizer, and Scheduler are ready.")
     _debug("model/optimizer ready")
     
-    
-    def _compute_scale_align_pred(gt, pred, mask, mode):
-        if mode == "mean":
-            denom = mask.sum(dim=(1, 2, 3), keepdim=True).clamp_min(1)
-            gt_mean = (gt * mask).sum(dim=(1, 2, 3), keepdim=True) / denom
-            pred_mean = (pred * mask).sum(dim=(1, 2, 3), keepdim=True) / denom
-            scale = gt_mean / pred_mean.clamp_min(1e-8)
-            return scale.clamp_min(1e-8)
-        if mode == "median":
-            out = []
-            for b in range(gt.shape[0]):
-                mb = mask[b, 0] > 0.5
-                gt_vals = gt[b, 0][mb]
-                pred_vals = pred[b, 0][mb]
-                if gt_vals.numel() == 0 or pred_vals.numel() == 0:
-                    out.append(torch.tensor(1.0, device=gt.device, dtype=gt.dtype))
-                else:
-                    out.append(gt_vals.median() / pred_vals.median().clamp_min(1e-8))
-            return torch.stack(out, dim=0).view(gt.shape[0], 1, 1, 1).clamp_min(1e-8)
-        raise ValueError(f"Unsupported depth_norm='{mode}'.")
-    
-    
-    def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False, mode: str | None = None):
-        if pred.dim() == 3:
-            pred = pred.unsqueeze(1)
-        if target.dim() == 3:
-            target = target.unsqueeze(1)
-        if pred.dim() != 4 or target.dim() != 4:
-            raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
-    
-        dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
-        dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-        eps = 1e-8
-        thresh = max(dmin, eps)
-        pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
-        valid_mask = torch.isfinite(target) 
-        valid_mask = valid_mask & (target > thresh) & (target <= dmax)
-        if mask is not None:
-            valid_mask = valid_mask & mask.bool()
-    
-        valid_mask_f = valid_mask.float()
-        denom = valid_mask_f.sum(dim=(1, 2, 3))
-        valid_img = denom > 0
-        if not valid_img.any():
-            return ({}, 0) if return_count else {}
-        denom = denom.clamp_min(1)
-    
-        eval_mode = mode if mode is not None else args.depth_eval_mode
-        if eval_mode in ("relative", "scale_invariant"):
-            scale, shift = compute_scale_and_shift(pred[:, 0], target[:, 0], valid_mask_f[:, 0])
-            pred_cmp = scale.view(-1, 1, 1, 1) * pred + shift.view(-1, 1, 1, 1)
-            target_cmp = target
-        else:
-            pred_cmp = pred
-            target_cmp = target
-    
-        pred_cmp = pred_cmp.clamp(min=thresh, max=dmax)
-        target_cmp = target_cmp.clamp(min=thresh, max=dmax)
-    
-        diff = pred_cmp - target_cmp
-        pred_c = pred_cmp
-        target_c = target_cmp
-        ratio = torch.maximum(pred_c / target_c, target_c / pred_c)
-    
-        def masked_mean_per_image(x):
-            return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom
-    
-        abs_rel = masked_mean_per_image(torch.abs(diff) / target_c)
-        l1 = masked_mean_per_image(torch.abs(diff))
-        rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
-        a1 = masked_mean_per_image((ratio < 1.25).float())
-        a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
-        a3 = masked_mean_per_image((ratio < 1.25 ** 3).float())
-    
-        metrics = {
-            "abs_rel": abs_rel[valid_img].mean(),
-            "l1": l1[valid_img].mean(),
-            "rmse": rmse[valid_img].mean(),
-            "a1": a1[valid_img].mean(),
-            "a2": a2[valid_img].mean(),
-            "a3": a3[valid_img].mean(),
-        }
-    
-        out = {k: v.item() for k, v in metrics.items()}
-        return (out, int(valid_img.sum().item())) if return_count else out
     
     
     def _extract_meta(metas, idx):
@@ -1246,7 +1154,7 @@ def main():
         training_history = {
             "train_loss": [],
             "valid_abs_rel": [],
-            "valid_l1": [],
+            "valid_mae": [],
             "valid_rmse": [],
             "valid_a1": [],
             "train_time": [],
@@ -1259,12 +1167,14 @@ def main():
     
     training_history.setdefault("train_time", [])
     training_history.setdefault("val_time", [])
-    training_history.setdefault("valid_l1", [])
+    training_history.setdefault("valid_mae", [])
     training_history.setdefault("valid_abs_rel", [])
     training_history.setdefault("valid_rmse", [])
     training_history.setdefault("valid_a1", [])
     training_history.setdefault("train_loss", [])
     training_history.setdefault("epoch", [])
+    if "valid_l1" in training_history and "valid_mae" not in training_history:
+        training_history["valid_mae"] = training_history.pop("valid_l1")
     
     
     def _pad_history(hist, fill_value=None):
@@ -1440,7 +1350,7 @@ def main():
         use_sw = args.use_sliding_window if use_sliding_window is None else bool(use_sliding_window)
         window_size = args.sw_window_size if sw_window_size is None else sw_window_size
         overlap = args.sw_overlap if sw_overlap is None else sw_overlap
-        val_metrics = {"abs_rel": 0, "l1": 0, "rmse": 0, "a1": 0, "a2": 0, "a3": 0}
+        val_metrics = {"abs_rel": 0, "mae": 0, "rmse": 0, "a1": 0, "a2": 0, "a3": 0}
         steps = 0
         batch_count = 0
         debug_interval = int(getattr(args, "debug_val_interval", 0) or 0)
@@ -1551,6 +1461,8 @@ def main():
                         mask=valid_mask,
                         return_count=True,
                         mode=args.depth_eval_mode,
+                        depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
+                        depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
                     if batch_metrics:
                         for k in val_metrics:
@@ -1565,7 +1477,14 @@ def main():
                         pred_b, gt_b, mask_b = _crop_to_valid_region(
                             val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
                         )
-                        batch_metrics = compute_depth_metrics(pred_b, gt_b, mask=mask_b, mode=args.depth_eval_mode)
+                        batch_metrics = compute_depth_metrics(
+                            pred_b,
+                            gt_b,
+                            mask=mask_b,
+                            mode=args.depth_eval_mode,
+                            depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
+                            depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
+                        )
                         if not batch_metrics:
                             continue
                         for k in val_metrics:
@@ -1580,7 +1499,7 @@ def main():
         # if IS_MASTER:
         #     cpu_peak = _cpu_peak_mb()
         #     _master_print(f"eval cpu peak: {cpu_peak}")
-        metrics_keys = ["abs_rel", "l1", "rmse", "a1", "a2", "a3"]
+        metrics_keys = ["abs_rel", "mae", "rmse", "a1", "a2", "a3"]
         metrics_t = torch.tensor([val_metrics[k] for k in metrics_keys], device=DEVICE)
         steps_t = torch.tensor(steps, device=DEVICE)
         if WORLD_SIZE > 1:
@@ -1634,8 +1553,8 @@ def main():
                         avg_train_loss, train_time, val_time,
                     )
                 logger.info(
-                    " Valid AbsRel: %.4f | Valid L1: %.4f | Valid RMSE: %.4f | Valid a1: %.4f\n",
-                    avg_val_metrics["abs_rel"], avg_val_metrics["l1"], avg_val_metrics["rmse"], avg_val_metrics["a1"],
+                    " Valid AbsRel: %.4f | Valid MAE: %.4f | Valid RMSE: %.4f | Valid a1: %.4f\n",
+                    avg_val_metrics["abs_rel"], avg_val_metrics["mae"], avg_val_metrics["rmse"], avg_val_metrics["a1"],
                 )
 
                 training_history["train_loss"].append(avg_train_loss)
@@ -1643,7 +1562,7 @@ def main():
                     training_history["base_loss"].append(base_loss)
                     training_history["aux_loss"].append(avg_aux_loss)
                 training_history["valid_abs_rel"].append(avg_val_metrics["abs_rel"])
-                training_history["valid_l1"].append(avg_val_metrics["l1"])
+                training_history["valid_mae"].append(avg_val_metrics["mae"])
                 training_history["valid_rmse"].append(avg_val_metrics["rmse"])
                 training_history["valid_a1"].append(avg_val_metrics["a1"])
                 training_history["train_time"].append(train_time)

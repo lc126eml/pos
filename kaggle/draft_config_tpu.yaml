@@ -5,8 +5,8 @@ method: colrow # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu
-# desc_keys: ["lr", "weight_decay"]
-# desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
+desc_keys: ["lr", "l1_w"]
+# desc_keys: ["rc_alpha", "warmup_steps_for_aux", "lr"]
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -21,10 +21,11 @@ simple:
 - resume_bs: true
 - total_run_time_hr: 9.0
 - train: true
-- val: False
-- break_at_epoch: 2
-# - rc_alpha: 60
-# - lr: 3.0e-4
+# - val: false
+- break_at_epoch: 100
+- l1_w: 0.0
+# - rc_alpha: 70
+- lr: 7.0e-5
 # - weight_decay: 0.05
 # - warmup_steps_for_aux: 60
 # - rc_alpha: 300

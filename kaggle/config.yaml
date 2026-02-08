@@ -1,20 +1,20 @@
 task: cls
-id: guyuefangyuan6666
+id: srmmmm
 pos_type: null
 method: colrow
 model_size: small
 run_id: 2
-desc: gpu
+desc: ra300-wsfa800
 is_private: false
 dataset_sources: null
-kernel_sources: guyuefangyuan6666/cls-small-colrow-gpu-117
+kernel_sources: chengchi1007/cls-small-colrow-ra300-wsfa800-137
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false
 tpu: false
 tpu_workers: 0
 tpu_threads: 1
-seed: 17
+seed: 37
 simple:
 - resume_bs: true
 - total_run_time_hr: 12.0

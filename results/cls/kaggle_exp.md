@@ -48,6 +48,7 @@
     - [chencaihonga/cls-base-colrow-d-718](#chencaihongacls-base-colrow-d-718)
   - [compare methods](#compare-methods)
   - [mres](#mres)
+  - [small](#small-1)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-116](#djiangjiangcls-base-colrow-ra600-wsfa1000-116)
@@ -305,6 +306,33 @@ namespace(pos_type=None, dynamic_img_size=True, model_type='dinov3', use_abs_pos
 
 - kernel_id: sollasi/cls-base-patch-mres-716
 2.35313201	0.643148363	0.622799993	2401.536635	28.96081257	130
+
+## small
+  - kernel_id: qcrqcrqcr/cls-small-none-gpu-216
+Train Loss: 0.2397 | Train Acc: 0.9355 | Valid Acc: 0.6298 | train_time: 733.8s | val_time: 16.0s
+Best Accuracy: 0.6334
+  - kernel_id: qcrqcrqcr/cls-small-none-gpu-217
+Train Loss: 0.2295 | Train Acc: 0.9376 | Valid Acc: 0.6282 | train_time: 733.4s | val_time: 16.3s2026-02-07 05:11:46,333 - INFO - Best Accuracy: 0.6294
+Best Accuracy: 0.6294
+  - kernel_id: dingziheng11/cls-small-abs-gpu-216
+Train Loss: 0.2074 | Train Acc: 0.9430 | Valid Acc: 0.6456 | train_time: 734.3s | val_time: 16.2s
+Best Accuracy: 0.6476
+  - kernel_id: dingziheng11/cls-small-abs-gpu-217
+Train Loss: 0.2048 | Train Acc: 0.9435 | Valid Acc: 0.6534 | train_time: 731.7s | val_time: 16.1s
+2026-02-07 05:10:57,217 - INFO - Best Accuracy: 0.6548
+  - kernel_id: zhoushuqing/cls-small-rope-gpu-217
+Train Loss: 0.2140 | Train Acc: 0.9404 | Valid Acc: 0.6830 | train_time: 838.8s | val_time: 16.2s
+Best Accuracy: 0.6850
+  - kernel_id: zhoushuqing/cls-small-rope-gpu-216
+Train Loss: 0.2303 | Train Acc: 0.9365 | Valid Acc: 0.6670 | train_time: 839.6s | val_time: 16.6s
+2026-02-07 09:12:55,154 - INFO - Best Accuracy: 0.6722
+  - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-216
+  Train Loss: 1.8797 | Aux Loss: 0.0017 | Base Loss: 0.8887 | Train Acc: 0.7487 | Valid Acc: 0.6902 | train_time: 740.2s | val_time: 17.7s
+1.879690289	0.748746157	0.690199971	740.1846721	17.73873115	130	264161
+Best Accuracy: 0.6920
+  - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-217
+Train Loss: 1.4761 | Aux Loss: 0.0011 | Base Loss: 0.7887 | Train Acc: 0.7745 | Valid Acc: 0.7042 | train_time: 738.8s | val_time: 15.9s
+2026-02-07 05:33:37,596 - INFO - Best Accuracy: 0.7048
 
 ## rc alpha warmup
 16: wsfa500 > wsfa1000 > wsfa200 > None

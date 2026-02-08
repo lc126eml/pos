@@ -153,6 +153,23 @@ Arguments: namespace(train_roots=['/kaggle/input/hsm-train-part01', '/kaggle/inp
 18471.2s	583	2026-02-06 15:19:19,929 - INFO -   Best AbsRel:  0.2695 (Epoch 92)
 18471.2s	584	2026-02-06 15:19:19,929 - INFO -   Best RMSE:    2.6820 (Epoch 74)
 
+  - kernel_id: guyuefangyuan6666/depth-base-colrow-tpu-16
+  batch_size=24, val_batch_size=16, val_drop_last=False, val_pad_to_full_batch=True, patch_size=16, lr=0.0002, lr_aux=4e-05, eta_min=1e-07, epochs=100, break_at_epoch=None, has_pos=False, weight_decay=0.05, overlap=0, seed=16
+14895.2s	777	--- Epoch 95 Validation Summary ---
+14895.2s	778	2026-02-07 08:46:40,106 - INFO -   Train Loss: 1.8059 | aux_loss: 0.0065 | base_loss: 0.4980 | train_time: 122.7s | val_time: 24.6s
+14895.2s	779	2026-02-07 08:46:40,106 - INFO -  Valid AbsRel: 0.2891 | Valid L1: 2.0613 | Valid RMSE: 2.8070 | Valid a1: 0.6385
+  - kernel_id: xulijuan/depth-base-colrow-ra70-wsfa60-lr7-16
+- base_rc_True_lr27_relative_median_dec_dpt_h224w224_s16_alpha_70.csv
+  batch_size=16, val_batch_size=16, val_drop_last=False, val_pad_to_full_batch=True, patch_size=16, **lr=0.00028**, lr_aux=4e-05, eta_min=1e-07, **epochs=130, break_at_epoch=100**, has_pos=False, weight_decay=0.05, overlap=0, seed=16, val_steps=None, use_rc_loss=True, loss_type='smooth_l1', rc_alpha=70, warmup_steps_for_aux=60, alpha_min=10, workers=0, tpu_workers=0, tpu_threads=1, composite_lr=True, warmup_steps=562.5,
+20653.5s	583	2026-02-07 18:36:50,003 - INFO -   Best a1:      0.6653 (Epoch 100)
+20653.5s	584	2026-02-07 18:36:50,003 - INFO -   Best AbsRel:  0.2644 (Epoch 100)
+20653.5s	585	2026-02-07 18:36:50,003 - INFO -   Best RMSE:    2.6711 (Epoch 68)
+  - kernel_id: guyuefangyuan6666/depth-base-colrow-ra30-wsfa60-lr7-16
+  - base_rc_True_lr27_relative_median_dec_dpt_h224w224_s16_alpha_30.csv
+  batch_size=16, val_batch_size=16, val_drop_last=False, val_pad_to_full_batch=True, patch_size=16, lr=0.00028, lr_aux=4e-05, eta_min=1e-07, epochs=130, break_at_epoch=100, has_pos=False, weight_decay=0.05, overlap=0, seed=16, val_steps=None, use_rc_loss=True, loss_type='smooth_l1', **rc_alpha=30**, warmup_steps_for_aux=60, alpha_min=10, workers=0, tpu_workers=0, tpu_threads=1, composite_lr=True, warmup_steps=562.5
+18953.9s	583	2026-02-07 18:06:18,663 - INFO -   Best a1:      0.6720 (Epoch 86)
+18953.9s	584	2026-02-07 18:06:18,663 - INFO -   Best AbsRel:  0.2575 (Epoch 86)
+18953.9s	585	2026-02-07 18:06:18,663 - INFO -   Best RMSE:    2.6575 (Epoch 86)
 # lr ablation
 
 ## lr: 1.5e-4 weight_decay=0.01

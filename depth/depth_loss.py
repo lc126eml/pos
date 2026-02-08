@@ -3,296 +3,312 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
-    if x.dim() == 3:
-        return x.unsqueeze(1)
-    if x.dim() == 4:
-        return x
-    raise ValueError(f"Expected (B,H,W) or (B,1,H,W); got {tuple(x.shape)}")
+def _compute_scale_only(
+    pred_hw: torch.Tensor,
+    tgt_hw: torch.Tensor,
+    mask_hw: torch.Tensor,
+    eps: float = 1e-8,
+    clamp_min: float = 1e-8,
+) -> torch.Tensor:
+    num = torch.sum(mask_hw * pred_hw * tgt_hw, dim=(1, 2))
+    den = torch.sum(mask_hw * pred_hw * pred_hw, dim=(1, 2)).clamp_min(eps)
+    s = num / den
+    return s.clamp_min(clamp_min)
 
 
-def _default_mask(gt: torch.Tensor, eps: float) -> torch.Tensor:
-    return (torch.isfinite(gt) & (gt > eps)).float()
-
-def _masked_mean_std(x: torch.Tensor, mask: torch.Tensor, eps: float):
-    denom = mask.sum(dim=(1, 2)).clamp_min(1.0)
-    mean = (x * mask).sum(dim=(1, 2)) / denom
-    var = ((x - mean[:, None, None]) ** 2 * mask).sum(dim=(1, 2)) / denom
-    std = torch.sqrt(var.clamp_min(0.5))
-    return mean, std, denom
-
-
-def compute_scale_and_shift(
-    prediction: torch.Tensor,
+def compute_depth_metrics(
+    pred: torch.Tensor,
     target: torch.Tensor,
-    mask: torch.Tensor,
-    det_threshold: float = 1e-6,
-    return_stats: bool = False,
+    mask: torch.Tensor | None = None,
+    *,
+    return_count: bool = False,
+    mode: str = "relative",          # "relative" (scale-only) or "metric"
+    depth_min: float = 0.0,
+    depth_max: float = float("inf"),
+    eps: float = 1e-8,
 ):
-    # Solves least-squares for s,t in s*pred + t against target
-    a_00 = torch.sum(mask * prediction * prediction, (1, 2))
-    a_01 = torch.sum(mask * prediction, (1, 2))
-    a_11 = torch.sum(mask, (1, 2))
-
-    b_0 = torch.sum(mask * prediction * target, (1, 2))
-    b_1 = torch.sum(mask * target, (1, 2))
-
-    x_0 = torch.zeros_like(b_0)
-    x_1 = torch.zeros_like(b_1)
-
-    det = a_00 * a_11 - a_01 * a_01
-    valid = det > float(det_threshold)
-
-    x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
-    x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
-
-    # Identity transform for invalid cases to avoid collapsing predictions to zero.
-    x_0[~valid] = 1.0
-    x_1[~valid] = 0.0
-
-    if return_stats:
-        return x_0, x_1, det, valid
-    return x_0, x_1
-
-
-def _reduction_batch(image_loss: torch.Tensor, M: torch.Tensor) -> torch.Tensor:
-    denom = torch.sum(M)
-    if denom == 0:
-        return image_loss.sum() * 0.0
-    return torch.sum(image_loss) / denom
-
-
-def _gradient_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-                   reduction=_reduction_batch) -> torch.Tensor:
-    M = torch.sum(mask, (1, 2))
-    diff = (prediction - target) * mask
-
-    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
-    mask_x = mask[:, :, 1:] * mask[:, :, :-1]
-    grad_x = grad_x * mask_x
-
-    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
-    mask_y = mask[:, 1:, :] * mask[:, :-1, :]
-    grad_y = grad_y * mask_y
-
-    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
-    return reduction(image_loss, M)
-
-
-def _l1_loss(prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
-            reduction=_reduction_batch) -> torch.Tensor:
-    M = torch.sum(mask, (1, 2))
-    res = torch.abs(prediction - target)
-    image_loss = torch.sum(mask * res, (1, 2))
-    return reduction(image_loss, M)
-
-
-class SILogLoss(nn.Module):
-    """SILog loss (pixel-wise)."""
-    def __init__(self, beta: float = 0.15, correction: int = 1, per_image: bool = True):
-        super().__init__()
-        self.beta = float(beta)
-        self.correction = int(correction)
-        self.per_image = bool(per_image)
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor):
-        pred = _ensure_4d(pred).float()
-        target = _ensure_4d(target).float()
-        mask = _ensure_4d(mask).float()
-
-        with torch.amp.autocast(device_type=pred.device.type, enabled=False):
-            valid = (mask > 0.5) & torch.isfinite(pred) & torch.isfinite(target)
-            mask = valid.float()
-            pred = torch.where(valid, pred, torch.ones_like(pred))
-            target = torch.where(valid, target, torch.ones_like(target))
-            alpha = 1e-7
-            pred = torch.clamp(pred, min=alpha)
-            target = torch.clamp(target, min=alpha)
-
-            g = torch.log(pred) - torch.log(target)
-            if self.per_image:
-                B = g.shape[0]
-                g_flat = g.reshape(B, -1)
-                m_flat = mask.reshape(B, -1)
-                mask_sum = m_flat.sum(dim=1)
-                valid_img = mask_sum > 0
-
-                mask_sum_safe = mask_sum.clamp_min(1.0)
-                mean = (g_flat * m_flat).sum(dim=1) / mask_sum_safe
-                denom_var = (mask_sum_safe - float(self.correction)).clamp_min(1.0)
-                var = ((g_flat - mean[:, None]) ** 2 * m_flat).sum(dim=1) / denom_var
-                Dg = var + self.beta * mean.pow(2)
-                loss_per_img = 10.0 * torch.sqrt(Dg)
-                if valid_img.any():
-                    return loss_per_img[valid_img].mean()
-                return pred.sum() * 0.0
-
-            denom = mask.sum().clamp_min(1.0)
-            mean = (g * mask).sum() / denom
-            denom_var = (denom - float(self.correction)).clamp_min(1.0)
-            var = ((g - mean) ** 2 * mask).sum() / denom_var
-            Dg = var + self.beta * mean.pow(2)
-            return 10.0 * torch.sqrt(Dg)
-
-
-class MonocularDepthHybridLoss(nn.Module):
     """
-    Hybrid monocular depth loss:
-      - Scale-and-shift invariant L1 on aligned prediction (MiDaS-style)
-      - Multi-scale gradient loss on aligned prediction (MiDaS-style)
-      - Optional SILog on aligned prediction (ZoeDepth/AdaBins-style)
+    Evaluation for linear depth focusing on AbsRel + a1 (and optional others).
+    Setting: scale-ambiguous monocular depth -> use scale-only alignment (s * pred).
+
+    Differences vs your code:
+      - Uses SCALE-ONLY alignment for linear depth when mode == "relative"
+      - Keeps masking/reduction per-image, then averages across valid images
+      - Avoids shift (non-physical for linear depth)
+
+    Args:
+      pred, target: (B,H,W) or (B,1,H,W)
+      mask: optional validity mask (same shape as target or broadcastable), treated as boolean
+      mode: "relative" (scale-only alignment) or "metric" (no alignment)
+      depth_min/depth_max: evaluation range
+      eps: numerical stability
+    """
+    if pred.dim() == 3:
+        pred = pred.unsqueeze(1)
+    if target.dim() == 3:
+        target = target.unsqueeze(1)
+    if pred.dim() != 4 or target.dim() != 4:
+        raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
+
+    # Ensure finite predictions; target validity handled by mask below
+    pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Build validity mask from target + range, optionally AND with user mask
+    thresh = max(float(depth_min), float(eps))
+    valid_mask = torch.isfinite(target) & (target > thresh) & (target <= float(depth_max))
+    if mask is not None:
+        if mask.dim() == 3:
+            mask = mask.unsqueeze(1)
+        valid_mask = valid_mask & mask.bool()
+
+    valid_mask_f = valid_mask.float()  # (B,1,H,W)
+    denom = valid_mask_f.sum(dim=(1, 2, 3))  # (B,)
+    valid_img = denom > 0
+    if not valid_img.any():
+        return ({}, 0) if return_count else {}
+    denom_safe = denom.clamp_min(1.0)
+
+    # -------------------------
+    # Scale-only alignment (linear depth) for "relative" mode
+    # -------------------------
+    if mode in ("relative", "scale_invariant"):
+        p = pred[:, 0]
+        t = target[:, 0]
+        m = valid_mask_f[:, 0]
+
+        # s = sum(m*p*t) / sum(m*p^2)
+        num = torch.sum(m * p * t, dim=(1, 2))
+        den = torch.sum(m * p * p, dim=(1, 2)).clamp_min(eps)
+        s = num / den
+        # linear depth: disallow negative scale
+        s = torch.clamp(s, min=0.0)
+
+        pred_cmp = s.view(-1, 1, 1, 1) * pred
+        target_cmp = target
+    else:
+        pred_cmp = pred
+        target_cmp = target
+
+    # Clamp to evaluation range (avoid divide-by-zero in ratios)
+    pred_cmp = pred_cmp.clamp(min=thresh, max=depth_max)
+    target_cmp = target_cmp.clamp(min=thresh, max=depth_max)
+
+    diff = pred_cmp - target_cmp
+    ratio = torch.maximum(pred_cmp / target_cmp, target_cmp / pred_cmp)
+
+    def masked_mean_per_image(x: torch.Tensor) -> torch.Tensor:
+        # x: (B,1,H,W)
+        return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom_safe
+
+    # Metrics (per-image then mean over valid images)
+    abs_rel = masked_mean_per_image(torch.abs(diff) / target_cmp)
+    l1 = masked_mean_per_image(torch.abs(diff))
+    rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
+    a1 = masked_mean_per_image((ratio < 1.25).float())
+    a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
+    a3 = masked_mean_per_image((ratio < 1.25 ** 3).float())
+
+    metrics = {
+        "abs_rel": abs_rel[valid_img].mean(),
+        "mae": l1[valid_img].mean(),
+        "rmse": rmse[valid_img].mean(),
+        "a1": a1[valid_img].mean(),
+        "a2": a2[valid_img].mean(),
+        "a3": a3[valid_img].mean(),
+    }
+
+    out = {k: v.item() for k, v in metrics.items()}
+    return (out, int(valid_img.sum().item())) if return_count else out
+
+class MonocularDepthLoss(nn.Module):
+    """
+    Loss for linear depth when evaluation focuses on AbsRel and δ<1.25 (a1) under scale ambiguity.
+
+    Standard components only:
+      - scale-only per-image alignment: p' = s * p
+      - SILog (beta default 0.0) on aligned depth
+      - optional small multi-scale gradient loss on aligned error
+      - optional small L1 on aligned depth
+
+    Notes:
+      - scale-only is the physically meaningful invariance for linear depth
+      - all terms are computed in the same aligned space to avoid gradient conflicts
+      - safe masking (finite + positive + optional depth range)
+      - AMP-safe: SILog stats computed with autocast disabled
     """
     def __init__(
         self,
-        l1_w: float = 1.0,
-        grad_w: float = 0.5,
-        silog_w: float = 0.0,
-        silog_beta: float = 0.15,
+        silog_w: float = 1.0,
+        grad_w: float = 0.1,
+        l1_w: float = 0.0,
+        silog_beta: float = 0.0,
         scales: int = 4,
-        reduction: str = "batch-based",
-        eps: float = 1e-8,
-        silog_on_aligned: bool = False,
-        det_threshold: float = 1e-6,
-        min_valid_pixels: int = 0,
-        align_mode: str = "scale_shift",
-        debug: bool = False,
-        debug_max: int = 5,
-        scale_min: float = 0.5,
+        eps: float = 1e-7,
+        min_valid_pixels: int = 100,
+        min_depth: float | None = None,
+        max_depth: float | None = None,
+        clamp_scale_min: float = 0.0,
+        clamp_scale_max: float | None = None,
     ):
         super().__init__()
-        self.l1_w = float(l1_w)
-        self.grad_w = float(grad_w)
         self.silog_w = float(silog_w)
+        self.grad_w = float(grad_w)
+        self.l1_w = float(l1_w)
+
+        self.beta = float(silog_beta)
         self.scales = int(scales)
         self.eps = float(eps)
-        self.silog_on_aligned = bool(silog_on_aligned)
-        self.det_threshold = float(det_threshold)
         self.min_valid_pixels = int(min_valid_pixels)
-        align_mode = str(align_mode)
-        if align_mode not in ("scale_shift", "mean_std"):
-            raise ValueError(f"Unsupported align_mode='{align_mode}'. Use 'scale_shift' or 'mean_std'.")
-        self.align_mode = align_mode
-        self.debug = bool(debug)
-        self._debug_max = int(max(0, debug_max))
-        self._debug_count = 0
-        self.scale_min = float(scale_min)
 
-        if reduction == "batch-based":
-            self._reduction = _reduction_batch
+        self.min_depth = min_depth
+        self.max_depth = max_depth
+
+        self.clamp_scale_min = float(clamp_scale_min)
+        self.clamp_scale_max = clamp_scale_max
+
+        if self.silog_w <= 0 and self.grad_w <= 0 and self.l1_w <= 0:
+            raise ValueError("At least one of silog_w, grad_w, l1_w must be > 0.")
+
+    @staticmethod
+    def _ensure_4d(x: torch.Tensor) -> torch.Tensor:
+        if x.dim() == 3:
+            return x.unsqueeze(1)
+        if x.dim() == 4:
+            return x
+        raise ValueError(f"Expected (B,H,W) or (B,1,H,W); got {tuple(x.shape)}")
+
+    def _default_mask(self, target: torch.Tensor) -> torch.Tensor:
+        m = torch.isfinite(target) & (target > self.eps)
+        if self.min_depth is not None:
+            m = m & (target > float(self.min_depth))
+        if self.max_depth is not None:
+            m = m & (target < float(self.max_depth))
+        return m.float()
+
+    @torch.no_grad()
+    def _compute_scale_only(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor) -> torch.Tensor:
+        # s = sum(m*p*t) / sum(m*p^2)
+        num = torch.sum(mask_hw * pred_hw * tgt_hw, dim=(1, 2))
+        den = torch.sum(mask_hw * pred_hw * pred_hw, dim=(1, 2)).clamp_min(self.eps)
+        s = num / den
+
+        if self.clamp_scale_max is None:
+            s = torch.clamp(s, min=self.clamp_scale_min)
         else:
-            raise ValueError("Only 'batch-based' reduction is supported.")
+            s = torch.clamp(s, min=self.clamp_scale_min, max=float(self.clamp_scale_max))
+        return s
 
-        self._silog = SILogLoss(beta=silog_beta)
+    @staticmethod
+    def _reduce_per_image(sum_per_img: torch.Tensor, valid_count: torch.Tensor) -> torch.Tensor:
+        valid = valid_count > 0
+        if not valid.any():
+            return sum_per_img.sum() * 0.0
+        return (sum_per_img[valid] / valid_count[valid]).mean()
 
-    def forward(self, prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None = None,
-                interpolate: bool = True):
-        prediction = _ensure_4d(prediction)
-        target = _ensure_4d(target)
+    def _silog(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor) -> torch.Tensor:
+        # AMP-safe log-statistics
+        with torch.amp.autocast(device_type=pred_hw.device.type, enabled=False):
+            p = pred_hw.float().clamp_min(self.eps)
+            t = tgt_hw.float().clamp_min(self.eps)
+            g = torch.log(p) - torch.log(t)
 
-        if interpolate and prediction.shape[-2:] != target.shape[-2:]:
-            prediction = F.interpolate(prediction, target.shape[-2:], mode="bilinear", align_corners=True)
+            B = g.shape[0]
+            g_flat = g.reshape(B, -1)
+            m_flat = mask_hw.float().reshape(B, -1)
+
+            n = m_flat.sum(dim=1)
+            valid = n > 0
+            if not valid.any():
+                return g.sum() * 0.0
+
+            n_safe = n.clamp_min(1.0)
+            mean_g = (g_flat * m_flat).sum(dim=1) / n_safe
+            mean_g2 = ((g_flat * g_flat) * m_flat).sum(dim=1) / n_safe
+            var_g = (mean_g2 - mean_g * mean_g).clamp_min(0.0)
+
+            dg = var_g + self.beta * mean_g.pow(2)
+            loss = 10.0 * torch.sqrt(dg.clamp_min(self.eps))
+
+            return loss[valid].mean()
+
+    def _l1(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor) -> torch.Tensor:
+        diff = (pred_hw - tgt_hw).abs() * mask_hw
+        sum_per_img = diff.sum(dim=(1, 2))
+        n = mask_hw.sum(dim=(1, 2))
+        return self._reduce_per_image(sum_per_img, n)
+
+    def _grad_error(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor) -> torch.Tensor:
+        diff = (pred_hw - tgt_hw) * mask_hw
+
+        gx = (diff[:, :, 1:] - diff[:, :, :-1]).abs()
+        mx = mask_hw[:, :, 1:] * mask_hw[:, :, :-1]
+        gx = gx * mx
+
+        gy = (diff[:, 1:, :] - diff[:, :-1, :]).abs()
+        my = mask_hw[:, 1:, :] * mask_hw[:, :-1, :]
+        gy = gy * my
+
+        sum_per_img = gx.sum(dim=(1, 2)) + gy.sum(dim=(1, 2))
+        n = mask_hw.sum(dim=(1, 2))
+        return self._reduce_per_image(sum_per_img, n)
+
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        interpolate: bool = True,
+        return_scale: bool = False,
+    ):
+        pred4 = self._ensure_4d(prediction).float()
+        tgt4 = self._ensure_4d(target).float()
+
+        if interpolate and pred4.shape[-2:] != tgt4.shape[-2:]:
+            pred4 = F.interpolate(pred4, tgt4.shape[-2:], mode="bilinear", align_corners=True)
 
         if mask is None:
-            mask = _default_mask(target, self.eps)
+            mask4 = self._default_mask(tgt4)
         else:
-            mask = _ensure_4d(mask).float()
+            mask4 = self._ensure_4d(mask).float()
+            mask4 = mask4 * self._default_mask(tgt4)
 
-        # squeeze channel for scale/shift (B,H,W)
-        pred_hw = prediction[:, 0]
-        tgt_hw = target[:, 0]
-        m_hw = mask[:, 0]
-
-        valid_count = None
+        # filter images with too few valid pixels (stability)
+        m_hw = mask4[:, 0]
         if self.min_valid_pixels > 0:
             valid_count = m_hw.sum(dim=(1, 2))
             keep = valid_count >= float(self.min_valid_pixels)
             if not torch.all(keep):
-                keep_f = keep.to(dtype=m_hw.dtype)
-                m_hw = m_hw * keep_f[:, None, None]
-                mask = mask * keep_f[:, None, None, None]
+                keep_f = keep.float()
+                mask4 = mask4 * keep_f[:, None, None, None]
+                m_hw = mask4[:, 0]
 
-        if self.align_mode == "mean_std":
-            pred_mean, pred_std, denom = _masked_mean_std(pred_hw, m_hw, self.eps)
-            tgt_mean, tgt_std, _ = _masked_mean_std(tgt_hw, m_hw, self.eps)
-            pred_std = pred_std.clamp(self.scale_min, 1/self.scale_min)
-            pred_aligned = (prediction - pred_mean.view(-1, 1, 1, 1)) / pred_std.view(-1, 1, 1, 1)
-            target_aligned = (target - tgt_mean.view(-1, 1, 1, 1)) / tgt_std.view(-1, 1, 1, 1)
+        p_hw = pred4[:, 0]
+        t_hw = tgt4[:, 0]
 
-            if self.debug and self._debug_count < self._debug_max:
-                if valid_count is None:
-                    valid_count = denom
-                vc_min = float(valid_count.min().item())
-                vc_max = float(valid_count.max().item())
-                pm_min = float(pred_mean.min().item())
-                pm_max = float(pred_mean.max().item())
-                ps_min = float(pred_std.min().item())
-                ps_max = float(pred_std.max().item())
-                tm_min = float(tgt_mean.min().item())
-                tm_max = float(tgt_mean.max().item())
-                ts_min = float(tgt_std.min().item())
-                ts_max = float(tgt_std.max().item())
-                print(
-                    "[depth_loss] mode=mean_std valid_pix[min,max]=%.0f,%.0f "
-                    "pred_mean[min,max]=%.3g,%.3g pred_std[min,max]=%.3g,%.3g "
-                    "gt_mean[min,max]=%.3g,%.3g gt_std[min,max]=%.3g,%.3g"
-                    % (vc_min, vc_max, pm_min, pm_max, ps_min, ps_max, tm_min, tm_max, ts_min, ts_max),
-                    flush=True,
-                )
-                self._debug_count += 1
-        else:
-            tgt_mean, tgt_std, _ = _masked_mean_std(tgt_hw, m_hw, self.eps)
-            tgt_hw = (tgt_hw - tgt_mean.view(-1, 1, 1)) / tgt_std.view(-1, 1, 1)
-            if self.debug:
-                scale, shift, det, det_valid = compute_scale_and_shift(
-                    pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=True
-                )
-            else:
-                scale, shift = compute_scale_and_shift(
-                    pred_hw, tgt_hw, m_hw, det_threshold=self.det_threshold, return_stats=False
-                )
-            scale = scale.clamp(self.scale_min, 1/self.scale_min)
-            pred_aligned = scale.view(-1, 1, 1, 1) * prediction + shift.view(-1, 1, 1, 1)
-            target_aligned = target
+        with torch.no_grad():
+            s = self._compute_scale_only(p_hw, t_hw, m_hw)
 
-            if self.debug and self._debug_count < self._debug_max:
-                det_min = float(det.min().item()) if self.debug else 0.0
-                det_max = float(det.max().item()) if self.debug else 0.0
-                scale_min = float(scale.min().item())
-                scale_max = float(scale.max().item())
-                shift_min = float(shift.min().item())
-                shift_max = float(shift.max().item())
-                if valid_count is None:
-                    valid_count = m_hw.sum(dim=(1, 2))
-                vc_min = float(valid_count.min().item())
-                vc_max = float(valid_count.max().item())
-                dv_min = float(det_valid.float().min().item()) if self.debug else 0.0
-                dv_max = float(det_valid.float().max().item()) if self.debug else 0.0
-                print(
-                    "[depth_loss] det[min,max]=%.3g,%.3g det_valid[min,max]=%.0f,%.0f "
-                    "valid_pix[min,max]=%.0f,%.0f scale[min,max]=%.3g,%.3g shift[min,max]=%.3g,%.3g"
-                    % (det_min, det_max, dv_min, dv_max, vc_min, vc_max, scale_min, scale_max, shift_min, shift_max),
-                    flush=True,
-                )
-                self._debug_count += 1
+        p_aligned = s[:, None, None] * p_hw
 
-        total = pred_aligned.new_zeros(())
-        if self.l1_w > 0:
-            total = total + self.l1_w * _l1_loss(pred_aligned[:, 0], target_aligned[:, 0], m_hw, self._reduction)
-
-        if self.grad_w > 0:
-            grad_total = pred_aligned.new_zeros(())
-            for scale_i in range(self.scales):
-                step = 2 ** scale_i
-                grad_total = grad_total + _gradient_loss(
-                    pred_aligned[:, 0, ::step, ::step],
-                    target_aligned[:, 0, ::step, ::step],
-                    m_hw[:, ::step, ::step],
-                    reduction=self._reduction,
-                )
-            total = total + self.grad_w * grad_total
+        total = p_aligned.new_zeros(())
 
         if self.silog_w > 0:
-            silog_pred = pred_aligned if self.silog_on_aligned else prediction
-            total = total + self.silog_w * self._silog(silog_pred, target, mask)
+            total = total + self.silog_w * self._silog(p_aligned, t_hw, m_hw)
 
+        if self.l1_w > 0:
+            total = total + self.l1_w * self._l1(p_aligned, t_hw, m_hw)
+
+        if self.grad_w > 0:
+            g_total = p_aligned.new_zeros(())
+            for i in range(self.scales):
+                step = 2 ** i
+                g_total = g_total + self._grad_error(
+                    p_aligned[:, ::step, ::step],
+                    t_hw[:, ::step, ::step],
+                    m_hw[:, ::step, ::step],
+                )
+            total = total + self.grad_w * g_total
+
+        if return_scale:
+            return total, s
         return total

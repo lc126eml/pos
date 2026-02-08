@@ -24,7 +24,7 @@ from torch.nn import functional as F
 import logging
 from typing import List, Tuple, Union
 
-from depth.depth_loss import compute_scale_and_shift
+from depth.depth_loss import MonocularDepthLoss, compute_depth_metrics
 from depth.depth_head import DPTHead as DepthAnythingDPTHead
 # from depth.depth_anything.dpt import DPTHead as DepthAnythingDPTHead
 
@@ -108,7 +108,17 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
     align_mode="mean_std",
-    silog_w=0.0,
+    silog_w=1.0,
+    grad_w=0.1,
+    l1_w=0.0,
+    silog_beta=0.0,
+    loss_scales=4,
+    loss_eps=1e-7,
+    loss_min_valid_pixels=0,
+    loss_min_depth=0.01,
+    loss_max_depth=None,
+    loss_clamp_scale_min=0.01,
+    loss_clamp_scale_max=100.0,
     depth_norm="median",  # kept for logging/compat
     ssim_norm_mode="per_image",  # "fixed_range" or "per_image"
     ssim_percentiles=(5.0, 95.0),
@@ -130,7 +140,7 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
+    resume_full_ckpt=False,
     resume_ckpt_path="/home/liucong/codes/pos/logs/depth/base_rot_pos_rc_False_lr27_relative_median_dec_dpt_h224w224_s60/20260129_194258",
     resume_args=True,
     resume_scheduler=True,
@@ -138,8 +148,8 @@ args = SimpleNamespace(
     resume_bs=True,
     resume_img_size=False,
     total_run_time_hr=None,
-    train=False,
-    val=True,
+    train=True,
+    val=False,
     final_use_sliding_window=False,
     final_sw_window_size=None,
     final_sw_overlap=0.25,
@@ -540,76 +550,7 @@ def _compute_scale_align_pred(gt, pred, mask, mode):
     raise ValueError(f"Unsupported depth_norm='{mode}'. Use 'mean' or 'median'.")
 
 
-def compute_depth_metrics(pred, target, mask=None, *, return_count: bool = False, mode: str | None = None):
-    """
-    Computes depth estimation metrics.
-    This optimized version performs all calculations on the GPU and transfers
-    results to the CPU only once at the end.
-    """
-    if pred.dim() == 3:
-        pred = pred.unsqueeze(1)
-    if target.dim() == 3:
-        target = target.unsqueeze(1)
-    if pred.dim() != 4 or target.dim() != 4:
-        raise ValueError(f"Expected (B,1,H,W) or (B,H,W); got pred={pred.shape}, target={target.shape}")
-
-    # Create a mask for valid target pixels (finite, in range) and optionally intersect with given mask
-    dmin = args.eval_depth_min if args.eval_depth_min is not None else 0.0
-    dmax = args.eval_depth_max if args.eval_depth_max is not None else float("inf")
-    eps = 1e-8
-    thresh = max(dmin, eps)
-    pred = torch.nan_to_num(pred, nan=0.0, posinf=0.0, neginf=0.0)
-    valid_mask = torch.isfinite(target) 
-    valid_mask = valid_mask & (target > thresh) & (target <= dmax)
-    if mask is not None:
-        valid_mask = valid_mask & mask.bool()
-
-    valid_mask_f = valid_mask.float()
-    denom = valid_mask_f.sum(dim=(1, 2, 3))
-    valid_img = denom > 0
-    if not valid_img.any():
-        return ({}, 0) if return_count else {}
-    denom = denom.clamp_min(1)
-
-    eval_mode = mode if mode is not None else args.depth_eval_mode
-    if eval_mode in ("relative", "scale_invariant"):
-        # scale-and-shift align prediction to target (MiDaS-style; alias for scale_invariant here)
-        scale, shift = compute_scale_and_shift(pred[:, 0], target[:, 0], valid_mask_f[:, 0])
-        pred_cmp = scale.view(-1, 1, 1, 1) * pred + shift.view(-1, 1, 1, 1)
-        target_cmp = target
-    else:
-        pred_cmp = pred
-        target_cmp = target
-
-    pred_cmp = pred_cmp.clamp(min=thresh, max=dmax)
-    target_cmp = target_cmp.clamp(min=thresh, max=dmax)
-
-    diff = pred_cmp - target_cmp
-    pred_c = pred_cmp
-    target_c = target_cmp
-    ratio = torch.maximum(pred_c / target_c, target_c / pred_c)
-
-    def masked_mean_per_image(x):
-        return (x * valid_mask_f).sum(dim=(1, 2, 3)) / denom
-
-    abs_rel = masked_mean_per_image(torch.abs(diff) / target_c)
-    l1 = masked_mean_per_image(torch.abs(diff))
-    rmse = torch.sqrt(masked_mean_per_image(diff ** 2))
-    a1 = masked_mean_per_image((ratio < 1.25).float())
-    a2 = masked_mean_per_image((ratio < 1.25 ** 2).float())
-    a3 = masked_mean_per_image((ratio < 1.25 ** 3).float())
-
-    metrics = {
-        'abs_rel': abs_rel[valid_img].mean(),
-        'l1': l1[valid_img].mean(),
-        'rmse': rmse[valid_img].mean(),
-        'a1': a1[valid_img].mean(),
-        'a2': a2[valid_img].mean(),
-        'a3': a3[valid_img].mean(),
-    }
-
-    out = {k: v.item() for k, v in metrics.items()}
-    return (out, int(valid_img.sum().item())) if return_count else out
+# compute_depth_metrics is provided by depth.depth_loss
 
 
 def _extract_meta(metas, idx):
@@ -720,7 +661,6 @@ param_groups.append({
     "weight_decay": 0.0,
 })
 
-from depth.depth_loss import MonocularDepthHybridLoss
 depth_eval_mode = getattr(args, "depth_eval_mode", "relative")
 if depth_eval_mode not in ("relative", "metric", "scale_invariant"):
     raise ValueError(f"Unsupported depth_eval_mode='{depth_eval_mode}'. Use 'relative' or 'metric'.")
@@ -728,27 +668,21 @@ if depth_eval_mode not in ("relative", "metric", "scale_invariant"):
 metric_loss = depth_eval_mode == "metric"
 relative_loss = depth_eval_mode in ("relative", "scale_invariant")
 
-# Relative depth is the default: MiDaS-style alignment + grad/L1; SiLog off.
-# Metric mode adds SiLog on raw predictions to anchor absolute scale.
-l1_w = 1.0
-grad_w = 0.5
+l1_w = args.l1_w
+grad_w = args.grad_w
 silog_w = args.silog_w
-# 0.0 if relative_loss else 0.1
-silog_on_aligned = False  # keep metric SiLog on raw prediction
-criterion = MonocularDepthHybridLoss(
+criterion = MonocularDepthLoss(
     l1_w=l1_w,
     grad_w=grad_w,
     silog_w=silog_w,
-    silog_beta=0.15,
-    scales=4,
-    reduction="batch-based",
-    eps=1e-8,
-    silog_on_aligned=silog_on_aligned,
-    det_threshold=getattr(args, "loss_det_threshold", 1e-6),
-    min_valid_pixels=getattr(args, "min_valid_pixels", 0),
-    align_mode=getattr(args, "align_mode", "scale_shift"),
-    debug=getattr(args, "debug_loss_stats", False),
-    scale_min=getattr(args, "scale_min", 0.5),
+    silog_beta=args.silog_beta,
+    scales=args.loss_scales,
+    eps=args.loss_eps,
+    min_valid_pixels=args.loss_min_valid_pixels,
+    min_depth=args.loss_min_depth,
+    max_depth=args.loss_max_depth,
+    clamp_scale_min=args.loss_clamp_scale_min,
+    clamp_scale_max=args.loss_clamp_scale_max,
 )
 
 
@@ -1068,7 +1002,7 @@ def validate(
     window_size = args.sw_window_size if sw_window_size is None else sw_window_size
     overlap = args.sw_overlap if sw_overlap is None else sw_overlap
     val_loss = 0.0
-    val_metrics = {'abs_rel': 0, 'l1': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
+    val_metrics = {'abs_rel': 0, 'mae': 0, 'rmse': 0, 'a1': 0, 'a2': 0, 'a3': 0}
     steps = 0
     batch_count = 0
 
@@ -1108,7 +1042,12 @@ def validate(
                     pad_w_ok = all(v == 0 for v in pad_w)
                 if pad_h_ok and pad_w_ok:
                     batch_metrics, count = compute_depth_metrics(
-                        val_pred_depths, gt_depths, return_count=True, mode=args.depth_eval_mode
+                        val_pred_depths,
+                        gt_depths,
+                        return_count=True,
+                        mode=args.depth_eval_mode,
+                        depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
+                        depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
                     if batch_metrics:
                         for k in val_metrics:
@@ -1122,7 +1061,14 @@ def validate(
                     pred_b, gt_b, mask_b = _crop_to_valid_region(
                         val_pred_depths[b:b + 1], gt_depths[b:b + 1], meta_b
                     )
-                    batch_metrics = compute_depth_metrics(pred_b, gt_b, mask=mask_b, mode=args.depth_eval_mode)
+                    batch_metrics = compute_depth_metrics(
+                        pred_b,
+                        gt_b,
+                        mask=mask_b,
+                        mode=args.depth_eval_mode,
+                        depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
+                        depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
+                    )
                     if not batch_metrics:
                         continue
                     for k in val_metrics:
@@ -1179,7 +1125,7 @@ if args.resume_full_ckpt and args.resume_ckpt_path:
 if not isinstance(locals().get("training_history", None), dict):
     training_history = {
         'train_loss': [],
-        'valid_abs_rel': [], 'valid_l1': [], 'valid_rmse': [], 'valid_a1': [],
+        'valid_abs_rel': [], 'valid_mae': [], 'valid_rmse': [], 'valid_a1': [],
         'train_time': [], 'val_time': [],
         'epoch': []
     }
@@ -1190,12 +1136,14 @@ if Use_Row_Col_Loss:
 # Ensure keys exist when resuming older checkpoints
 training_history.setdefault('train_time', [])
 training_history.setdefault('val_time', [])
-training_history.setdefault('valid_l1', [])
+training_history.setdefault('valid_mae', [])
 training_history.setdefault('valid_abs_rel', [])
 training_history.setdefault('valid_rmse', [])
 training_history.setdefault('valid_a1', [])
 training_history.setdefault('train_loss', [])
 training_history.setdefault('epoch', [])
+if "valid_l1" in training_history and "valid_mae" not in training_history:
+    training_history["valid_mae"] = training_history.pop("valid_l1")
 if Use_Row_Col_Loss:
     training_history.setdefault('base_loss', [])
     training_history.setdefault('aux_loss', [])
@@ -1282,7 +1230,7 @@ if args.train:
             )
         logger.info(
             f" Valid AbsRel: {avg_val_metrics['abs_rel']:.4f} | "
-            f"Valid L1: {avg_val_metrics['l1']:.4f} | "
+            f"Valid MAE: {avg_val_metrics['mae']:.4f} | "
             f"Valid RMSE: {avg_val_metrics['rmse']:.4f} | "
             f"Valid a1: {avg_val_metrics['a1']:.4f}\n"
         )
@@ -1296,7 +1244,7 @@ if args.train:
         # training_history['train_rmse'].append(avg_train_metrics['rmse'])
         # training_history['train_a1'].append(avg_train_metrics['a1'])
         training_history['valid_abs_rel'].append(avg_val_metrics['abs_rel'])
-        training_history['valid_l1'].append(avg_val_metrics['l1'])
+        training_history['valid_mae'].append(avg_val_metrics['mae'])
         training_history['valid_rmse'].append(avg_val_metrics['rmse'])
         training_history['valid_a1'].append(avg_val_metrics['a1'])
         training_history['train_time'].append(train_time)
@@ -1447,13 +1395,13 @@ if args.val:
         if final_metrics:
             logger.info(
                 f"Final AbsRel: {final_metrics['abs_rel']:.4f} | "
-                f"Final L1: {final_metrics['l1']:.4f} | "
+                f"Final MAE: {final_metrics['mae']:.4f} | "
                 f"Final RMSE: {final_metrics['rmse']:.4f} | "
                 f"Final a1: {final_metrics['a1']:.4f}"
             )
             final_eval_row.update({
                 "final_abs_rel": final_metrics["abs_rel"],
-                "final_l1": final_metrics["l1"],
+                "final_mae": final_metrics["mae"],
                 "final_rmse": final_metrics["rmse"],
                 "final_a1": final_metrics["a1"],
             })
