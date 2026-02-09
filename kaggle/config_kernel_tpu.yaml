@@ -1,24 +1,26 @@
 sleep_time_hr: 0
 poll_interval_minutes: 10
 available_ids:
-- robinrainy
-- zhoushuqing
-- qcrqcrqcr
-- dingziheng11
 - liucong126
 exhausted_ids:
 - sinayliu 0
 running_nodes:
 - id: xulijuan
-  left_time: 20
-  notebooks:
-  - kernel_id: xulijuan/depth-base-colrow-lr7-lw0-16
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-02-08 10:07:41'
-    resumed_from: null
-    history_ids: []
+  left_time: -1.5
+  notebooks: null
 - id: guyuefangyuan6666
+  left_time: -20
+  notebooks: null
+- id: robinrainy
+  left_time: 8
+  notebooks:
+- id: zhoushuqing
+  left_time: 20
+  notebooks: null
+- id: qcrqcrqcr
+  left_time: 20
+  notebooks: null
+- id: dingziheng11
   left_time: 20
   notebooks: null
 finished_notebooks: []

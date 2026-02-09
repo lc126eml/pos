@@ -217,7 +217,7 @@ args = SimpleNamespace(
     eval_root=eval_root_default,
     eval_split="test",  # "val" or "test" when eval_root has subdirs
     model_type="dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],
@@ -232,16 +232,16 @@ args = SimpleNamespace(
     image_list_path="/kaggle/input/ds-file-list",
     grad_accum_steps=1,
     patch_size=16,
-    lr=7.0e-5, #7e-5
+    lr=8e-5, #7e-5
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=130,
     break_at_epoch=100,
     weight_decay=0.05,
     overlap=0,
-    seed=16,
+    seed=28,
     val_steps=None,
-    use_rc_loss=True,
+    use_rc_loss=False,
     loss_type="smooth_l1",
     rc_alpha=30,
     warmup_steps_for_aux=60,
@@ -257,9 +257,10 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
+    align_mode="scale_shift",  # "scale" or "scale_shift"
     silog_w=1.0,
-    grad_w=0.1,
-    l1_w=0.01,
+    grad_w=0.0,
+    l1_w=0.001,
     silog_beta=0.0,
     loss_scales=4,
     loss_eps=1e-7,
@@ -284,12 +285,12 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=False,
-    resume_ckpt_path=None,
+    resume_full_ckpt=True,
+    resume_ckpt_path='/kaggle/input/depth-base-abs-g-28/ckpt/last.pth',
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
-    resume_bs=False,
+    resume_bs=True,
     resume_img_size=False,
     total_run_time_hr=12.0,
     train=True,
@@ -756,6 +757,7 @@ criterion = MonocularDepthLoss(
     max_depth=args.loss_max_depth,
     clamp_scale_min=args.loss_clamp_scale_min,
     clamp_scale_max=args.loss_clamp_scale_max,
+    align_mode=args.align_mode,
 )
 
 optimizer = None
@@ -1155,6 +1157,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, 
                         gt_depths,
                         return_count=True,
                         mode=args.depth_eval_mode,
+                        align_mode=args.align_mode,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1175,6 +1178,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, 
                         gt_b,
                         mask=mask_b,
                         mode=args.depth_eval_mode,
+                        align_mode=args.align_mode,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1252,29 +1256,6 @@ if args.train:
             history_df = _history_to_frame(training_history)
             history_df.to_csv(os.path.join(output_dir, f"{subdir_name}.csv"), index=False)
 
-        if args.save_full_ckpt:
-            ckpt = {
-                "epoch": epoch + 1,
-                "step": int(global_step),
-                "model": model.state_dict(),
-                "decoder": decoder.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                "scaler": scaler.state_dict() if scaler is not None else None,
-                "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
-                "training_history": training_history,
-                "rng_state": {
-                    "python": random.getstate(),
-                    "numpy": np.random.get_state(),
-                    "torch": torch.get_rng_state(),
-                    "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
-                    "data_rng": data_rng.get_state(),
-                },
-                "args": args,
-            }
-            torch.save(ckpt, last_ckpt_path)
-            logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
-
         if args.total_run_time_hr is not None:
             elapsed = time.time() - train_start_time
             max_run_time_sec = args.total_run_time_hr * 3600
@@ -1285,11 +1266,34 @@ if args.train:
             logger.info("Stopping training: reached break_at_epoch=%s.", args.break_at_epoch)
             break
 
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # gc.collect()
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
 
     logger.info("Training complete.")
+
+    if args.save_full_ckpt:
+        ckpt = {
+            "epoch": epoch + 1,
+            "step": int(global_step),
+            "model": model.state_dict(),
+            "decoder": decoder.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            "scaler": scaler.state_dict() if scaler is not None else None,
+            "rowcol_loss": rowcol_loss.state_dict() if args.use_rc_loss else None,
+            "training_history": training_history,
+            "rng_state": {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "torch": torch.get_rng_state(),
+                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                "data_rng": data_rng.get_state(),
+            },
+            "args": args,
+        }
+        torch.save(ckpt, last_ckpt_path)
+        logger.info("Saved full checkpoint to '%s'", last_ckpt_path)
 else:
     logger.info("Skipping training (args.train=False).")
     if not (args.resume_full_ckpt and args.resume_ckpt_path):

@@ -270,7 +270,32 @@ train_loss	valid_abs_rel	valid_l1	valid_rmse	valid_a1	train_time	val_time	epoch
 - kernel_id: zhuangminghui/depth-base-colrow-ra200-wsfa600-616
 5.228550434	0.279283694	2.025599569	2.770502212	0.646717053	1983.072464	164.2516484	130
 
-
+## lr ablation
+- kernel_id: chenhao1213/depth-base-colrow-lw0-gw10000-16
+0699.0s	224	2026-02-08 13:32:45,592 - INFO -   Best a1:      0.5799 (Epoch 18)
+40699.0s	225	2026-02-08 13:32:45,592 - INFO -   Best AbsRel:  0.3406 (Epoch 18)
+40699.0s	226	2026-02-08 13:32:45,592 - INFO -   Best RMSE:    3.0914 (Epoch 3)
+- kernel_id: chenhao1213/depth-base-colrow-lw0-gw0-16
+40686.6s	224	2026-02-08 13:32:43,455 - INFO -   Best a1:      0.5764 (Epoch 17)
+40686.6s	225	2026-02-08 13:32:43,455 - INFO -   Best AbsRel:  0.3345 (Epoch 19)
+40686.6s	226	2026-02-08 13:32:43,455 - INFO -   Best RMSE:    3.0198 (Epoch 14)
+- kernel_id: chenrunze11/depth-base-colrow-lw10000-gw10000-16
+40665.4s	224	2026-02-08 13:32:45,911 - INFO -   Best a1:      0.5732 (Epoch 18)
+40665.4s	225	2026-02-08 13:32:45,911 - INFO -   Best AbsRel:  0.3411 (Epoch 18)
+40665.4s	226	2026-02-08 13:32:45,911 - INFO -   Best RMSE:    3.0531 (Epoch 19)
+- kernel_id: chenrunze11/depth-base-colrow-lw1000-gw10000-16
+41367.6s	224	2026-02-08 13:44:20,672 - INFO -   Best a1:      0.5803 (Epoch 18)
+41367.6s	225	2026-02-08 13:44:20,672 - INFO -   Best AbsRel:  0.3352 (Epoch 19)
+41367.6s	226	2026-02-08 13:44:20,672 - INFO -   Best RMSE:    3.0288 (Epoch 17)
+lr10
+Valid AbsRel: 0.3500 | Valid MAE: 2.3595 | Valid RMSE: 3.1499 | Valid a1: 0.5712
+lr8
+Valid AbsRel: 0.3467 | Valid MAE: 2.3331 | Valid RMSE: 3.1124 | Valid a1: 0.5760
+lr5
+Valid AbsRel: 0.3595 | Valid MAE: 2.3702 | Valid RMSE: 3.1414 | Valid a1: 0.5634
+lr1
+Valid AbsRel: 0.3749 | Valid MAE: 2.3683 | Valid RMSE: 3.1286 | Valid a1: 0.5436
+lr8 > lr10 > lr5 > lr1
 ## ra ablation
 **19 Epochs not informative**
 cfy002/depth-base-colrow-ra200-wsfa600-16

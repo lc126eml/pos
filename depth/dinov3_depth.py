@@ -107,7 +107,7 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
-    align_mode="mean_std",
+    align_mode="scale",  # "scale" or "scale_shift"
     silog_w=1.0,
     grad_w=0.1,
     l1_w=0.0,
@@ -683,6 +683,7 @@ criterion = MonocularDepthLoss(
     max_depth=args.loss_max_depth,
     clamp_scale_min=args.loss_clamp_scale_min,
     clamp_scale_max=args.loss_clamp_scale_max,
+    align_mode=args.align_mode,
 )
 
 
@@ -1046,6 +1047,7 @@ def validate(
                         gt_depths,
                         return_count=True,
                         mode=args.depth_eval_mode,
+                        align_mode=args.align_mode,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1066,6 +1068,7 @@ def validate(
                         gt_b,
                         mask=mask_b,
                         mode=args.depth_eval_mode,
+                        align_mode=args.align_mode,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )

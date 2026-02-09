@@ -1,6 +1,4 @@
 available_ids:
-- chuasiliu
-- cq1234
 - cshlhs
 - cycyxcy
 - denghaimeng
@@ -87,6 +85,17 @@ available_ids:
 - zongjiaxin
 - zzr123123
 exhausted_ids:
+- ampere888
+- asdsad0000
+- asssmer
+- autune
+- b201xiaoli
+- cdong121
+- cfy002
+- cheaterchow
+- chencaihonga
+- chengchi1007
+- chenhao1213
 - guyuefangyuan6666
 - zhoushuqing
 - dingziheng11
@@ -106,178 +115,44 @@ poll_interval_minutes: 10
 running_nodes:
 - id: zhangtingfengztf
   notebooks:
-  - kernel_id: zhangtingfengztf/cls-small-none-gpu-227
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:24:48'
-    resumed_from: ampere888/cls-small-none-gpu-127
-    history_ids:
-    - ampere888/cls-small-none-gpu-27
-  - kernel_id: zhangtingfengztf/cls-small-rope-gpu-226
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:24:59'
-    resumed_from: asssmer/cls-small-rope-gpu-126
-    history_ids:
-    - asssmer/cls-small-rope-gpu-26
-  left_time: 30
+  left_time: -7.226462308611113
 - id: zhoujiahui0199
   notebooks:
-  - kernel_id: zhoujiahui0199/cls-small-none-gpu-226
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:35:37'
-    resumed_from: ampere888/cls-small-none-gpu-126
-    history_ids:
-    - ampere888/cls-small-none-gpu-26
-  - kernel_id: zhoujiahui0199/cls-small-abs-gpu-227
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:35:44'
-    resumed_from: asdsad0000/cls-small-abs-gpu-127
-    history_ids:
-    - asdsad0000/cls-small-abs-gpu-27
-  left_time: 30
+  left_time: -0.6021059624999996
 - id: straghtwizard
   notebooks:
-  - kernel_id: straghtwizard/cls-small-colrow-gpu-227
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:35:55'
-    resumed_from: autune/cls-small-colrow-gpu-127
-    history_ids:
-    - autune/cls-small-colrow-gpu-27
-  - kernel_id: straghtwizard/cls-small-abs-gpu-226
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:46:38'
-    resumed_from: asdsad0000/cls-small-abs-gpu-126
-    history_ids:
-    - asdsad0000/cls-small-abs-gpu-26
-  left_time: 30
+  left_time: -1.1667353291666664
 - id: eastwangwei
   notebooks:
-  - kernel_id: eastwangwei/cls-small-rope-gpu-227
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:46:45'
-    resumed_from: asssmer/cls-small-rope-gpu-127
-    history_ids:
-    - asssmer/cls-small-rope-gpu-27
-  - kernel_id: eastwangwei/cls-small-colrow-gpu-226
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:46:51'
-    resumed_from: autune/cls-small-colrow-gpu-126
-    history_ids:
-    - autune/cls-small-colrow-gpu-26
-  left_time: 30
+  left_time: -7.249684838611108
 - id: dddd110
   notebooks:
-  - kernel_id: dddd110/cls-small-colrow-ra100-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:46:58'
-    resumed_from: b201xiaoli/cls-small-colrow-ra100-wsfa600-136
-    history_ids:
-    - b201xiaoli/cls-small-colrow-ra100-wsfa600-36
-  - kernel_id: dddd110/cls-small-colrow-ra400-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:08'
-    resumed_from: cdong121/cls-small-colrow-ra400-wsfa600-136
-    history_ids:
-    - cdong121/cls-small-colrow-ra400-wsfa600-36
-  left_time: 30
+  left_time: -1.3490335680555585
 - id: sss45633
   notebooks:
-  - kernel_id: sss45633/cls-small-colrow-ra500-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:15'
-    resumed_from: cfy002/cls-small-colrow-ra500-wsfa600-136
-    history_ids:
-    - cfy002/cls-small-colrow-ra500-wsfa600-36
-  - kernel_id: sss45633/cls-small-colrow-ra600-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:20'
-    resumed_from: cfy002/cls-small-colrow-ra600-wsfa600-136
-    history_ids:
-    - cfy002/cls-small-colrow-ra600-wsfa600-36
-  left_time: 30
+  left_time: -1.342671012222219
 - id: robinrainy
   notebooks:
-  - kernel_id: robinrainy/cls-small-colrow-ra300-wsfa200-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:29'
-    resumed_from: cheaterchow/cls-small-colrow-ra300-wsfa200-136
-    history_ids:
-    - cheaterchow/cls-small-colrow-ra300-wsfa200-36
-  - kernel_id: robinrainy/cls-small-colrow-ra300-wsfa500-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:39'
-    resumed_from: chencaihonga/cls-small-colrow-ra300-wsfa500-136
-    history_ids:
-    - chencaihonga/cls-small-colrow-ra300-wsfa500-36
-  left_time: 30
+  left_time: -0.9524526377777764
 - id: hsdfuieqg
   notebooks:
-  - kernel_id: hsdfuieqg/cls-small-colrow-ra300-wsfa800-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:47:46'
-    resumed_from: chengchi1007/cls-small-colrow-ra300-wsfa800-136
-    history_ids:
-    - chengchi1007/cls-small-colrow-ra300-wsfa800-36
-  - kernel_id: hsdfuieqg/cls-small-colrow-ra200-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:58:08'
-    resumed_from: b201xiaoli/cls-small-colrow-ra200-wsfa600-136
-    history_ids:
-    - b201xiaoli/cls-small-colrow-ra200-wsfa600-36
-  left_time: 30
+  left_time: -0.7774522547222222
 - id: yangyangchengcheng
   notebooks:
-  - kernel_id: yangyangchengcheng/cls-small-colrow-ra300-wsfa600-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:58:15'
-    resumed_from: cdong121/cls-small-colrow-ra300-wsfa600-136
-    history_ids:
-    - cdong121/cls-small-colrow-ra300-wsfa600-36
-  - kernel_id: yangyangchengcheng/cls-small-colrow-ra300-wsfa100-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:58:21'
-    resumed_from: cheaterchow/cls-small-colrow-ra300-wsfa100-136
-    history_ids:
-    - cheaterchow/cls-small-colrow-ra300-wsfa100-36
-  left_time: 30
+  left_time: 22.201633374444445
 - id: srmmmm
   notebooks:
-  - kernel_id: srmmmm/cls-small-colrow-ra300-wsfa300-236
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:58:28'
-    resumed_from: chencaihonga/cls-small-colrow-ra300-wsfa300-136
-    history_ids:
-    - chencaihonga/cls-small-colrow-ra300-wsfa300-36
-  - kernel_id: srmmmm/cls-small-colrow-ra300-wsfa800-237
-    run_id: 2
-    total_runs: 3
-    start_time: '2026-02-08 09:58:35'
-    resumed_from: chengchi1007/cls-small-colrow-ra300-wsfa800-137
-    history_ids:
-    - chengchi1007/cls-small-colrow-ra300-wsfa800-37
-  left_time: 30
+  left_time: 22.0263209925
 - id: chenhao1213
-  left_time: 30
+  left_time: 7.094803438333333
   notebooks:
 - id: chenrunze11
-  left_time: 30
+  left_time: 6.9288512016666655
   notebooks:
+- id: chuasiliu
+  left_time: 8
+  notebooks: []
+- id: cq1234
+  left_time: 8
+  notebooks: []
 finished_notebooks: []

@@ -5,7 +5,7 @@ method: colrow # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu
-desc_keys: ["lr", "l1_w"]
+desc_keys: ["lr", "l1_w", "grad_w"]
 # desc_keys: ["rc_alpha", "warmup_steps_for_aux", "lr"]
 is_private: false
 dataset_sources: null
@@ -23,9 +23,11 @@ simple:
 - train: true
 # - val: false
 - break_at_epoch: 100
-- l1_w: 0.0
+- silog_w: 0.05
+- l1_w: 1.0
+- grad_w: 0.05
 # - rc_alpha: 70
-- lr: 7.0e-5
+- lr: 5.0e-5
 # - weight_decay: 0.05
 # - warmup_steps_for_aux: 60
 # - rc_alpha: 300

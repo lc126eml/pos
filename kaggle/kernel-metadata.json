@@ -1,6 +1,6 @@
 {
-  "id": "xulijuan/depth-base-colrow-lr7-lw0-16",
-  "title": "depth base colrow lr7 lw0 16",
+  "id": "robinrainy/depth-base-colrow-lr5-lw100000-gw5000-16",
+  "title": "depth base colrow lr5 lw100000 gw5000 16",
   "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
   "language": "python",
   "kernel_type": "script",

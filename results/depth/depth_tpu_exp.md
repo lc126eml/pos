@@ -172,6 +172,33 @@ Arguments: namespace(train_roots=['/kaggle/input/hsm-train-part01', '/kaggle/inp
 18953.9s	585	2026-02-07 18:06:18,663 - INFO -   Best RMSE:    2.6575 (Epoch 86)
 # lr ablation
 
+  - kernel_id: xulijuan/depth-base-colrow-lr7-lw0-16
+base_rc_True_lr27_relative_median_dec_dpt_h224w224_s16_alpha_30.csv
+6077.5s	224	--- Epoch 30 Validation Summary ---
+6077.5s	225	2026-02-08 04:01:31,586 - INFO -   Train Loss: 3.4231 | aux_loss: 0.0260 | base_loss: 2.6425 | train_time: 155.9s | val_time: 13.8s
+6077.5s	226	2026-02-08 04:01:31,586 - INFO -  Valid AbsRel: 0.3516 | Valid MAE: 2.4118 | Valid RMSE: 3.2170 | Valid a1: 0.5468
+7699.9s	269	--- Epoch 39 Validation Summary ---
+7699.9s	270	2026-02-08 04:28:34,000 - INFO -   Train Loss: 3.0675 | aux_loss: 0.0219 | base_loss: 2.4111 | train_time: 153.8s | val_time: 13.7s
+7699.9s	271	2026-02-08 04:28:34,000 - INFO -  Valid AbsRel: 0.3497 | Valid MAE: 2.3616 | Valid RMSE: 3.1276 | Valid a1: 0.5585
+9549.0s	324	--- Epoch 50 Validation Summary ---
+9549.0s	325	2026-02-08 04:59:23,179 - INFO -   Train Loss: 2.7727 | aux_loss: 0.0177 | base_loss: 2.2425 | train_time: 154.0s | val_time: 14.3s
+9549.0s	326	2026-02-08 04:59:23,179 - INFO -  Valid AbsRel: 0.3427 | Valid MAE: 2.3250 | Valid RMSE: 3.0900 | Valid a1: 0.5659
+
+  - kernel_id: xulijuan/depth-base-colrow-lr2-lw0-16
+  - 6077.5s	224	--- Epoch 30 Validation Summary ---
+  2026-02-08 06:47:06,564 - INFO -  Valid AbsRel: 0.3924 | Valid MAE: 2.4317 | Valid RMSE: 3.1787 | Valid a1: 0.5436
+  - 10078.7s	324	--- Epoch 50 Validation Summary ---
+10078.7s	325	2026-02-08 07:52:20,972 - INFO -   Train Loss: 3.8372 | aux_loss: 0.0325 | base_loss: 2.8618 | train_time: 177.8s | val_time: 17.9s
+10078.7s	326	2026-02-08 07:52:20,972 - INFO -  Valid AbsRel: 0.3699 | Valid MAE: 2.3746 | Valid RMSE: 3.1319 | Valid a1: 0.5480
+
+  - kernel_id: guyuefangyuan6666/depth-base-colrow-lr10-lw0-16
+6095.2s	223	--- Epoch 30 Validation Summary ---
+6095.2s	224	2026-02-08 10:18:29,789 - INFO -   Train Loss: 3.4271 | aux_loss: 0.0258 | base_loss: 2.6531 | train_time: 153.5s | val_time: 13.8s
+6095.2s	225	2026-02-08 10:18:29,789 - INFO -  Valid AbsRel: 0.3497 | Valid MAE: 2.3250 | Valid RMSE: 3.0879 | Valid a1: 0.5607
+
+  - kernel_id: robinrainy/depth-base-colrow-lr30-lw0-16
+nan
+
 ## lr: 1.5e-4 weight_decay=0.01
 4868.0s	282	--- Epoch 27 Validation Summary ---
 4868.0s	283	2026-02-04 10:13:52,915 - INFO -   Train Loss: 0.6400 | train_time: 123.6s | val_time: 31.9s
@@ -242,3 +269,8 @@ Arguments: namespace(train_roots=['/kaggle/input/hsm-train-part01', '/kaggle/inp
 5373.2s	245	2026-02-04 14:03:01,903 - INFO -   Train Loss: 15.8835 | aux_loss: 0.0304 | base_loss: 0.6659 | train_time: 127.0s | val_time: 31.9s
 5373.2s	246	2026-02-04 14:03:01,903 - INFO -  Valid AbsRel: 0.3012 | Valid L1: 2.1218 | Valid RMSE: 2.8765 | Valid a1: 0.6205
 
+## silog_w=1.0, grad_w=0.1, l1_w=0.0, silog_beta=0.0, loss_scales=4 bad
+  - kernel_id: guyuefangyuan6666/depth-base-colrow-lr10-lw0-16
+      - kernel_id: robinrainy/depth-base-rope-lr10-lw0-16
+      - kernel_id: zhoushuqing/depth-base-abs-lr10-lw0-16
+      - kernel_id: qcrqcrqcr/depth-base-none-lr10-lw0-16

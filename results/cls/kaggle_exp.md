@@ -49,6 +49,7 @@
   - [compare methods](#compare-methods)
   - [mres](#mres)
   - [small](#small-1)
+  - [rc alpha](#rc-alpha)
   - [rc alpha warmup](#rc-alpha-warmup)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-16](#djiangjiangcls-base-colrow-ra600-wsfa1000-16)
     - [djiangjiang/cls-base-colrow-ra600-wsfa1000-116](#djiangjiangcls-base-colrow-ra600-wsfa1000-116)
@@ -314,18 +315,38 @@ Best Accuracy: 0.6334
   - kernel_id: qcrqcrqcr/cls-small-none-gpu-217
 Train Loss: 0.2295 | Train Acc: 0.9376 | Valid Acc: 0.6282 | train_time: 733.4s | val_time: 16.3s2026-02-07 05:11:46,333 - INFO - Best Accuracy: 0.6294
 Best Accuracy: 0.6294
+- kernel_id: zhangtingfengztf/cls-small-none-gpu-227
+0.25443238	0.930853844	0.635999978	737.9292073	16.44947338	130
+Best Accuracy: 0.6408
+- kernel_id: zhoujiahui0199/cls-small-none-gpu-226
+0.247965753	0.932076931	0.621599972	736.5288479	15.75986242	130
+Best Accuracy: 0.6274
   - kernel_id: dingziheng11/cls-small-abs-gpu-216
 Train Loss: 0.2074 | Train Acc: 0.9430 | Valid Acc: 0.6456 | train_time: 734.3s | val_time: 16.2s
 Best Accuracy: 0.6476
   - kernel_id: dingziheng11/cls-small-abs-gpu-217
 Train Loss: 0.2048 | Train Acc: 0.9435 | Valid Acc: 0.6534 | train_time: 731.7s | val_time: 16.1s
 2026-02-07 05:10:57,217 - INFO - Best Accuracy: 0.6548
+- kernel_id: straghtwizard/cls-small-abs-gpu-226
+0.22047101	0.939223111	0.658199966	739.0125854	16.26709962	130
+Best Accuracy: 0.6598
+- kernel_id: zhoujiahui0199/cls-small-abs-gpu-227
+0.213781461	0.9408077	0.667400002	738.3483095	15.96474767	130
+Best Accuracy: 0.6676
   - kernel_id: zhoushuqing/cls-small-rope-gpu-217
 Train Loss: 0.2140 | Train Acc: 0.9404 | Valid Acc: 0.6830 | train_time: 838.8s | val_time: 16.2s
 Best Accuracy: 0.6850
   - kernel_id: zhoushuqing/cls-small-rope-gpu-216
 Train Loss: 0.2303 | Train Acc: 0.9365 | Valid Acc: 0.6670 | train_time: 839.6s | val_time: 16.6s
 2026-02-07 09:12:55,154 - INFO - Best Accuracy: 0.6722
+
+- kernel_id: zhangtingfengztf/cls-small-rope-gpu-226
+0.221867487	0.938676953	0.680399954	842.0893369	16.37777281	130
+Best Accuracy: 0.6840
+- kernel_id: eastwangwei/cls-small-rope-gpu-227
+0.216430277	0.94058466	0.679399967	844.3239965	16.22490215	130
+Best Accuracy: 0.6822
+
   - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-216
   Train Loss: 1.8797 | Aux Loss: 0.0017 | Base Loss: 0.8887 | Train Acc: 0.7487 | Valid Acc: 0.6902 | train_time: 740.2s | val_time: 17.7s
 1.879690289	0.748746157	0.690199971	740.1846721	17.73873115	130	264161
@@ -333,6 +354,32 @@ Best Accuracy: 0.6920
   - kernel_id: guyuefangyuan6666/cls-small-colrow-gpu-217
 Train Loss: 1.4761 | Aux Loss: 0.0011 | Base Loss: 0.7887 | Train Acc: 0.7745 | Valid Acc: 0.7042 | train_time: 738.8s | val_time: 15.9s
 2026-02-07 05:33:37,596 - INFO - Best Accuracy: 0.7048
+- kernel_id: straghtwizard/cls-small-colrow-gpu-227
+  Best Accuracy: 0.6912
+
+- kernel_id: yangyangchengcheng/cls-small-colrow-ra300-wsfa600-236
+Best Accuracy: 0.7094
+## rc alpha 
+- kernel_id: dddd110/cls-small-colrow-ra100-wsfa600-236
+Best Accuracy: 0.7312
+- kernel_id: hsdfuieqg/cls-small-colrow-ra200-wsfa600-236
+Best Accuracy: 0.7352
+- kernel_id: dddd110/cls-small-colrow-ra400-wsfa600-236
+Best Accuracy: 0.7194
+- kernel_id: sss45633/cls-small-colrow-ra500-wsfa600-236
+Best Accuracy: 0.6884
+- kernel_id: sss45633/cls-small-colrow-ra600-wsfa600-236
+Best Accuracy: 0.6844
+- kernel_id: yangyangchengcheng/cls-small-colrow-ra300-wsfa100-236
+Best Accuracy: 0.7322
+- kernel_id: robinrainy/cls-small-colrow-ra300-wsfa200-236
+Best Accuracy: 0.7156
+- kernel_id: robinrainy/cls-small-colrow-ra300-wsfa500-236
+- Best Accuracy: 0.7232
+- kernel_id: hsdfuieqg/cls-small-colrow-ra300-wsfa800-236
+- Best Accuracy: 0.7300
+- kernel_id: srmmmm/cls-small-colrow-ra300-wsfa800-237
+  Best Accuracy: 0.7272
 
 ## rc alpha warmup
 16: wsfa500 > wsfa1000 > wsfa200 > None

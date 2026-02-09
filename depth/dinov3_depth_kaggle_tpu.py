@@ -312,7 +312,7 @@ def main():
         val_drop_last=False,
         val_pad_to_full_batch=True,
         patch_size=16,
-        lr=7e-05,
+        lr=5e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
@@ -343,9 +343,10 @@ def main():
         val_mark_step_interval=5,
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-        silog_w=1.0,
-        grad_w=0.1, #0.5
-        l1_w=0.0,
+        align_mode="scale_shift",  # "scale" or "scale_shift"
+        silog_w=0.05,
+        grad_w=0.05, #0.5
+        l1_w=1.0,
         silog_beta=0.0,
         loss_scales=4,
         loss_eps=1e-7,
@@ -1029,6 +1030,7 @@ def main():
         max_depth=args.loss_max_depth,
         clamp_scale_min=args.loss_clamp_scale_min,
         clamp_scale_max=args.loss_clamp_scale_max,
+        align_mode=args.align_mode,
     )
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1461,6 +1463,7 @@ def main():
                         mask=valid_mask,
                         return_count=True,
                         mode=args.depth_eval_mode,
+                        align_mode=args.align_mode,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1482,6 +1485,7 @@ def main():
                             gt_b,
                             mask=mask_b,
                             mode=args.depth_eval_mode,
+                            align_mode=args.align_mode,
                             depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                             depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                         )
