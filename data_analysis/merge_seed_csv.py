@@ -7,7 +7,7 @@ from typing import List
 import pandas as pd
 
 
-DEFAULT_DIR = r"D:\codes\working\pos\Draft\csv\redo20260112\cls"
+DEFAULT_DIR = r"/mnt/d/codes/working/pos/Draft/csv/redo20260126/cls"
 DEFAULT_OUT_SUBDIR = "merged"
 
 
@@ -116,11 +116,24 @@ def main() -> int:
         default=DEFAULT_OUT_SUBDIR,
         help="Subdirectory under --dir to save the merged CSV.",
     )
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help="Comma-separated list of keywords to exclude from CSV filenames.",
+    )
     args = parser.parse_args()
 
     csv_dir = args.dir
     pattern = args.pattern
-    csv_files = sorted(glob.glob(os.path.join(csv_dir, pattern)))
+    csv_files = list(glob.glob(os.path.join(csv_dir, pattern)))
+    if args.exclude.strip():
+        keywords = [k.strip() for k in args.exclude.split(",") if k.strip()]
+        if keywords:
+            csv_files = [
+                path
+                for path in csv_files
+                if not any(k in os.path.basename(path) for k in keywords)
+            ]
     if not csv_files:
         raise FileNotFoundError(f"No CSV files matched: {os.path.join(csv_dir, pattern)}")
 

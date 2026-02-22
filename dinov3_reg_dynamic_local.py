@@ -240,6 +240,7 @@ output_dir = os.path.join(output_dir, subdir_name)
 os.makedirs(output_dir, exist_ok=True)
 os.makedirs(ckpt_output_dir, exist_ok=True)
 
+last_ckpt_path = os.path.join(ckpt_output_dir, f'last.pth')
 log_file_path = os.path.join(output_dir, f'{subdir_name}.log')
 logging.basicConfig(
     level=logging.INFO,
