@@ -119,10 +119,4 @@ running_nodes:
 - id: liucong126
   left_time: 30
   notebooks:
-  - kernel_id: liucong126/depth-base-abs-g-26
-    run_id: 0
-    total_runs: 1
-    start_time: '2026-02-22 16:09:12'
-    resumed_from: null
-    history_ids: []
 finished_notebooks: []

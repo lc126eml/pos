@@ -312,11 +312,11 @@ def main():
         val_drop_last=False,
         val_pad_to_full_batch=True,
         patch_size=16,
-        lr=5e-05,
+        lr=7e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
-        break_at_epoch=50,
+        break_at_epoch=5,
         weight_decay=0.05,
         overlap=0,
         seed=16,
@@ -344,6 +344,7 @@ def main():
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         align_mode='mean_std',  # "scale", "scale_shift", or "mean_std"
+        eval_align_mode=None,  # None -> use training align_mode for metrics
         mean_std_variant='zscore_both',  # "affine" or "zscore_both" when align_mode=="mean_std"
         silog_w=0.0,
         grad_w=0.0, #0.5
@@ -1011,7 +1012,8 @@ def main():
     
     if args.depth_eval_mode not in ("relative", "metric", "scale_invariant"):
         raise ValueError(f"Unsupported depth_eval_mode='{args.depth_eval_mode}'.")
-    
+    eval_align_mode = getattr(args, "eval_align_mode", None) or args.align_mode
+
     l1_w = args.l1_w
     grad_w = args.grad_w  # 0.5
     silog_w = args.silog_w
@@ -1461,7 +1463,7 @@ def main():
                         mask=valid_mask,
                         return_count=True,
                         mode=args.depth_eval_mode,
-                        align_mode=args.align_mode,
+                        align_mode=eval_align_mode,
                         mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
@@ -1484,7 +1486,7 @@ def main():
                             gt_b,
                             mask=mask_b,
                             mode=args.depth_eval_mode,
-                            align_mode=args.align_mode,
+                            align_mode=eval_align_mode,
                             mean_std_variant=args.mean_std_variant,
                             depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                             depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),

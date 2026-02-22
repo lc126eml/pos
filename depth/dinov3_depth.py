@@ -108,6 +108,7 @@ args = SimpleNamespace(
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
     align_mode="mean_std",  # "scale", "scale_shift", or "mean_std"
+    eval_align_mode="scale_shift",  # None -> use training align_mode for metrics
     mean_std_variant="zscore_both",  # "affine" or "zscore_both" when align_mode=="mean_std"
     silog_w=0.0,
     grad_w=0.0,
@@ -661,6 +662,7 @@ param_groups.append({
 depth_eval_mode = getattr(args, "depth_eval_mode", "relative")
 if depth_eval_mode not in ("relative", "metric", "scale_invariant"):
     raise ValueError(f"Unsupported depth_eval_mode='{depth_eval_mode}'. Use 'relative' or 'metric'.")
+eval_align_mode = getattr(args, "eval_align_mode", None) or args.align_mode
 # alias support
 metric_loss = depth_eval_mode == "metric"
 relative_loss = depth_eval_mode in ("relative", "scale_invariant")
@@ -1045,7 +1047,7 @@ def validate(
                         gt_depths,
                         return_count=True,
                         mode=args.depth_eval_mode,
-                        align_mode=args.align_mode,
+                        align_mode=eval_align_mode,
                         mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
@@ -1067,7 +1069,7 @@ def validate(
                         gt_b,
                         mask=mask_b,
                         mode=args.depth_eval_mode,
-                        align_mode=args.align_mode,
+                        align_mode=eval_align_mode,
                         mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),

@@ -5,8 +5,8 @@ method: abs # colrow, rope, abs, none
 model_size: base
 run_id: 0
 desc: tpu
-desc_keys: ["align_mode", "mean_std_variant"]
-# desc_keys: ["rc_alpha", "warmup_steps_for_aux", "lr"]
+# desc_keys: ["align_mode"]
+desc_keys: ["lr"]
 is_private: false
 dataset_sources: null
 kernel_sources: null
@@ -22,14 +22,14 @@ simple:
 - total_run_time_hr: 9.0
 - train: true
 # - val: false
-- break_at_epoch: 50
+- break_at_epoch: 5
 - silog_w: 0.0
 - l1_w: 1.0
 - grad_w: 0.0
 - align_mode: "mean_std"  # "scale", "scale_shift", or "mean_std"
 - mean_std_variant: "zscore_both"  # "affine" or "zscore_both"
 # - rc_alpha: 70
-- lr: 5.0e-5
+- lr: 7.0e-5
 # - weight_decay: 0.05
 # - warmup_steps_for_aux: 60
 # - rc_alpha: 300
