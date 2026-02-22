@@ -46,7 +46,7 @@ if _IS_KAGGLE:
         subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
     except Exception:
         pass
-    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
     if os.path.isdir(LOCAL_TIMM):
         sys.path.insert(0, LOCAL_TIMM)
 else:
@@ -190,13 +190,13 @@ def _ensure_pos_repo():
 # =============================================================================
 if _IS_KAGGLE:
     train_roots_default = [
-        "/kaggle/input/hsm-train-part01",
-        "/kaggle/input/hsm-train-part02",
-        "/kaggle/input/hsm-train-part03",
-        "/kaggle/input/hsm-train-part04",
-        "/kaggle/input/hsm-train-part05",
+        "/kaggle/input/datasets/liucong12601/hsm-train-part01",
+        "/kaggle/input/datasets/liucong12601/hsm-train-part02",
+        "/kaggle/input/datasets/liucong12601/hsm-train-part03",
+        "/kaggle/input/datasets/liucong12601/hsm-train-part04",
+        "/kaggle/input/datasets/liucong12601/hsm-train-part05",
     ]
-    eval_root_default = "/kaggle/input/hsm-test-val"
+    eval_root_default = "/kaggle/input/datasets/liucong12601/hsm-test-val"
     output_root_default = "/kaggle/working"
 else:
     # Fallback for local usage
@@ -229,17 +229,17 @@ args = SimpleNamespace(
     scale_jitter_sw=(1.0, 1.01),
     batch_size=24,
     eval_batch_size=24,
-    image_list_path="/kaggle/input/ds-file-list",
+    image_list_path="/kaggle/input/datasets/liucong12601/ds-file-list",
     grad_accum_steps=1,
     patch_size=16,
     lr=8e-5, #7e-5
     lr_aux=1e-5,
     eta_min=1e-7,
     epochs=130,
-    break_at_epoch=100,
+    break_at_epoch=50,
     weight_decay=0.05,
     overlap=0,
-    seed=28,
+    seed=26,
     val_steps=None,
     use_rc_loss=False,
     loss_type="smooth_l1",
@@ -257,10 +257,11 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-    align_mode="scale_shift",  # "scale" or "scale_shift"
-    silog_w=1.0,
+    align_mode='mean_std',  # "scale", "scale_shift", or "mean_std"
+    mean_std_variant='zscore_both',  # "affine" or "zscore_both" when align_mode=="mean_std"
+    silog_w=0.0,
     grad_w=0.0,
-    l1_w=0.001,
+    l1_w=1.0,
     silog_beta=0.0,
     loss_scales=4,
     loss_eps=1e-7,
@@ -275,8 +276,6 @@ args = SimpleNamespace(
     eval_depth_min=1e-3,
     eval_depth_max=None,
     eval_prescale=1.07,
-    train_depth_valid_thresh=0.1,
-    eval_depth_valid_thresh=0.01,
     use_sliding_window=False,
     sw_window_size=None,
     sw_overlap=0.25,
@@ -285,12 +284,12 @@ args = SimpleNamespace(
     prefetch_factor=2,
     compile_model=False,
     save_full_ckpt=True,
-    resume_full_ckpt=True,
-    resume_ckpt_path='/kaggle/input/depth-base-abs-g-28/ckpt/last.pth',
+    resume_full_ckpt=False,
+    resume_ckpt_path=None,
     resume_args=True,
     resume_scheduler=True,
     resume_optimizer=False,
-    resume_bs=True,
+    resume_bs=False,
     resume_img_size=False,
     total_run_time_hr=12.0,
     train=True,
@@ -490,7 +489,6 @@ try:
                 scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
                 color_jitter_prob=args.color_jitter_prob,
                 normalize=True,
-                depth_valid_thresh=args.train_depth_valid_thresh,
             ),
             image_list_path=args.image_list_path,
         )
@@ -513,7 +511,6 @@ try:
                 eval_prescale=args.eval_prescale,
                 ensure_multiple_of=args.patch_size,
                 normalize=True,
-                depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         ),
         image_list_path=args.image_list_path,
@@ -758,6 +755,7 @@ criterion = MonocularDepthLoss(
     clamp_scale_min=args.loss_clamp_scale_min,
     clamp_scale_max=args.loss_clamp_scale_max,
     align_mode=args.align_mode,
+    mean_std_variant=args.mean_std_variant,
 )
 
 optimizer = None
@@ -1158,6 +1156,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, 
                         return_count=True,
                         mode=args.depth_eval_mode,
                         align_mode=args.align_mode,
+                        mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1179,6 +1178,7 @@ def validate(model, decoder, loader, criterion, feature_layers, max_steps=None, 
                         mask=mask_b,
                         mode=args.depth_eval_mode,
                         align_mode=args.align_mode,
+                        mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1329,7 +1329,6 @@ if args.val:
                 eval_prescale=args.eval_prescale,
                 ensure_multiple_of=args.patch_size,
                 normalize=True,
-                depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         eval_bs = _scaled_eval_batch_size(size_hw, base_size, args.eval_batch_size)
         eval_loader = _make_valid_loader(eval_bs)

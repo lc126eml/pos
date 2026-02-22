@@ -92,7 +92,7 @@ def main():
     if torch.cuda.is_available():
         print("CUDA detected.")
         return
-    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
     if os.path.isdir(LOCAL_TIMM):
         sys.path.insert(0, LOCAL_TIMM)
     # 2. CRITICAL: Clean Kaggle Environment

@@ -214,7 +214,7 @@ def main():
     if _IS_KAGGLE:
         if os.environ.get("TPU_UNINSTALL_TIMM_DONE") != "1":
             print("WARNING: timm uninstall flag not set before TPU worker import.")
-        LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+        LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
         if os.path.isdir(LOCAL_TIMM):
             sys.path.insert(0, LOCAL_TIMM)
     else:
@@ -271,13 +271,13 @@ def main():
     # =============================================================================
     if _IS_KAGGLE:
         train_roots_default = [
-            "/kaggle/input/hsm-train-part01",
-            "/kaggle/input/hsm-train-part02",
-            "/kaggle/input/hsm-train-part03",
-            "/kaggle/input/hsm-train-part04",
-            "/kaggle/input/hsm-train-part05",
+            "/kaggle/input/datasets/liucong12601/hsm-train-part01",
+            "/kaggle/input/datasets/liucong12601/hsm-train-part02",
+            "/kaggle/input/datasets/liucong12601/hsm-train-part03",
+            "/kaggle/input/datasets/liucong12601/hsm-train-part04",
+            "/kaggle/input/datasets/liucong12601/hsm-train-part05",
         ]
-        eval_root_default = "/kaggle/input/hsm-test-val"
+        eval_root_default = "/kaggle/input/datasets/liucong12601/hsm-test-val"
         output_root_default = "/kaggle/working"
     else:
         # Fallback for local usage
@@ -296,10 +296,10 @@ def main():
         # Data
         train_roots=train_roots_default,
         eval_root=eval_root_default,
-        image_list_path="/kaggle/input/ds-file-list",
+        image_list_path="/kaggle/input/datasets/liucong12601/ds-file-list",
         eval_split="test",  # "val" or "test" when eval_root has subdirs
         model_type="dinov3",
-        use_abs_pos_emb=False,
+        use_abs_pos_emb=True,
         use_rot_pos_emb=False,
         model_size='base',
         train_sizes=[(224, 224)],
@@ -316,12 +316,12 @@ def main():
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
-        break_at_epoch=100,
+        break_at_epoch=50,
         weight_decay=0.05,
         overlap=0,
         seed=16,
         val_steps=None,
-        use_rc_loss=True,
+        use_rc_loss=False,
         loss_type="smooth_l1",
         rc_alpha=30, #200
         warmup_steps_for_aux=60,
@@ -343,9 +343,10 @@ def main():
         val_mark_step_interval=5,
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
-        align_mode="scale_shift",  # "scale" or "scale_shift"
-        silog_w=0.05,
-        grad_w=0.05, #0.5
+        align_mode='mean_std',  # "scale", "scale_shift", or "mean_std"
+        mean_std_variant='zscore_both',  # "affine" or "zscore_both" when align_mode=="mean_std"
+        silog_w=0.0,
+        grad_w=0.0, #0.5
         l1_w=1.0,
         silog_beta=0.0,
         loss_scales=4,
@@ -361,8 +362,6 @@ def main():
         eval_depth_min=1e-3,
         eval_depth_max=None,
         eval_prescale=1.07,
-        train_depth_valid_thresh=0.1,
-        eval_depth_valid_thresh=0.01,
         use_sliding_window=False,
         sw_window_size=None,
         sw_overlap=0.25,
@@ -725,7 +724,6 @@ def main():
                 scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
                 color_jitter_prob=args.color_jitter_prob,
                 normalize=True,
-                depth_valid_thresh=args.train_depth_valid_thresh,
             ),
             image_list_path=args.image_list_path,
         )
@@ -748,7 +746,6 @@ def main():
                     eval_prescale=args.eval_prescale,
                     ensure_multiple_of=args.patch_size,
                     normalize=True,
-                    depth_valid_thresh=args.eval_depth_valid_thresh,
                 )
             ),
             image_list_path=args.image_list_path,
@@ -1031,6 +1028,7 @@ def main():
         clamp_scale_min=args.loss_clamp_scale_min,
         clamp_scale_max=args.loss_clamp_scale_max,
         align_mode=args.align_mode,
+        mean_std_variant=args.mean_std_variant,
     )
     
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -1464,6 +1462,7 @@ def main():
                         return_count=True,
                         mode=args.depth_eval_mode,
                         align_mode=args.align_mode,
+                        mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1486,6 +1485,7 @@ def main():
                             mask=mask_b,
                             mode=args.depth_eval_mode,
                             align_mode=args.align_mode,
+                            mean_std_variant=args.mean_std_variant,
                             depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                             depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                         )

@@ -256,7 +256,7 @@ def main():
     if pos_root and pos_root not in sys.path:
         sys.path.insert(0, pos_root)
 
-    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
     if LOCAL_TIMM not in sys.path:
         sys.path.insert(0, LOCAL_TIMM)
 

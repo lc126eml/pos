@@ -66,7 +66,7 @@ args = SimpleNamespace(
     data_root=data_root_default,
     image_list_path=f"{data_root_default}/hypersim_processed/file_list",
     model_type= "dinov3",
-    use_abs_pos_emb=False,
+    use_abs_pos_emb=True,
     use_rot_pos_emb=False,
     model_size='base',
     train_sizes=[(224, 224)],  # list of (H, W)
@@ -90,7 +90,7 @@ args = SimpleNamespace(
     overlap=0,
     seed=60,
     val_steps=None,
-    use_rc_loss=True,
+    use_rc_loss=False,
     loss_type="smooth_l1",
     rc_alpha=200.0,
     warmup_steps_for_aux=600,
@@ -107,10 +107,11 @@ args = SimpleNamespace(
     log_interval=500,
     show_peak_gpu_mem=True,
     depth_eval_mode="relative",  # "relative" (default) or "metric"
-    align_mode="scale",  # "scale" or "scale_shift"
-    silog_w=1.0,
-    grad_w=0.1,
-    l1_w=0.0,
+    align_mode="mean_std",  # "scale", "scale_shift", or "mean_std"
+    mean_std_variant="zscore_both",  # "affine" or "zscore_both" when align_mode=="mean_std"
+    silog_w=0.0,
+    grad_w=0.0,
+    l1_w=1.0,
     silog_beta=0.0,
     loss_scales=4,
     loss_eps=1e-7,
@@ -127,8 +128,6 @@ args = SimpleNamespace(
     eval_depth_min=1e-3,
     eval_depth_max=None,
     eval_prescale=1.07,
-    train_depth_valid_thresh=0.1,
-    eval_depth_valid_thresh=0.01,
     min_valid_pixels=10,
     loss_det_threshold=1e-6,
     use_sliding_window=False,
@@ -357,7 +356,6 @@ try:
             scale_jitter=args.scale_jitter_sw if args.use_sliding_window else args.scale_jitter,
             color_jitter_prob=args.color_jitter_prob,
             normalize=True,
-            depth_valid_thresh=args.train_depth_valid_thresh,
         ),
         image_list_path=args.image_list_path,
     )
@@ -380,7 +378,6 @@ try:
                 eval_prescale=args.eval_prescale,
                 ensure_multiple_of=args.patch_size,
                 normalize=True,
-                depth_valid_thresh=args.eval_depth_valid_thresh,
             )
         ),
         image_list_path=args.image_list_path,
@@ -684,6 +681,7 @@ criterion = MonocularDepthLoss(
     clamp_scale_min=args.loss_clamp_scale_min,
     clamp_scale_max=args.loss_clamp_scale_max,
     align_mode=args.align_mode,
+    mean_std_variant=args.mean_std_variant,
 )
 
 
@@ -1048,6 +1046,7 @@ def validate(
                         return_count=True,
                         mode=args.depth_eval_mode,
                         align_mode=args.align_mode,
+                        mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1069,6 +1068,7 @@ def validate(
                         mask=mask_b,
                         mode=args.depth_eval_mode,
                         align_mode=args.align_mode,
+                        mean_std_variant=args.mean_std_variant,
                         depth_min=args.eval_depth_min if args.eval_depth_min is not None else 0.0,
                         depth_max=args.eval_depth_max if args.eval_depth_max is not None else float("inf"),
                     )
@@ -1374,7 +1374,6 @@ if args.val:
                     eval_prescale=args.eval_prescale,
                     ensure_multiple_of=args.patch_size,
                     normalize=True,
-                    depth_valid_thresh=args.eval_depth_valid_thresh,
                 )
             eval_bs = _scaled_eval_batch_size(size_hw, base_size, BATCH_SIZE)
             eval_loader = _make_valid_loader(eval_bs)

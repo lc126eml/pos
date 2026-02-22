@@ -54,7 +54,6 @@ class HyperSimSimple(Dataset):
                 self.pair_transform = TrainDepthAug(
                     target_size=target_size,
                     normalize=True,
-                    depth_valid_thresh=0.1,
                 )
             else:
                 self.pair_transform = EvalDepthPreprocess(
@@ -62,7 +61,6 @@ class HyperSimSimple(Dataset):
                     target_by="height",
                     ensure_multiple_of=32,
                     normalize=True,
-                    depth_valid_thresh=0.0,
                 )
         else:
             self.pair_transform = pair_transform
@@ -78,7 +76,7 @@ class HyperSimSimple(Dataset):
 
         if list_file and os.path.isfile(list_file):
             with open(list_file, "r", encoding="utf-8") as f:
-                self.image_paths = [line.strip() for line in f if line.strip()]
+                self.image_paths = [line.strip().replace("/kaggle/input/hsm", "/kaggle/input/datasets/liucong12601/hsm") for line in f if line.strip()]
         else:
             for root in self.roots:
                 if not os.path.isdir(root):

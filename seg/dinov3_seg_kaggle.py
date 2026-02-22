@@ -39,7 +39,7 @@ train_start_time = time.time()
 # if int(ver) < 20:
     # !pip uninstall -y timm
 subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "timm"])
-LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
 sys.path.insert(0, LOCAL_TIMM)
 
 import timm

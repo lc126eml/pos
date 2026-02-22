@@ -3,6 +3,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _normalize_mean_std_variant(mean_std_variant: str) -> str:
+    v = str(mean_std_variant).lower()
+    if v not in ("affine", "zscore_both"):
+        raise ValueError(
+            f"Unsupported mean_std_variant='{mean_std_variant}'. Use 'affine' or 'zscore_both'."
+        )
+    return v
+
+
+def _masked_mean_std(
+    x_hw: torch.Tensor,
+    mask_hw: torch.Tensor,
+    *,
+    eps: float = 1e-8,
+    std_floor: float = 0.0,
+):
+    n = mask_hw.sum(dim=(1, 2)).clamp_min(1.0)
+    mean = (mask_hw * x_hw).sum(dim=(1, 2)) / n
+    xc = x_hw - mean[:, None, None]
+    var = (mask_hw * xc * xc).sum(dim=(1, 2)) / n
+    std = torch.sqrt(var.clamp_min(max(float(eps), float(std_floor))))
+    return mean, std
+
+
 def _compute_scale_only(
     pred_hw: torch.Tensor,
     tgt_hw: torch.Tensor,
@@ -36,6 +60,19 @@ def _compute_scale_and_shift(
     b = (t_sum - a * p_sum) / m_sum
     return a, b
 
+def _compute_mean_std_align(
+    pred_hw: torch.Tensor,
+    tgt_hw: torch.Tensor,
+    mask_hw: torch.Tensor,
+    eps: float = 1e-8,
+):
+    # moment matching under mask: std(t) ~= a * std(p), mean(t) ~= a * mean(p) + b
+    p_mean, p_std = _masked_mean_std(pred_hw, mask_hw, eps=eps, std_floor=0.0)
+    t_mean, t_std = _masked_mean_std(tgt_hw, mask_hw, eps=eps, std_floor=0.0)
+    a = t_std / p_std
+    b = t_mean - a * p_mean
+    return a, b
+
 def compute_depth_metrics(
     pred: torch.Tensor,
     target: torch.Tensor,
@@ -43,7 +80,8 @@ def compute_depth_metrics(
     *,
     return_count: bool = False,
     mode: str = "relative",          # "relative" (scale-only) or "metric"
-    align_mode: str = "scale",       # "scale" or "scale_shift"
+    align_mode: str = "scale",       # "scale", "scale_shift", or "mean_std"
+    mean_std_variant: str = "affine",  # "affine" or "zscore_both"
     depth_min: float = 0.0,
     depth_max: float = float("inf"),
     eps: float = 1e-8,
@@ -96,16 +134,30 @@ def compute_depth_metrics(
         p = pred[:, 0]
         t = target[:, 0]
         m = valid_mask_f[:, 0]
+        mean_std_variant = _normalize_mean_std_variant(mean_std_variant)
 
         if align_mode == "scale_shift":
             a, b = _compute_scale_and_shift(p, t, m, eps=eps)
             pred_cmp = a.view(-1, 1, 1, 1) * pred + b.view(-1, 1, 1, 1)
+        elif align_mode == "mean_std":
+            if mean_std_variant == "affine":
+                a, b = _compute_mean_std_align(p, t, m, eps=eps)
+                pred_cmp = a.view(-1, 1, 1, 1) * pred + b.view(-1, 1, 1, 1)
+                target_cmp = target
+            else:
+                # Legacy .0aba292 behavior: normalize prediction and target independently.
+                p_mean, p_std = _masked_mean_std(p, m, eps=eps, std_floor=0.5)
+                t_mean, t_std = _masked_mean_std(t, m, eps=eps, std_floor=0.5)
+                pred_cmp = (pred - p_mean.view(-1, 1, 1, 1)) / p_std.view(-1, 1, 1, 1)
+                target_cmp = (target - t_mean.view(-1, 1, 1, 1)) / t_std.view(-1, 1, 1, 1)
         elif align_mode == "scale":
             s = _compute_scale_only(p, t, m, eps=eps, clamp_min=0.0)
             pred_cmp = s.view(-1, 1, 1, 1) * pred
+            target_cmp = target
         else:
-            raise ValueError(f"Unsupported align_mode='{align_mode}'. Use 'scale' or 'scale_shift'.")
-        target_cmp = target
+            raise ValueError(f"Unsupported align_mode='{align_mode}'. Use 'scale', 'scale_shift', or 'mean_std'.")
+        if align_mode == "scale_shift":
+            target_cmp = target
     else:
         pred_cmp = pred
         target_cmp = target
@@ -172,7 +224,8 @@ class MonocularDepthLoss(nn.Module):
         clamp_scale_min: float = 0.0,
         clamp_scale_max: float | None = None,
         reduction: str = "per_image",   # "per_image" or "batch"
-        align_mode: str = "scale",      # "scale" or "scale_shift"
+        align_mode: str = "scale",      # "scale", "scale_shift", or "mean_std"
+        mean_std_variant: str = "affine",  # "affine" or "zscore_both" (only used when align_mode="mean_std")
     ):
         super().__init__()
         self.silog_w = float(silog_w)
@@ -190,6 +243,7 @@ class MonocularDepthLoss(nn.Module):
         self.clamp_scale_min = float(clamp_scale_min)
         self.clamp_scale_max = clamp_scale_max
         self.align_mode = align_mode
+        self.mean_std_variant = _normalize_mean_std_variant(mean_std_variant)
 
         reduction = str(reduction).lower()
         if reduction not in ("per_image", "batch"):
@@ -230,6 +284,21 @@ class MonocularDepthLoss(nn.Module):
     @torch.no_grad()
     def _compute_scale_and_shift(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor):
         return _compute_scale_and_shift(pred_hw, tgt_hw, mask_hw, eps=self.eps)
+
+    @torch.no_grad()
+    def _compute_mean_std_align(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor):
+        a, b = _compute_mean_std_align(pred_hw, tgt_hw, mask_hw, eps=self.eps)
+        if self.clamp_scale_max is None:
+            a = torch.clamp(a, min=self.clamp_scale_min)
+        else:
+            a = torch.clamp(a, min=self.clamp_scale_min, max=float(self.clamp_scale_max))
+        return a, b
+
+    @torch.no_grad()
+    def _compute_mean_std_zscore_pair(self, pred_hw: torch.Tensor, tgt_hw: torch.Tensor, mask_hw: torch.Tensor):
+        p_mean, p_std = _masked_mean_std(pred_hw, mask_hw, eps=self.eps, std_floor=0.5)
+        t_mean, t_std = _masked_mean_std(tgt_hw, mask_hw, eps=self.eps, std_floor=0.5)
+        return p_mean, p_std, t_mean, t_std
 
     def _reduce(self, sum_per_img: torch.Tensor, count_per_img: torch.Tensor) -> torch.Tensor:
         """
@@ -337,20 +406,43 @@ class MonocularDepthLoss(nn.Module):
         with torch.no_grad():
             if self.align_mode == "scale_shift":
                 a, b = self._compute_scale_and_shift(p_hw, t_hw, m_hw)
-                p_aligned = a[:, None, None] * p_hw + b[:, None, None]
+            elif self.align_mode == "mean_std":
+                if self.mean_std_variant == "affine":
+                    a, b = self._compute_mean_std_align(p_hw, t_hw, m_hw)
+                else:
+                    p_mean, p_std, t_mean, t_std = self._compute_mean_std_zscore_pair(p_hw, t_hw, m_hw)
+                    # Pred-side transform params kept for return_scale compatibility.
+                    a = 1.0 / p_std
+                    b = -p_mean / p_std
             elif self.align_mode == "scale":
                 s = self._compute_scale_only(p_hw, t_hw, m_hw)
-                p_aligned = s[:, None, None] * p_hw
             else:
-                raise ValueError(f"Unsupported align_mode='{self.align_mode}'. Use 'scale' or 'scale_shift'.")
+                raise ValueError(
+                    f"Unsupported align_mode='{self.align_mode}'. Use 'scale', 'scale_shift', or 'mean_std'."
+                )
+
+        # Apply frozen alignment params to predictions outside no_grad so gradients flow to p_hw.
+        if self.align_mode == "scale_shift":
+            p_aligned = a[:, None, None] * p_hw + b[:, None, None]
+            t_aligned = t_hw
+        elif self.align_mode == "mean_std":
+            if self.mean_std_variant == "affine":
+                p_aligned = a[:, None, None] * p_hw + b[:, None, None]
+                t_aligned = t_hw
+            else:
+                p_aligned = (p_hw - p_mean[:, None, None]) / p_std[:, None, None]
+                t_aligned = (t_hw - t_mean[:, None, None]) / t_std[:, None, None]
+        else:  # self.align_mode == "scale"
+            p_aligned = s[:, None, None] * p_hw
+            t_aligned = t_hw
 
         total = p_aligned.new_zeros(())
 
         if self.silog_w > 0:
-            total = total + self.silog_w * self._silog(p_aligned, t_hw, m_hw)
+            total = total + self.silog_w * self._silog(p_aligned, t_aligned, m_hw)
 
         if self.l1_w > 0:
-            total = total + self.l1_w * self._l1(p_aligned, t_hw, m_hw)
+            total = total + self.l1_w * self._l1(p_aligned, t_aligned, m_hw)
 
         if self.grad_w > 0:
             g_total = p_aligned.new_zeros(())
@@ -358,13 +450,13 @@ class MonocularDepthLoss(nn.Module):
                 step = 2 ** i
                 g_total = g_total + self._grad_error(
                     p_aligned[:, ::step, ::step],
-                    t_hw[:, ::step, ::step],
+                    t_aligned[:, ::step, ::step],
                     m_hw[:, ::step, ::step],
                 )
             total = total + self.grad_w * g_total
 
         if return_scale:
-            if self.align_mode == "scale_shift":
+            if self.align_mode in ("scale_shift", "mean_std"):
                 return total, (a, b)
             return total, s
         return total

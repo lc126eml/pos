@@ -1,7 +1,19 @@
 available_ids:
+- ampere888
+- asdsad0000
+- asssmer
+- autune
+- b201xiaoli
+- cdong121
+- cfy002
+- cheaterchow
+- chencaihonga
+- chengchi1007
+- chenhao1213
 - cshlhs
 - cycyxcy
 - denghaimeng
+- dingziheng11
 - djiangjiang
 - du55148
 - dusi605
@@ -12,6 +24,7 @@ available_ids:
 - geminiyy
 - gloden613
 - gorgeous0912
+- guyuefangyuan6666
 - houwen
 - huoqiuxia
 - hysz0821
@@ -28,7 +41,6 @@ available_ids:
 - kezzymik
 - lemonlaila
 - linyunlk243
-- liucong126
 - liucong12601
 - luanjing
 - ly1122
@@ -38,6 +50,7 @@ available_ids:
 - permanentlove
 - phoenixcsw01
 - pycjn666
+- qcrqcrqcr
 - qcx2333
 - qinghui9527
 - qqmail4092
@@ -78,81 +91,38 @@ available_ids:
 - yyyyjay
 - zhaotianchi
 - zhikaiwang
+- zhoushuqing
 - zhuangminghui
 - zhuxinchen07
 - zhuzichen123
 - zjl001
 - zongjiaxin
 - zzr123123
-exhausted_ids:
-- ampere888
-- asdsad0000
-- asssmer
-- autune
-- b201xiaoli
-- cdong121
-- cfy002
-- cheaterchow
-- chencaihonga
-- chengchi1007
+- zhangtingfengztf
+- zhoujiahui0199
+- straghtwizard
+- eastwangwei
+- dddd110
+- sss45633
+- robinrainy
+- hsdfuieqg
+- yangyangchengcheng
+- srmmmm
 - chenhao1213
-- guyuefangyuan6666
-- zhoushuqing
-- dingziheng11
-- qcrqcrqcr
-- ampere888
-- asdsad0000
-- asssmer
-- autune
-- cfy002
-- b201xiaoli
-- cdong121
-- cheaterchow
-- chencaihonga
-- chengchi1007
+- chenrunze11
+- chuasiliu
+- cq1234
+exhausted_ids: null
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: zhangtingfengztf
+- id: liucong126
+  left_time: 30
   notebooks:
-  left_time: -7.226462308611113
-- id: zhoujiahui0199
-  notebooks:
-  left_time: -0.6021059624999996
-- id: straghtwizard
-  notebooks:
-  left_time: -1.1667353291666664
-- id: eastwangwei
-  notebooks:
-  left_time: -7.249684838611108
-- id: dddd110
-  notebooks:
-  left_time: -1.3490335680555585
-- id: sss45633
-  notebooks:
-  left_time: -1.342671012222219
-- id: robinrainy
-  notebooks:
-  left_time: -0.9524526377777764
-- id: hsdfuieqg
-  notebooks:
-  left_time: -0.7774522547222222
-- id: yangyangchengcheng
-  notebooks:
-  left_time: 22.201633374444445
-- id: srmmmm
-  notebooks:
-  left_time: 22.0263209925
-- id: chenhao1213
-  left_time: 7.094803438333333
-  notebooks:
-- id: chenrunze11
-  left_time: 6.9288512016666655
-  notebooks:
-- id: chuasiliu
-  left_time: 8
-  notebooks: []
-- id: cq1234
-  left_time: 8
-  notebooks: []
+  - kernel_id: liucong126/depth-base-abs-g-26
+    run_id: 0
+    total_runs: 1
+    start_time: '2026-02-22 16:09:12'
+    resumed_from: null
+    history_ids: []
 finished_notebooks: []

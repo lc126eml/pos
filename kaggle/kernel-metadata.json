@@ -1,12 +1,12 @@
 {
-  "id": "robinrainy/depth-base-colrow-lr5-lw100000-gw5000-16",
-  "title": "depth base colrow lr5 lw100000 gw5000 16",
-  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
+  "id": "liucong126/depth-base-abs-g-26",
+  "title": "depth base abs g 26",
+  "code_file": "../depth/dinov3_depth_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",

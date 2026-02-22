@@ -84,33 +84,14 @@ def _normalize_img(img_t: torch.Tensor, mean, std) -> torch.Tensor:
 def _resize_depth_with_mask(
     depth_1chw: torch.Tensor,
     size_hw: Tuple[int, int],
-    *,
-    valid_thresh: float = 0.1,
-    eps: float = 1e-6,
 ) -> torch.Tensor:
     """
-    Resize depth with masked renormalization to avoid zero-bleed bias.
+    Resize depth with nearest-neighbor interpolation.
     depth_1chw: [1,H,W] -> returns [1,Ht,Wt] with invalid set to 0.
     """
     d = depth_1chw.unsqueeze(0).float()  # [1,1,H,W]
-    valid = torch.isfinite(d) & (d > 0)
-    m = valid.float()
-    dm = d * m
-
-    H, W = d.shape[-2:]
-    Ht, Wt = size_hw
-    is_down = (Ht <= H) and (Wt <= W)
-
-    if is_down:
-        dm_rs = F.interpolate(dm, size=size_hw, mode="area")
-        m_rs = F.interpolate(m, size=size_hw, mode="area")
-    else:
-        dm_rs = F.interpolate(dm, size=size_hw, mode="bilinear", align_corners=False)
-        m_rs = F.interpolate(m, size=size_hw, mode="bilinear", align_corners=False)
-
-    d_rs = dm_rs / (m_rs + eps)
-    valid_rs = m_rs > valid_thresh
-    d_rs = torch.where(valid_rs, d_rs, torch.zeros_like(d_rs))
+    d = torch.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0).clamp_min(0.0)
+    d_rs = F.interpolate(d, size=size_hw, mode="nearest")
 
     return d_rs.squeeze(0)  # [1,Ht,Wt]
 
@@ -139,7 +120,6 @@ def train_aug_depth_ar_resize_random_crop(
     mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
     std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
     ensure_multiple_of: Optional[int] = None,  # e.g., 32 (applies to the *resized pre-crop* size)
-    depth_valid_thresh: float = 0.1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Training augmentation (no padding):
@@ -188,7 +168,7 @@ def train_aug_depth_ar_resize_random_crop(
     # Resize (synced). Area-like for downscale, bicubic for upscale.
     resample = Image.BOX if scale < 1.0 else Image.BICUBIC
     pil = pil.resize((newW, newH), resample=resample)
-    d = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
+    d = _resize_depth_with_mask(d, (newH, newW))
 
     # Random crop (synced)
     top = 0 if newH == Ht else random.randint(0, newH - Ht)
@@ -254,7 +234,6 @@ def eval_preprocess_depth_keep_ar(
     normalize: bool = True,
     mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
     std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-    depth_valid_thresh: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, float]]:
     """
     Validation/Test preprocessing:
@@ -300,7 +279,7 @@ def eval_preprocess_depth_keep_ar(
     # Deterministic resize (synced)
     resample = Image.BOX if scale < 1.0 else Image.BICUBIC
     pil_rs = pil.resize((newW, newH), resample=resample)
-    d_rs = _resize_depth_with_mask(d, (newH, newW), valid_thresh=depth_valid_thresh)
+    d_rs = _resize_depth_with_mask(d, (newH, newW))
     resize_h = newH
     resize_w = newW
 
@@ -426,7 +405,6 @@ class TrainDepthAug:
         mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
         ensure_multiple_of: Optional[int] = None,
-        depth_valid_thresh: float = 0.1,
     ) -> None:
         self.target_size = target_size
         self.hflip_prob = hflip_prob
@@ -452,7 +430,6 @@ class TrainDepthAug:
         self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
         self._std_t = torch.tensor(std_v).view(3, 1, 1)
         self.ensure_multiple_of = ensure_multiple_of
-        self.depth_valid_thresh = depth_valid_thresh
 
     def __call__(self, image: ImageLike, depth: DepthLike) -> Tuple[torch.Tensor, torch.Tensor]:
         img_t, depth_t = train_aug_depth_ar_resize_random_crop(
@@ -472,7 +449,6 @@ class TrainDepthAug:
             noise_std=self.noise_std,
             normalize=False,
             ensure_multiple_of=self.ensure_multiple_of,
-            depth_valid_thresh=self.depth_valid_thresh,
         )
         if self.normalize:
             mean_t = self._mean_t.to(dtype=img_t.dtype)
@@ -493,7 +469,6 @@ class EvalDepthPreprocess:
         normalize: bool = True,
         mean: Tuple[float, float, float] = (0.485, 0.456, 0.406),
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
-        depth_valid_thresh: float = 0.0,
     ) -> None:
         self.target_size = target_size
         self.target_by = target_by
@@ -509,7 +484,6 @@ class EvalDepthPreprocess:
             std_v = std_v * 3
         self._mean_t = torch.tensor(mean_v).view(3, 1, 1)
         self._std_t = torch.tensor(std_v).view(3, 1, 1)
-        self.depth_valid_thresh = depth_valid_thresh
 
     def __call__(
         self, image: ImageLike, depth: DepthLike
@@ -523,7 +497,6 @@ class EvalDepthPreprocess:
             eval_prescale=self.eval_prescale,
             ensure_multiple_of=self.ensure_multiple_of,
             normalize=False,
-            depth_valid_thresh=self.depth_valid_thresh,
         )
         if self.normalize:
             mean_t = self._mean_t.to(dtype=img_t.dtype)

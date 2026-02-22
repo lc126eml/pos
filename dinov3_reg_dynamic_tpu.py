@@ -217,7 +217,7 @@ def main():
     train_start_time = time.time()
     if _TPU_WORKER and os.environ.get("TPU_UNINSTALL_TIMM_DONE") != "1":
         print("WARNING: timm uninstall flag not set before TPU worker import.")
-    LOCAL_TIMM = "/kaggle/input/timm-repos/pytorch-image-models"
+    LOCAL_TIMM = "/kaggle/input/datasets/liucong12601/timm-repos/pytorch-image-models"
     sys.path.insert(0, LOCAL_TIMM)
     
     import timm
