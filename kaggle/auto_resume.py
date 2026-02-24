@@ -415,51 +415,40 @@ def main():
                                 ok, output = True, ""
                             else:
                                 ok, output = _push_kernel(cfg)
-                            if not ok:
-                                logging.info(output)
-                                quota_msg = "Maximum weekly GPU quota"
-                                if quota_msg in output:
-                                    target_node = _move_to_new_node(
-                                        target_node,
-                                        notebook,
-                                        nodes,
-                                        available,
-                                        exhausted,
-                                        is_tpu,
-                                    )
-                                    if target_node is None:
-                                        continue
-                                    if verbose:
-                                        logging.info(
-                                            "Quota reached. Moved notebook to node: %s",
-                                            target_node.get("id"),
-                                        )
-                                    cfg["id"] = target_node.get("id")
-                                    cfg["tpu"] = is_tpu
-                                    new_kernel_id = _build_kernel_id(cfg)
-                                    notebook["kernel_id"] = new_kernel_id
-                                    notebook["start_time"] = _format_time(_now_naive())
-                                    if verbose:
-                                        logging.info(
-                                            "Updated kernel_id for notebook: %s",
-                                            new_kernel_id,
-                                        )
-                                    if verbose:
-                                        logging.info("Submitting kernel: %s", new_kernel_id)
-                                    if args.dry:
-                                        logging.info(
-                                            "Dry run: python %s --run --concise",
-                                            str(BASE_DIR / "process_kaggle.py"),
-                                        )
-                                        ok, output = True, ""
-                                    else:
-                                        ok, output = _push_kernel(cfg)
-                                if not ok:
-                                    if output:
-                                        logging.error("Kernel push failed output:\n%s", output)
-                                    else:
-                                        logging.error("Kernel push failed with no output.")
+                            quota_msg = "Maximum weekly GPU quota"
+                            if quota_msg in output:
+                                node["left_time"] = -10
+                                history_ids = list(notebook.get("history_ids") or [])
+                                history_ids.append(new_kernel_id)
+                                notebook["history_ids"] = history_ids
+                                target_node = _move_to_new_node(
+                                    target_node,
+                                    notebook,
+                                    nodes,
+                                    available,
+                                    exhausted,
+                                    is_tpu,
+                                )
+                                if target_node is None:
                                     continue
+                                if verbose:
+                                    logging.info(
+                                        "Quota reached. Moved notebook to node: %s",
+                                        target_node.get("id"),
+                                    )
+                                cfg["id"] = target_node.get("id")
+                                cfg["tpu"] = is_tpu
+                                new_kernel_id = _build_kernel_id(cfg)
+                                notebook["kernel_id"] = new_kernel_id
+                                notebook["start_time"] = _format_time(_now_naive())
+                                if verbose:
+                                    logging.info(
+                                        "Updated kernel_id for notebook: %s",
+                                        new_kernel_id,
+                                    )
+                                if verbose:
+                                    logging.info("Submitting kernel: %s", new_kernel_id)
+                                ok, output = _push_kernel(cfg)
                             changed = True
 
                     node["notebooks"] = notebooks

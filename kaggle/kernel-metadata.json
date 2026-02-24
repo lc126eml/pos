@@ -1,12 +1,12 @@
 {
-  "id": "guyuefangyuan6666/depth-base-abs-lr7-16",
-  "title": "depth base abs lr7 16",
-  "code_file": "../depth/dinov3_depth_kaggle_tpu.py",
+  "id": "qqmail4092/depth-base-colrow-g-326",
+  "title": "depth base colrow g 326",
+  "code_file": "../depth/dinov3_depth_kaggle.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "false",
-  "enable_gpu": "false",
-  "enable_tpu": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
     "liucong12601/timm-repos",
@@ -19,6 +19,8 @@
     "liucong12601/ds-file-list"
   ],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "sh1weiwu/depth-base-colrow-g-226"
+  ],
   "model_sources": []
 }

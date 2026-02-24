@@ -327,3 +327,23 @@ Valid AbsRel: 0.2880 | Valid L1: 2.0614 | Valid RMSE: 2.8051 | Valid a1: 0.6387
 
 cq1234/depth-base-colrow-ra600-wsfa600-16
 Valid AbsRel: 0.2816 | Valid L1: 2.0482 | Valid RMSE: 2.7891 | Valid a1: 0.6426
+
+# 20260223
+## align ablation
+ampere888/depth-base-abs-amss-126
+scale_shift
+bad
+
+ampere888/depth-base-abs-amscale-126
+scale
+40249.7s	192	2026-02-22 23:38:39,600 - INFO -   Best a1:      0.5831 (Epoch 17)
+40249.7s	193	2026-02-22 23:38:39,601 - INFO -   Best AbsRel:  0.3324 (Epoch 17)
+40249.7s	194	2026-02-22 23:38:39,601 - INFO -   Best RMSE:    3.0137 (Epoch 15)
+liucong126/depth-base-abs-amms-msvzb-126
+mean_std    zscore_both
+42133.7s	210	2026-02-23 00:16:19,269 - INFO -   Best a1:      0.6334 (Epoch 18)
+42133.7s	211	2026-02-23 00:16:19,269 - INFO -   Best AbsRel:  0.2957 (Epoch 18)
+42133.7s	212	2026-02-23 00:16:19,269 - INFO -   Best RMSE:    2.8173 (Epoch 18)
+
+liucong126/depth-base-abs-amms-msvaffine-126
+bad

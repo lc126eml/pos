@@ -62,6 +62,7 @@ def _iter_kernel_ids_from_md(lines, args):
     for idx, line in enumerate(lines):
         if "/" not in line:
             continue
+        line = line.strip(" ")
         if args.delete:
             if not (line.startswith("-") or line.endswith("-")):
                 continue

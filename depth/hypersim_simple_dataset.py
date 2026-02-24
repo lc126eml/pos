@@ -39,9 +39,6 @@ class HyperSimSimple(Dataset):
         else:
             root_list = [roots]
 
-        if split is not None:
-            root_list = [os.path.join(r, split) if os.path.isdir(os.path.join(r, split)) else r for r in root_list]
-
         self.roots = root_list
         self.resolution = resolution
         self._setup_resolution()

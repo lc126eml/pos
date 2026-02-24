@@ -312,7 +312,7 @@ def main():
         val_drop_last=False,
         val_pad_to_full_batch=True,
         patch_size=16,
-        lr=7e-05,
+        lr=1e-05,
         lr_aux=1e-5,
         eta_min=1e-7,
         epochs=130,
@@ -344,7 +344,7 @@ def main():
         use_bf16=True,
         depth_eval_mode="relative",  # "relative", "metric", or "scale_invariant"
         align_mode='mean_std',  # "scale", "scale_shift", or "mean_std"
-        eval_align_mode=None,  # None -> use training align_mode for metrics
+        eval_align_mode="scale_shift",  # None -> use training align_mode for metrics
         mean_std_variant='zscore_both',  # "affine" or "zscore_both" when align_mode=="mean_std"
         silog_w=0.0,
         grad_w=0.0, #0.5
@@ -718,7 +718,7 @@ def main():
     try:
         train_dataset = HyperSimSimple(
             roots=args.train_roots,
-            split=None,
+            split="train",
             resolution=(TRAIN_SIZE[1], TRAIN_SIZE[0]),
             pair_transform=TrainDepthAug(
                 target_size=TRAIN_SIZE,
@@ -731,7 +731,7 @@ def main():
         eval_root = args.eval_root
         eval_split = args.eval_split
         valid_dataset = HyperSimSimple(
-            roots=[eval_root],
+            roots=[f"{eval_root}/{eval_split}"],
             split=eval_split,
             resolution=(EVAL_SIZE[1], EVAL_SIZE[0]),
             pair_transform=(

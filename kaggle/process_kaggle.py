@@ -631,7 +631,6 @@ def main():
             cmd = ["kaggle", "kernels", "push", "-p", "."]
         if args_ns.push_output_only:
             result = subprocess.run(cmd, cwd=BASE_DIR, env=env, capture_output=True, text=True)
-            print("result: ", result)
             if result.stdout:
                 sys.stdout.write(result.stdout)
             if result.stderr:

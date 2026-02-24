@@ -1,12 +1,12 @@
 task: depth
 id:  # qqmail4092 zjl001
 pos_type: null # alibi relpos null
-method: abs # colrow, rope, abs, none, patch
+method: none # colrow, rope, abs, none, patch
 model_size: base
 run_id: 0
-total_runs: 1
+total_runs: 7
 desc: g
-# desc_keys: ["l1_w", "grad_w", "lr"]
+# desc_keys: ["align_mode"]
 # desc_keys: ["rc_alpha", "warmup_steps_for_aux"]
 is_private: false
 dataset_sources: null
@@ -25,13 +25,14 @@ simple:
 # - val_batch_size: 16
 - train: true
 - val: false
-- break_at_epoch: 50
+- break_at_epoch: 100
 - silog_w: 0.0
 - l1_w: 1.0
-- grad_w: 0.0
+- grad_w: 0.1
 - align_mode: "mean_std"  # "scale", "scale_shift", or "mean_std"
 - mean_std_variant: "zscore_both"  # "affine" or "zscore_both"
-# - lr: 8.0e-5
+- lr: 8.0e-5
+- save_full_ckpt: true
 # - rc_alpha: 70
 # - weight_decay: 0.05
 # - warmup_steps_for_aux: 60

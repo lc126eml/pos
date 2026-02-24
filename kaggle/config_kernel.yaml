@@ -1,22 +1,25 @@
 available_ids:
-- ampere888
 - asdsad0000
 - asssmer
 - autune
 - b201xiaoli
 - cdong121
-- cfy002
 - cheaterchow
 - chencaihonga
 - chengchi1007
 - chenhao1213
+- chenrunze11
+- chuasiliu
+- cq1234
 - cshlhs
 - cycyxcy
+- dddd110
 - denghaimeng
 - dingziheng11
 - djiangjiang
 - du55148
 - dusi605
+- eastwangwei
 - elong1202
 - fakeid
 - fanhuayang
@@ -26,6 +29,7 @@ available_ids:
 - gorgeous0912
 - guyuefangyuan6666
 - houwen
+- hsdfuieqg
 - huoqiuxia
 - hysz0821
 - jacksisi
@@ -53,19 +57,20 @@ available_ids:
 - qcrqcrqcr
 - qcx2333
 - qinghui9527
-- qqmail4092
 - quepimao
 - rmoope
+- robinrainy
 - roseqw
 - rqmiraitowa
 - rrrrmm
 - rushly
-- sh1weiwu
-- sinayliu
 - smartchaochao
 - sollasi
+- srmmmm
+- sss45633
 - ssss7777
 - starysinger
+- straghtwizard
 - tangjiayuan1004
 - tangjudge
 - tangyujie123
@@ -83,14 +88,17 @@ available_ids:
 - xwj66666
 - xx03071425
 - yangjiamin
+- yangyangchengcheng
 - yccwff
 - ycy1n66
 - yinmengmeng
 - yuanhahah
 - ywhicher
 - yyyyjay
+- zhangtingfengztf
 - zhaotianchi
 - zhikaiwang
+- zhoujiahui0199
 - zhoushuqing
 - zhuangminghui
 - zhuxinchen07
@@ -98,25 +106,43 @@ available_ids:
 - zjl001
 - zongjiaxin
 - zzr123123
-- zhangtingfengztf
-- zhoujiahui0199
-- straghtwizard
-- eastwangwei
-- dddd110
-- sss45633
-- robinrainy
-- hsdfuieqg
-- yangyangchengcheng
-- srmmmm
-- chenhao1213
-- chenrunze11
-- chuasiliu
-- cq1234
-exhausted_ids: null
+exhausted_ids:
+- liucong126
+- ampere888
+- liucong126
+- sinayliu
+- sh1weiwu
 sleep_time_hr: 0
 poll_interval_minutes: 10
 running_nodes:
-- id: liucong126
-  left_time: 30
+- id: cfy002
   notebooks:
+  - kernel_id: cfy002/depth-base-abs-g-326
+    run_id: 3
+    total_runs: 7
+    start_time: '2026-02-24 22:06:55'
+    resumed_from: sh1weiwu/depth-base-abs-g-226
+    history_ids: []
+  - kernel_id: cfy002/depth-base-rope-g-326
+    run_id: 3
+    total_runs: 7
+    start_time: '2026-02-24 22:07:07'
+    resumed_from: sinayliu/depth-base-rope-g-226
+    history_ids: []
+  left_time: 30
+- id: qqmail4092
+  notebooks:
+  - kernel_id: qqmail4092/depth-base-none-g-326
+    run_id: 3
+    total_runs: 7
+    start_time: '2026-02-24 22:07:23'
+    resumed_from: sinayliu/depth-base-none-g-226
+    history_ids: []
+  - kernel_id: qqmail4092/depth-base-colrow-g-326
+    run_id: 3
+    total_runs: 7
+    start_time: '2026-02-24 22:09:35'
+    resumed_from: sh1weiwu/depth-base-colrow-g-226
+    history_ids: []
+  left_time: 30
 finished_notebooks: []

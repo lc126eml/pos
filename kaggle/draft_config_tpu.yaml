@@ -29,7 +29,7 @@ simple:
 - align_mode: "mean_std"  # "scale", "scale_shift", or "mean_std"
 - mean_std_variant: "zscore_both"  # "affine" or "zscore_both"
 # - rc_alpha: 70
-- lr: 7.0e-5
+- lr: 1.0e-5
 # - weight_decay: 0.05
 # - warmup_steps_for_aux: 60
 # - rc_alpha: 300

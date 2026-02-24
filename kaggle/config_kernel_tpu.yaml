@@ -18,6 +18,6 @@ running_nodes:
   notebooks:
 - id: guyuefangyuan6666
   left_time: 20
-  notebooks:
+  notebooks: null
 finished_notebooks: []
 error_notebooks: null
