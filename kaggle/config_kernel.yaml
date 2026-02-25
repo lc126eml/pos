@@ -117,32 +117,36 @@ poll_interval_minutes: 10
 running_nodes:
 - id: cfy002
   notebooks:
-  - kernel_id: cfy002/depth-base-abs-g-326
-    run_id: 3
+  - kernel_id: cfy002/depth-base-abs-g-426
+    run_id: 4
     total_runs: 7
-    start_time: '2026-02-24 22:06:55'
-    resumed_from: sh1weiwu/depth-base-abs-g-226
-    history_ids: []
-  - kernel_id: cfy002/depth-base-rope-g-326
-    run_id: 3
+    start_time: '2026-02-25 11:10:39'
+    resumed_from: cfy002/depth-base-abs-g-326
+    history_ids:
+    - sh1weiwu/depth-base-abs-g-226
+  - kernel_id: cfy002/depth-base-rope-g-426
+    run_id: 4
     total_runs: 7
-    start_time: '2026-02-24 22:07:07'
-    resumed_from: sinayliu/depth-base-rope-g-226
-    history_ids: []
-  left_time: 30
+    start_time: '2026-02-25 11:00:19'
+    resumed_from: cfy002/depth-base-rope-g-326
+    history_ids:
+    - sinayliu/depth-base-rope-g-226
+  left_time: 6.273218273055555
 - id: qqmail4092
   notebooks:
-  - kernel_id: qqmail4092/depth-base-none-g-326
-    run_id: 3
+  - kernel_id: qqmail4092/depth-base-none-g-426
+    run_id: 4
     total_runs: 7
-    start_time: '2026-02-24 22:07:23'
-    resumed_from: sinayliu/depth-base-none-g-226
-    history_ids: []
-  - kernel_id: qqmail4092/depth-base-colrow-g-326
-    run_id: 3
+    start_time: '2026-02-25 11:10:49'
+    resumed_from: qqmail4092/depth-base-none-g-326
+    history_ids:
+    - sinayliu/depth-base-none-g-226
+  - kernel_id: qqmail4092/depth-base-colrow-g-426
+    run_id: 4
     total_runs: 7
-    start_time: '2026-02-24 22:09:35'
-    resumed_from: sh1weiwu/depth-base-colrow-g-226
-    history_ids: []
-  left_time: 30
+    start_time: '2026-02-25 10:46:55'
+    resumed_from: qqmail4092/depth-base-colrow-g-326
+    history_ids:
+    - sh1weiwu/depth-base-colrow-g-226
+  left_time: 6.503331845833335
 finished_notebooks: []

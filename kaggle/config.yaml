@@ -1,13 +1,13 @@
 task: depth
 id: qqmail4092
 pos_type: null
-method: colrow
+method: none
 model_size: base
-run_id: 3
+run_id: 4
 desc: g
 is_private: false
 dataset_sources: null
-kernel_sources: sh1weiwu/depth-base-colrow-g-226
+kernel_sources: qqmail4092/depth-base-none-g-326
 resume_full_ckpt: true
 resume_source: kernel
 resume_infer: false

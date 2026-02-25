@@ -214,10 +214,16 @@ def _update_left_time(node, notebook, now, is_tpu, verbose):
 def _move_to_new_node(node, notebook, running_nodes, available_ids, exhausted_ids, is_tpu):
     node_notebooks = node.get("notebooks") or []
     notebook_limit = 1 if is_tpu else 2
+    move_now = _now_naive()
     for candidate in running_nodes:
         if candidate is node:
             continue
-        if float(candidate.get("left_time", 0)) <= 0:
+        if process_kaggle._effective_left_time_for_selection(
+            candidate.get("left_time"),
+            candidate.get("notebooks"),
+            is_tpu,
+            now=move_now,
+        ) <= 0:
             continue
         candidate_notebooks = candidate.get("notebooks") or []
         if len(candidate_notebooks) < notebook_limit:
@@ -365,7 +371,16 @@ def main():
                                 continue
 
                             target_node = node
-                            if left_time <= 0:
+                            # left_time already includes the elapsed time of the just-finished notebook.
+                            # Exclude it here so we only subtract elapsed time from other still-running notebooks.
+                            other_notebooks = [nb for nb in (node.get("notebooks") or []) if nb is not notebook]
+                            effective_left_time = process_kaggle._effective_left_time_for_selection(
+                                left_time,
+                                other_notebooks,
+                                is_tpu,
+                                now=_now_naive(),
+                            )
+                            if effective_left_time <= 0:
                                 target_node = _move_to_new_node(
                                     node,
                                     notebook,

@@ -1,6 +1,6 @@
 {
-  "id": "qqmail4092/depth-base-colrow-g-326",
-  "title": "depth base colrow g 326",
+  "id": "qqmail4092/depth-base-none-g-426",
+  "title": "depth base none g 426",
   "code_file": "../depth/dinov3_depth_kaggle.py",
   "language": "python",
   "kernel_type": "script",
@@ -20,7 +20,7 @@
   ],
   "competition_sources": [],
   "kernel_sources": [
-    "sh1weiwu/depth-base-colrow-g-226"
+    "qqmail4092/depth-base-none-g-326"
   ],
   "model_sources": []
 }

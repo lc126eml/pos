@@ -155,6 +155,38 @@ def _write_yaml(path, data):
         yaml.safe_dump(data, f, sort_keys=False)
 
 
+def _parse_time(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _effective_left_time_for_selection(left_time, notebooks, is_tpu, now=None):
+    if now is None:
+        now = datetime.now()
+    default_left = 20 if is_tpu else 30
+    if left_time is None:
+        left_time = default_left
+    left_time = float(left_time or 0)
+    for notebook in notebooks or []:
+        start_time = _parse_time(notebook.get("start_time"))
+        if start_time is None:
+            continue
+        elapsed_hr = (now - start_time).total_seconds() / 3600
+        if elapsed_hr > 0:
+            left_time -= elapsed_hr
+    return left_time
+
+
 def _run_id_value(value):
     if value in (None, "", 0, "0"):
         return 0
@@ -391,13 +423,19 @@ def main():
         config_kernel_path = _config_kernel_path(use_tpu)
         kcfg = _load_yaml(config_kernel_path)
         running_nodes = kcfg.get("running_nodes") or []
+        select_now = datetime.now()
         selected_from_available = False
         if use_tpu:
             chosen = None
             for node in running_nodes:
-                if float(node.get("left_time", 0) or 0) <= 0:
-                    continue
                 if node.get("notebooks"):
+                    continue
+                if _effective_left_time_for_selection(
+                    node.get("left_time"),
+                    node.get("notebooks"),
+                    use_tpu,
+                    now=select_now,
+                ) <= 0:
                     continue
                 chosen = node.get("id")
                 break
@@ -410,10 +448,15 @@ def main():
         else:
             chosen = None
             for node in running_nodes:
-                if float(node.get("left_time", 0) or 0) <= 0:
-                    continue
                 notebooks = node.get("notebooks") or []
                 if len(notebooks) >= 2:
+                    continue
+                if _effective_left_time_for_selection(
+                    node.get("left_time"),
+                    node.get("notebooks"),
+                    use_tpu,
+                    now=select_now,
+                ) <= 0:
                     continue
                 chosen = node.get("id")
                 break
